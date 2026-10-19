@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Prints one factory setting.
+#
+#   factory/bin/settings <key> [<default>]
+#
+# Reads <repo>/factory/settings.json (<repo> is two levels above this script);
+# FACTORY_SETTINGS overrides the path. Prints the value on one line, arrays
+# space-joined; a missing file or key prints <default> (empty if none given).
+# Built-in default: land=pr; pass <default> for anything else (e.g. jobs 1).
+# "base" is derived, not stored: origin/main when land is pr, main when local.
+# Exit: 0 ok, 1 unreadable or malformed settings file, 2 usage.
+set -uo pipefail
+
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+  echo "usage: settings <key> [<default>]" >&2
+  exit 2
+fi
+key=$1 default=${2:-}
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+file=${FACTORY_SETTINGS:-$here/../settings.json}
+
+json='{}'
+if [ -f "$file" ]; then
+  json=$(jq -c . "$file" 2>/dev/null) || { echo "settings: $file is not valid JSON" >&2; exit 1; }
+fi
+
+get() { # key -> value on stdout, nothing when missing/null
+  printf '%s' "$json" | jq -r --arg k "$1" '.[$k] | if . == null then empty elif type == "array" then map(tostring) | join(" ") else tostring end'
+}
+
+if [ "$key" = base ]; then
+  land=$(get land)
+  case ${land:-pr} in
+    local) echo main ;;
+    *) echo origin/main ;;
+  esac
+  exit 0
+fi
+
+val=$(get "$key") || { echo "settings: cannot read $key from $file" >&2; exit 1; }
+if [ -z "$val" ] && ! printf '%s' "$json" | jq -e --arg k "$key" 'has($k)' >/dev/null; then
+  val=$default
+fi
+if [ -z "$val" ] && [ "$key" = land ]; then val="pr"; fi
+echo "$val"
