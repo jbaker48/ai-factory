@@ -32,6 +32,22 @@ agent=$(jq -r --arg k "$key" '.agent // $k' <<<"$entry")
 role="$factory/agents/$agent.md"
 [ -f "$role" ] || { echo "run-codex: missing $role" >&2; exit 2; }
 
+# No role uses the user's MCP servers, so turn off every server in config.toml:
+# each one is started for every run, logs a stderr error whenever its auth
+# expires, and puts tools such as mail or home automation within the agent's
+# reach. Plugin-provided servers are not there and cannot be switched off this
+# way; names that are not bare TOML keys are skipped.
+mcp_off=()
+while IFS= read -r name; do
+  [ -n "$name" ] && mcp_off+=(-c "mcp_servers.$name.enabled=false")
+done < <(python3 - <<'PY'
+import os, re, tomllib
+path = os.path.join(os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"), "config.toml")
+servers = tomllib.load(open(path, "rb")).get("mcp_servers", {}) if os.path.exists(path) else {}
+print("\n".join(k for k in servers if re.fullmatch(r"[A-Za-z0-9_-]+", k)))
+PY
+)
+
 mkdir -p "$job/.runs"
 log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key"
 { cat "$role"; printf '\n\n---\n\n%s\n' "$prompt"; } >"$log.prompt.md"
@@ -41,6 +57,7 @@ codex exec \
   -m "$model" \
   -c model_reasoning_effort="\"$effort\"" \
   -c sandbox_workspace_write.network_access="$network" \
+  ${mcp_off[@]+"${mcp_off[@]}"} \
   -s workspace-write \
   -C "$worktree" \
   --add-dir "$job" \
