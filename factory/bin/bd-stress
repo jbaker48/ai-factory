@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Stress-tests concurrent Beads writes in a scratch repo (never a real .beads).
+#
+#   factory/bin/bd-stress [<writers>=4] [<rounds>=20]
+#
+# Makes a temp dir with git init + bd init, then runs <writers> background
+# writers. Each does <rounds> iterations of: create a bead, claim it
+# (BEADS_ACTOR=w<i>), add and remove a label, comment, create 2 children,
+# close the children, close the bead. Afterwards it verifies every recorded
+# bead is closed with its comment, final labels and two closed children.
+# Set BD=<command> to run a different bd (e.g. factory/bin/bd-write).
+# Prints one line: "bd-stress: <N>×<rounds> ok", or
+# "bd-stress: FAIL <errors> errors, <lost> lost writes; see <log>" (exit 1).
+# Every bd error is logged with writer id and command. Exit 2 on bad usage
+# or when the scratch repo can't be set up.
+set -uo pipefail
+
+writers=${1:-4} rounds=${2:-20}
+case $writers$rounds in *[!0-9]* | "") echo "usage: bd-stress [<writers>] [<rounds>]" >&2; exit 2 ;; esac
+BD=${BD:-bd}
+command -v jq >/dev/null || { echo "bd-stress: jq not found" >&2; exit 2; }
+case $BD in */*) BD=$(cd "$(dirname "$BD")" && pwd)/$(basename "$BD") ;; esac
+command -v "$BD" >/dev/null || { echo "bd-stress: $BD not found" >&2; exit 2; }
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/bd-stress.XXXXXX") || exit 2
+log=$work/errors.log
+: >"$log"
+cd "$work" || exit 2
+{ git init -q && bd init -q --non-interactive --prefix st; } >"$work/init.out" 2>&1 ||
+  { echo "bd-stress: scratch setup failed; see $work/init.out" >&2; exit 2; }
+git config user.name stress; git config user.email stress@example.com
+
+# run <writer> <bd args...>: runs $BD, logging failures; echoes stdout.
+run() {
+  local w=$1 out rc
+  shift
+  out=$(BEADS_ACTOR=$w "$BD" "$@" 2>&1)
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    printf '[%s] exit %s: bd %s\n%s\n' "$w" "$rc" "$*" "$out" >>"$log"
+  fi
+  printf '%s\n' "$out"
+  return $rc
+}
+
+writer() { # <index>
+  local w=w$1 i id c1 c2
+  for ((i = 1; i <= rounds; i++)); do
+    id=$(run "$w" create "$w round $i" --silent) || continue
+    echo "$id" >>"$work/$w.beads"
+    run "$w" update "$id" --claim >/dev/null
+    run "$w" label add "$id" tmp >/dev/null
+    run "$w" label add "$id" keep >/dev/null
+    run "$w" label remove "$id" tmp >/dev/null
+    run "$w" comment "$id" "note $w $i" >/dev/null
+    c1=$(run "$w" create "$w $i child a" --parent "$id" --silent) && echo "$id $c1" >>"$work/$w.children"
+    c2=$(run "$w" create "$w $i child b" --parent "$id" --silent) && echo "$id $c2" >>"$work/$w.children"
+    [ -n "$c1" ] && run "$w" close "$c1" >/dev/null
+    [ -n "$c2" ] && run "$w" close "$c2" >/dev/null
+    run "$w" close "$id" >/dev/null
+  done
+}
+
+for ((n = 1; n <= writers; n++)); do writer "$n" & done
+wait
+
+lost=0
+lose() { lost=$((lost + 1)); echo "LOST: $*" >>"$log"; }
+for ((n = 1; n <= writers; n++)); do
+  w=w$n
+  [ -f "$work/$w.beads" ] || { lose "$w recorded no beads"; continue; }
+  i=0
+  while read -r id; do
+    i=$((i + 1))
+    json=$(bd show "$id" --json 2>/dev/null | jq -c '.[0]' 2>/dev/null)
+    [ -n "$json" ] && [ "$json" != null ] || { lose "$w $id: cannot read bead"; continue; }
+    [ "$(jq -r .status <<<"$json")" = closed ] || lose "$w $id: status $(jq -r .status <<<"$json"), not closed"
+    [ "$(jq -c '(.labels // []) | sort' <<<"$json")" = '["keep"]' ] || lose "$w $id: labels $(jq -c .labels <<<"$json"), want [\"keep\"]"
+    bd comments "$id" --json 2>/dev/null | jq -e --arg t "note $w" 'any(.[]; .text | startswith($t))' >/dev/null ||
+      lose "$w $id: comment missing"
+    kids=$(grep -c "^$id " "$work/$w.children" 2>/dev/null || true)
+    [ "${kids:-0}" -eq 2 ] || lose "$w $id: only ${kids:-0} children created"
+    while read -r _ cid; do
+      [ "$(bd show "$cid" --json 2>/dev/null | jq -r '.[0].status' 2>/dev/null)" = closed ] || lose "$w $id: child $cid not closed"
+    done < <(grep "^$id " "$work/$w.children" 2>/dev/null)
+  done <"$work/$w.beads"
+done
+
+errors=$(grep -c '^\[w[0-9]*\] exit' "$log" || true)
+if [ "${errors:-0}" -eq 0 ] && [ "$lost" -eq 0 ]; then
+  echo "bd-stress: ${writers}×${rounds} ok"
+  rm -rf "$work"
+  exit 0
+fi
+echo "bd-stress: FAIL ${errors:-0} errors, $lost lost writes; see $log"
+exit 1
