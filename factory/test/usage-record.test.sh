@@ -10,7 +10,7 @@ UR="$FACTORY_SRC/bin/usage-record"
 # setup <fixture-name>: a job folder with a log copied from the fixture.
 setup() {
   JOB="$TEST_TMP/job.$RANDOM"; mkdir -p "$JOB/.runs"
-  PFX="$JOB/.runs/20261019-175425-reviewer-security"
+  PFX="$JOB/.runs/$(date +%Y%m%d-%H%M%S)-reviewer-security"
   [ -n "${1:-}" ] && cp "$FIX/$1.jsonl" "$PFX.jsonl"
   echo '{"stage":"review","round":2,"tasks":[{"id":"t1","status":"done"},{"id":"t2","status":"in_progress"}]}' >"$JOB/job.json"
 }
@@ -27,9 +27,32 @@ test_single_turn() {
   assert_eq "[180312,155520,0,1272,24]" "$(field '[.input,.cached,.cache_write,.output,.reasoning]')" "tokens"
   assert_eq '["reviewer-security","openai","gpt-6-astra","medium","review",2,"t2",0,"turn.completed"]' \
     "$(field '[.role,.provider,.model,.effort,.stage,.round,.task,.exit,.ended]')" "metadata"
-  assert_eq '".runs/20261019-175425-reviewer-security"' "$(field .log)" "relative log"
-  assert_eq true "$(field '(.duration_s|type=="number") and .duration_s > 0')" "duration"
+  assert_eq "\"${PFX#"$JOB"/}\"" "$(field .log)" "relative log"
+  assert_eq true "$(field '(.duration_s|type=="number") and .duration_s >= 0')" "duration"
   assert_eq 18 "$(field '[keys[]]|length')" "exact keys"
+}
+
+test_huge_log() {
+  setup codex-ok
+  {
+    head -n 3 "$FIX/codex-ok.jsonl"
+    jq -n -c '{type:"item.completed",item:{text:("x" * 2000)}}' | awk '{for(i=0;i<400;i++)print}'
+    tail -n 1 "$FIX/codex-ok.jsonl"
+  } >"$PFX.jsonl"
+  assert_eq true "$([ "$(wc -c <"$PFX.jsonl")" -gt 300000 ] && echo true)" "log is big"
+  run reviewer-security 0
+  assert_eq "[180312,155520,0,1272,24]" "$(field '[.input,.cached,.cache_write,.output,.reasoning]')" "tokens from big log"
+  assert_eq null "$(field .error)" "no error"
+}
+
+test_task_only_when_unambiguous() {
+  setup codex-ok
+  echo '{"tasks":[{"id":"a","status":"in_progress"},{"id":"b","status":"in_progress"}]}' >"$JOB/job.json"
+  run builder 0
+  assert_eq null "$(field .task)" "two in progress"
+  echo '{"tasks":[{"id":"a","status":"done"}]}' >"$JOB/job.json"
+  run builder 0
+  assert_eq null "$(tail -n 1 "$JOB/usage.jsonl" | jq -c .task)" "none in progress"
 }
 
 test_multi_turn_sums() {
