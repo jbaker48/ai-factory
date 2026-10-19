@@ -32,5 +32,17 @@ test_dashboard_reads_usage() {
   assert_eq "0" "$?" "dashboard reads usage.jsonl"
 }
 
+test_briefer_role() {
+  local f="$ROOT/factory/agents/briefer.md" t
+  t=$(cat "$f" 2>/dev/null)
+  assert_contains "$t" '## Situation' "briefer brief has Situation"
+  assert_contains "$t" '## Decisions' "briefer brief has Decisions"
+  assert_contains "$t" '## Out of scope' "briefer brief has Out of scope"
+  assert_contains "$t" 'Brief k.' "briefer names the Brief task"
+  assert_contains "$t" 'Write decision k.' "briefer names the Write decision task"
+  assert_contains "$t" 'APPROVE only' "briefer limits APPROVE"
+  assert_eq "opus" "$(jq -r '.briefer.model // empty' "$ROOT/factory/models.json")" "models.json has briefer on opus"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish
