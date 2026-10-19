@@ -822,13 +822,14 @@ the job folder; don't read more of the job than the step below needs.
        `Amend: read human-<k>.md and revise spec.md.` Close every open task
        under the bead with `--reason "Superseded by respec human-<k>"`, then
        go to **Plan**.
-     - **DROP**: take the reason from the file's `## Reason` section. With a
+     - **DROP**: take the reason from the file's `## Reason` section. Close
+       every open task under the bead with `--reason "Superseded: dropped"`.
+       Then `git worktree remove --force <worktree>` (if it still exists) and
+       `git branch -D factory/<job-id>` (either may already be gone). With a
        `pr` whose `gh pr view <pr> --json state -q .state` is `OPEN`,
-       `gh pr close <pr> --delete-branch --comment "Dropped: <reason>"`. Close every open task
-       under the bead with `--reason "Superseded: dropped"`. Then
-       `git worktree remove --force <worktree>` (if it still exists),
-       `git branch -D factory/<job-id>` (either may already be gone),
-       `bd close <bead> --reason "Dropped: <reason>"`, set
+       `gh pr close <pr> --delete-branch --comment "Dropped: <reason>"`
+       (after the local branch is gone, so `gh` only has the remote one to
+       delete). Then `bd close <bead> --reason "Dropped: <reason>"`, set
        `stage: "dropped"`, and run
        `factory/bin/usage-record session <job folder>`.
 6. Tell the user, in one line, where the job went back in, then carry on as
