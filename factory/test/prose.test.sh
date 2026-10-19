@@ -148,5 +148,9 @@ test_snapshot_before_every_role() {
   case $(tr '\n' ' ' <"$f" | tr -s ' ') in *'Agents only read Beads (`bd --readonly`)'*) _fail "stale bd --readonly wording" ;; *) _pass ;; esac
 }
 
+test_dashboard_hints_review() {
+  assert_contains "$(cat "$ROOT/factory/dashboard.html")" '<div class="hint">/factory review ${esc(job.id)}' "needs-human hint names /factory review"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

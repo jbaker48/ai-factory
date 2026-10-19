@@ -291,6 +291,7 @@
   <span>/factory add &lt;feature&gt;</span>
   <span>/factory next</span>
   <span>/factory autopilot [n]</span>
+  <span>/factory review [&lt;job-id&gt;]</span>
   <span>/factory approve &lt;job-id&gt;</span>
   <span>/factory rework &lt;job-id&gt; &lt;note&gt;</span>
 </footer>
@@ -324,7 +325,7 @@ const STAGES = [
   { key: 'merged', label: 'Merged', who: 'main', cls: 'merged-col noarrow' },
   { key: 'dropped', label: 'Dropped', who: 'abandoned', cls: 'dropped-col noarrow' },
   { key: 'resubmitted', label: 'Resubmitted', who: 'sent back', cls: 'resub-col noarrow' },
-  { key: 'needs-human', label: 'Needs human', who: 'approve · rework', cls: 'human noarrow' },
+  { key: 'needs-human', label: 'Needs human', who: 'review · approve · rework', cls: 'human noarrow' },
 ]
 const LIVE = new Set(['spec', 'plan', 'build', 'review', 'approve', 'autopilot'])
 const REVIEWERS = [['security', 'sec'], ['code', 'code'], ['ux', 'ux'], ['ui', 'ui'], ['adversarial', 'adv']]
@@ -571,7 +572,7 @@ function card(job, past, flags) {
       ${taskDots(job.tasks)}
       ${usageLine(job, flags)}
       ${rows.length ? `<div class="rounds">${rows.join('')}</div>` : ''}
-      ${human ? `<div class="hint">/factory approve ${esc(job.id)}<br>/factory rework ${esc(job.id)} …<br>/factory autopilot ${esc(job.id)}</div>` : ''}
+      ${human ? `<div class="hint">/factory review ${esc(job.id)}<br>/factory approve ${esc(job.id)}<br>/factory rework ${esc(job.id)} …<br>/factory autopilot ${esc(job.id)}</div>` : ''}
     </button>`
 }
 
