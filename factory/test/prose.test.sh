@@ -129,6 +129,7 @@ test_status_command() {
   local s
   s=$(section "$ROOT/.claude/skills/factory/SKILL.md" '/factory status' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" 'one line per job not yet merged or dropped' "status: usage lines for unfinished jobs only"
+  assert_contains "$s" '`land: <mode>` (`factory/bin/settings land`' "status prints the land mode"
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done

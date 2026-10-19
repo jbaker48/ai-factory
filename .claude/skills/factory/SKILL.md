@@ -569,7 +569,8 @@ were given.
 
 ## /factory status
 
-Print the next job (`factory/bin/next-bead`), the ready queue
+Print the land mode first, as `land: <mode>` (`factory/bin/settings land`:
+`pr` or `local`), then the next job (`factory/bin/next-bead`), the ready queue
 (`bd ready -l factory,queued --exclude-type epic`), the
 queued jobs still waiting on dependencies
 (`bd blocked -l factory,queued`), the
