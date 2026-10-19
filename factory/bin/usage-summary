@@ -14,7 +14,7 @@
 # but a run with null tokens is still a run. A job is flagged for a usage
 # stage when its total there is at least 2x the median of that stage over jobs
 # at merged or dropped, and at least 3 such jobs have the stage. The flag is
-# information only. Always exits 0.
+# information only. Lines that are not JSON objects are skipped. Always exits 0.
 set -uo pipefail
 
 files=()
@@ -29,14 +29,15 @@ for f in "${files[@]}"; do
   [ -f "${f%usage.jsonl}job.json" ] && inputs+=("${f%usage.jsonl}job.json")
 done
 
-jq -n -r '
+jq -n -R -r '
   def n: . // 0;
   def median: sort | length as $l | if $l % 2 == 1 then .[($l-1)/2] else (.[$l/2-1] + .[$l/2]) / 2 end;
   def r1: (. * 10 | round) / 10 | tostring | if test("\\.") then . else . + ".0" end;
   [inputs | {f: input_filename, v: .}]
   | group_by(.f | sub("/[^/]*$"; "")) as $dirs
-  | [ $dirs[] | (map(select(.f | endswith("job.json")).v) | first) as $j
-      | (map(select(.f | endswith("usage.jsonl")).v)) as $u
+  | [ $dirs[]
+      | ((map(select(.f | endswith("job.json")).v) | join("\n") | fromjson? | select(type == "object")) // {}) as $j
+      | (map(select(.f | endswith("usage.jsonl")).v | fromjson? | select(type == "object"))) as $u
       | select($u | length > 0)
       | { id: (.[0].f | split("/") | .[-2]), stage: ($j.stage // "?"), u: $u,
           finished: (($j.stage // "") | IN("merged", "dropped")) } ] as $jobs
@@ -53,7 +54,7 @@ jq -n -r '
       | "\(.id) \(.stage): \($in / 1e6 | r1)M in (\(if $in > 0 then ($ca / $in * 100 | round) else 0 end)% cached), \(($out / 1e3) | round)k out, \(.u | length) runs\($flags)" ),
     ( [ $jobs[].u[] | select(.quota != null) ] | sort_by(.ts) | last
       | if . == null then "quota: no data"
-        else "quota: codex \(.quota.window // "quota") \(.quota.after | if . == null then "?" else round end)% (resets \(.quota.resets_at | if . == null then "?" else todate | .[0:10] end))" end ),
+        else "quota: codex \(.quota.window // "quota") \(.quota.after | if type != "number" then "?" else round end)% (resets \(.quota.resets_at | if type != "number" then "?" else (try (todate | .[0:10]) catch "?") end))" end ),
     "claude: tokens only"
 ' "${inputs[@]}"
 exit 0

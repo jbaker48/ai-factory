@@ -92,7 +92,7 @@ while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
     stage=$(jq -r .stage "factory/jobs/$job/job.json")
   done
 
-  tokens=$(jq -s -r '[.[] | (.input // 0) + (.output // 0)] | add // 0 | . / 1e6 * 10 | round / 10 | tostring | if test("\\.") then . else . + ".0" end' "factory/jobs/$job/usage.jsonl" 2>/dev/null || echo 0.0)
+  tokens=$(jq -R -n -r '[inputs | fromjson? | select(type == "object") | (.input // 0) + (.output // 0)] | add // 0 | . / 1e6 * 10 | round / 10 | tostring | if test("\\.") then . else . + ".0" end' "factory/jobs/$job/usage.jsonl" 2>/dev/null || echo 0.0)
   printf 'autopilot: %s (%s) %s, %sM tokens, API-equivalent $%.2f, session %s\n' "$job" "$bead" "$stage" "${tokens:-0.0}" "$total" "$sid"
   done_jobs=$((done_jobs + 1))
 done

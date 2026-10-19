@@ -80,11 +80,29 @@ test_no_usage_files() {
   assert_eq "quota: no data" "$(run)" "no jobs dir"
 }
 
+test_bad_lines_skipped() {
+  fresh
+  job 001-a build "$(ul build 1000000 0 0 2026-10-19T09:00:00+00:00 '{"window":"weekly","before":1,"after":7,"resets_at":"soon","plan":"p"}')" '42' '{"ts":"2026-10-19T1'
+  job 002-b build "$(ul build 2000000 0 0)"
+  out=$(run)
+  assert_contains "$out" "001-a build: 1.0M in (0% cached), 0k out, 1 runs" "job with bad lines"
+  assert_contains "$out" "002-b build: 2.0M in" "healthy job"
+  assert_contains "$out" "quota: codex weekly 7% (resets ?)" "bad resets_at"
+}
+
+test_even_median() {
+  fresh
+  job 001-a build "$(ul build 5000000 0 0)"
+  for i in 2 3 4 5; do job "00$i-x" merged "$(ul build $((i == 2 || i == 3 ? 1000000 : 3000000)) 0 0)"; done
+  # finished totals 1M,1M,3M,3M: median 2M, so 5M is 2.5x
+  assert_contains "$(run)" "001-a build: 5.0M in (0% cached), 0k out, 1 runs, FLAG build 2.5× median" "even median"
+}
+
 test_autopilot_line() {
   R=$(mkrepo); cd "$R" || return
   mkdir -p factory/jobs/001-demo
   echo '{"id":"001-demo","bead":"demo-1","stage":"merged"}' >factory/jobs/001-demo/job.json
-  ul build 1500000 0 250000 >factory/jobs/001-demo/usage.jsonl
+  { ul build 1500000 0 250000; echo '{"trunc'; } >factory/jobs/001-demo/usage.jsonl
   stub claude 'echo "{\"session_id\":\"sid-1\",\"total_cost_usd\":1.5}"'
   # shellcheck disable=SC2016 # the stub expands these when it runs
   printf '#!/usr/bin/env bash\nn=$(cat "%s/n" 2>/dev/null || echo 0); echo $((n+1)) >"%s/n"; [ "$n" = 0 ] && echo demo-1; exit 0\n' "$TEST_TMP" "$TEST_TMP" >factory/bin/next-bead
