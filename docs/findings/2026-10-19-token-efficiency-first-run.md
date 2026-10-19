@@ -11,8 +11,9 @@ About 12M tokens were processed, roughly 87% of them cache reads. The
 orchestrator stays small, as designed. The builders use most of the tokens,
 but they run on `gpt-6-luna`, the cheap model, so that is acceptable. The
 waste worth fixing is elsewhere: the Beads lock fails inside the sandbox,
-which pushed one decision up to autopilot at `xhigh`; the context7 MCP server
-loads into every Codex run; one builder run died and was relaunched; and a
+which pushed one decision up to autopilot at `xhigh`; every MCP server in the
+user's Codex config loads into every Codex run (noise and reach, not tokens;
+now fixed); one builder run died and was relaunched; and a
 docs-only rework triggered a full re-verification.
 
 ## Numbers
@@ -60,10 +61,17 @@ docs-only rework triggered a full re-verification.
    added a gate nobody in the sandbox could clear. Fix: give the sandbox read
    access to the Beads directory, or have the orchestrator pass the bead and
    child-task state into the approver and autopilot prompts.
-2. **The context7 MCP server loads into every `codex exec`.** Its token had
-   expired, so every run logged `AuthRequired ... invalid_token`. No role
-   needs it. The cost is tool-definition overhead on every call plus noisy
-   stderr. Fix: pass `-c mcp_servers={}` (or a role profile) in `run-codex`.
+2. **Every MCP server in the user's Codex config loads into every `codex
+   exec`.** That is eight servers here, including context7, gmail, Home
+   Assistant and playwright. context7's token had expired, so every run logged
+   `AuthRequired ... invalid_token`. No role needs any of them. A measured
+   one-line call used 15,325 input tokens with or without them, so Codex loads
+   their tools on demand and this is **not a token cost**. The cost is startup
+   work, stderr noise, and mail and home-automation tools within a builder's
+   reach. `-c mcp_servers={}` does not clear them, and neither does a quoted
+   key. **Fixed** in `run-codex`: it reads `config.toml` and passes
+   `-c mcp_servers.<name>.enabled=false` for each server. Servers that come
+   from plugins (here `cua_repl`) are not in `config.toml` and stay on.
 3. **A builder run died and was relaunched.** `174931-builder` stopped after
    5 commands without a `turn.completed`, and a fresh run started 23 seconds
    later from a cold start. The cause wasn't found. It's worth having
