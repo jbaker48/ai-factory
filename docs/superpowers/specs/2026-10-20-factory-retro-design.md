@@ -154,8 +154,10 @@ explains an extra attempt. Read `AGENTS.md` and the earlier retros
    configured (see below). The edits apply to the source tree's files:
    `factory/agents/*.md`, `.claude/skills/factory/SKILL.md`,
    `factory/models.json`, `factory/autopilot-policy.md`, `factory/bin/*` and
-   `factory/AGENTS.template.md`. Without a source worktree, the retro writes
-   them as a unified diff to `<job folder>/retro-factory.patch`.
+   `factory/AGENTS.template.md`. Without a source checkout, the role edits a
+   scratch git copy of the installed factory files (`<job folder>/.retro-factory/`)
+   instead, and `retro-publish` turns its diff into
+   `<job folder>/retro-factory.patch`.
 
 **Quality bar.** A fix is kept only if:
 
@@ -222,7 +224,7 @@ other roles.
 - **Report.** It gives one line per job: `retro <job-id>: <n> fixes, <repo PR url>, <factory PR url | patch path>`.
 
 The extra prompt sentence for the role is:
-`Retro worktree: <path>. Factory source worktree: <path | none>.`
+`Retro worktree: <path>. Factory worktree: <path> (<source|installed>).`
 
 ### Seeing whether it helps
 
