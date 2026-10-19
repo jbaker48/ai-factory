@@ -92,6 +92,13 @@ already in flight:
   assigned to someone else. Queue claims go through `bd ready`, which skips
   them anyway. The one exception is a bead the autopilot drain claimed for
   your run (see **/factory adopt**).
+- A job the autopilot drain ran keeps its bead (and the tasks it claimed)
+  assigned to `factory-autopilot`, and `bd close` and `bd update --claim`
+  refuse any other actor. In any session that writes Beads for such a job
+  (`/factory resume`, `review`, `approve`, `rework`, a drop), check the
+  bead's assignee (`bd show <bead> --json | jq -r '.[0].assignee'`); when it
+  is `factory-autopilot`, run every `bd` write for that job as
+  `BEADS_ACTOR=factory-autopilot bd ...`.
 - Only add or remove the factory's own labels (`factory`, `queued`,
   `needs-human`, `resubmitted`, `final`, `fix`). Leave every other label alone.
 - Depend on in-flight work instead of duplicating it. A queued job whose
@@ -163,10 +170,14 @@ started or was handed.
 - Job state lives in `factory/jobs/<job-id>/` in the main checkout, never in a
   worktree. Each job has its own `job.json`, so sessions never write the same
   file. Queue claims go through `bd update <bead> --claim`, which is atomic:
-  of two sessions claiming one bead, exactly one wins.
+  of two sessions with different actors claiming one bead, exactly one wins
+  (for the same actor `--claim` succeeds again, so the drain uses a
+  compare-and-set instead).
 - `factory/bin/autopilot --jobs N` runs up to N headless jobs at once (the
   `jobs` setting in `factory/settings.json`, default 1). It claims each bead
-  before its session starts, as the Beads actor `factory-autopilot`, and runs
+  before its session starts, as the Beads actor `factory-autopilot` (a
+  compare-and-set: `bd update <bead> --status in_progress --assignee
+  factory-autopilot --if-assignee '' --if-status open`), and runs
   the session with `BEADS_ACTOR=factory-autopilot`, so the session's own
   `--claim` and its `bd close` work as the same actor.
 - Each job gets its own dev server ports and agent-browser sessions (see
@@ -734,7 +745,9 @@ the job folder; don't read more of the job than the step below needs.
    stop; if `pgrep -f factory/bin/autopilot` also finds no drain, the claim is
    stale, so tell the user to clear it with `rmdir <job folder>/.resume-claim`
    and resume again. Remove your own claim with `rmdir` when your session
-   leaves the job.
+   leaves the job. If the bead's assignee is `factory-autopilot` (a drain ran
+   the job), run every `bd` write for it as `BEADS_ACTOR=factory-autopilot bd
+   ...` (see **Brownfield rules**).
 2. Make sure nothing from the old session is still running. If
    `pgrep -fl -- "<worktree>"` lists a `codex` or `codex-companion` process,
    stop and tell the user: another session may still own the job, or the

@@ -90,7 +90,9 @@ change.
 
 Agents only read Beads (`bd --readonly`). The orchestrator makes every write
 from the main checkout, so the Codex sandbox and parallel sessions never
-collide. Queue claims use `bd ready --claim`, which is atomic.
+collide. Queue claims use `bd update <bead> --claim`, which is atomic; the
+autopilot drain claims with a compare-and-set (`--if-assignee ''`) so that
+two of its workers, which share one actor, can't both take a bead.
 
 Every role gets a base ref in its prompt (`Base: <base>.`) and diffs against
 that, not a literal `main`. `factory/settings.json` sets it: `origin/main` with

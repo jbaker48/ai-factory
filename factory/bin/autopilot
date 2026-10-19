@@ -17,14 +17,21 @@
 # sessions end (also on Ctrl-C/TERM and when the resume cap stops the worker);
 # a claim this process didn't create is never removed. Every resume prompt for
 # a claimed job says "Claimed for you by autopilot." so the session skips
-# claiming. A queued bead is claimed before its session starts with
-# `bd update <bead> --claim` as actor factory-autopilot; if that fails,
-# next-bead is asked again without the beads this run already tried. Sessions
-# run with BEADS_ACTOR=factory-autopilot (for a resubmitted job: the bead's
-# assignee, which bd close requires), and the adopt prompt says "Claimed for
-# you by autopilot as factory-autopilot." A worker stops when nothing is
-# resubmitted and the queue is empty. --watch sleeps AUTOPILOT_POLL_S
-# (default 60) seconds and looks again instead; <count> still bounds the jobs.
+# claiming. A queued bead is claimed before its session starts, as actor
+# factory-autopilot, with a compare-and-set (`bd update <bead> --status
+# in_progress --assignee factory-autopilot --if-assignee '' --if-status open`;
+# `--claim` would let two workers with the same actor both win). If that
+# fails, next-bead is asked again without the beads this run already tried
+# (a bead is tried at most once, checked under the lock; --watch forgets them
+# when the queue runs empty). Sessions run with BEADS_ACTOR=factory-autopilot,
+# and the adopt prompt says "Claimed for you by autopilot as
+# factory-autopilot." A resubmitted job runs as its bead's assignee, which
+# bd close requires, but only when that is factory-autopilot, nobody, or the
+# user's own default actor (git config user.name, else $USER); a bead held by
+# anyone else is skipped for the rest of the run, with a line saying why. A
+# worker stops when nothing is resubmitted and the queue is empty. --watch
+# sleeps AUTOPILOT_POLL_S (default 60) seconds and looks again instead;
+# <count> still bounds the jobs.
 #
 # For each queued job: runs `claude -p "/factory autopilot adopt <bead>"`. If
 # the session ends before the job reaches merged or needs-human (a crash, a
@@ -77,16 +84,21 @@ mkdir -p "$logs"
 # without the idle cap, too.
 export BASH_DEFAULT_TIMEOUT_MS=${BASH_DEFAULT_TIMEOUT_MS:-7200000}
 export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-0}
+# The user's own default Beads actor, as bd picks it when none is set.
+me=${BEADS_ACTOR:-${BD_ACTOR:-$(git config user.name 2>/dev/null)}}
+me=${me:-${USER:-}}
 # The drain's own bd calls (claims) and every session run as this actor, so
 # the session that closes a bead is the one that claimed it.
 export BEADS_ACTOR=$ACTOR
 
-# Shared state for this run: the job counter, its lock, the beads tried,
-# one in-flight file per worker, and a flag for "a worker found nothing left".
+# Shared state for this run: the job counter, its lock, the beads tried, the
+# resubmitted jobs skipped, one in-flight file per worker, and a flag for "a
+# worker found nothing left".
 run="$logs/.drain-$$"
 mkdir -p "$run" || exit 1
 echo 0 >"$run/count"
 : >"$run/tried"
+: >"$run/skipped"
 
 lock() { until mkdir "$run/lock" 2>/dev/null; do sleep 0.05; done; }
 unlock() { rmdir "$run/lock" 2>/dev/null; }
@@ -197,6 +209,7 @@ worker() {
     job=
     while read -r id; do
       [ -n "$id" ] || continue
+      grep -qxF "$id" "$run/skipped" && continue
       hold
       if mkdir "factory/jobs/$id/.resume-claim" 2>/dev/null; then
         claim="factory/jobs/$id/.resume-claim"
@@ -223,9 +236,16 @@ worker() {
       skip=$(tr '\n' ' ' <"$run/tried")
       bead=$(FACTORY_EXCLUDE_BEADS=$skip "$here/next-bead" </dev/null)
       [ -n "$bead" ] || return 1
-      lock; echo "$bead" >>"$run/tried"; unlock
+      # Each bead is tried once per run: another worker may have just taken it.
+      lock
+      if grep -qxF "$bead" "$run/tried"; then unlock; continue; fi
+      echo "$bead" >>"$run/tried"
+      unlock
       hold
-      if bd update "$bead" --claim >/dev/null 2>&1 </dev/null; then
+      # Compare-and-set: succeeds only while the bead is open and unassigned
+      # (exit 13 otherwise), even against a worker using the same actor.
+      if bd update "$bead" --status in_progress --assignee "$ACTOR" \
+        --if-assignee '' --if-status open >/dev/null 2>&1 </dev/null; then
         mine=1
         echo "$bead (no job yet)" >"$inflight"
         unhold
@@ -243,6 +263,14 @@ worker() {
       note=" Claimed for you by autopilot."
       actor=$(bd show "$bead" --json 2>/dev/null </dev/null |
         jq -r 'if type == "array" then .[0] else . end | .assignee // empty' 2>/dev/null)
+      if [ -n "$actor" ] && [ "$actor" != "$ACTOR" ] && [ "$actor" != "$me" ]; then
+        say "$bead is assigned to $actor, not the factory or you; skipping it (resume it as $actor)."
+        echo "$job" >>"$run/skipped"
+        release
+        rm -f "$inflight"
+        unreserve
+        continue
+      fi
       actor=${actor:-$ACTOR}
       say "$bead was resubmitted; resuming."
       session "$job-resume0" "/factory resume $job. $headless$note"
@@ -260,6 +288,8 @@ worker() {
     else
       unreserve
       [ "$watch" -eq 1 ] || { : >"$run/empty"; return 0; }
+      # Nothing left: a bead tried earlier may be claimable again later.
+      lock; : >"$run/tried"; unlock
       pause "${AUTOPILOT_POLL_S:-60}"
       continue
     fi
@@ -270,7 +300,7 @@ worker() {
     stage=$(jq -r .stage "factory/jobs/$job/job.json")
     while [ "$stage" != merged ] && [ "$stage" != needs-human ] && [ "$stage" != dropped ]; do
       if [ "$resumes" -ge "$MAX_RESUMES" ]; then
-        say "$bead still at $stage after $resumes resumes (session $sid). Stopping." >&2
+        say "$bead still at $stage after $resumes resumes (session $sid). Stopping. /factory resume $job runs Beads as $actor." >&2
         release
         rm -f "$inflight"
         return 1
@@ -305,6 +335,7 @@ stopped() {
   done
   echo
   echo "autopilot: stopped. In flight:${list:- none}"
+  [ -n "$list" ] && echo "autopilot: a bead assigned to $ACTOR needs bd writes as BEADS_ACTOR=$ACTOR; /factory resume does that."
   exit 130
 }
 trap stopped INT TERM

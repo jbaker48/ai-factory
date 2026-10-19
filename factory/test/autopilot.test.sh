@@ -4,6 +4,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 export AUTOPILOT_POLL_S=0
+unset BEADS_ACTOR BD_ACTOR
 
 # mkjob <id> <bead> <stage> [<updated>]
 mkjob() {
@@ -12,16 +13,44 @@ mkjob() {
     '{id:$id,bead:$b,stage:$s,updated:$u}' >"factory/jobs/$1/job.json"
 }
 
-# bdstub: a bd whose claim is a mkdir per bead (a second claimer fails) and
-# whose `update --status open` gives the claim back; it logs BEADS_ACTOR.
+# bdstub: a bd modelled on bd 1.3.0. $TEST_TMP/claims/<bead> holds the
+# assignee. `update --claim` succeeds for nobody or the same actor (as real bd
+# does) and fails for another; `update --if-assignee <a> ...` is a
+# compare-and-set that exits 13 on a mismatch (an O_EXCL create for ''), and
+# `--assignee ''` clears the assignee. `show --json` prints the assignee. It
+# logs BEADS_ACTOR.
 bdstub() {
   # shellcheck disable=SC2016 # the stub expands these when it runs
   stub bd '
 echo "${BEADS_ACTOR:-}" >>"$TEST_TMP/actors"
-case "$1 ${3:-}" in
-  "update --claim") mkdir "$TEST_TMP/claims/$2" 2>/dev/null || { echo "already claimed" >&2; exit 1; } ;;
-  "update --status") rmdir "$TEST_TMP/claims/$2" 2>/dev/null ;;
-  "show "*) echo "[]" ;;
+cmd=$1 b=${2:-}
+shift 2
+claim="" assignee="" ifa="" ifaset=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --claim) claim=1 ;;
+    --assignee) assignee=$2; shift ;;
+    --if-assignee) ifa=$2; ifaset=1; shift ;;
+    --status | --if-status) shift ;;
+  esac
+  shift
+done
+f="$TEST_TMP/claims/$b"
+case $cmd in
+  show) jq -n --arg a "$(cat "$f" 2>/dev/null)" "[{assignee: (if \$a == \"\" then null else \$a end)}]" ;;
+  update)
+    if [ -n "$claim" ]; then
+      cur=$(cat "$f" 2>/dev/null)
+      [ -z "$cur" ] || [ "$cur" = "${BEADS_ACTOR:-}" ] || { echo "already claimed by $cur" >&2; exit 1; }
+      echo "${BEADS_ACTOR:-}" >"$f"
+    elif [ -n "$ifaset" ]; then
+      if [ -z "$ifa" ]; then
+        (set -o noclobber; echo "$assignee" >"$f") 2>/dev/null || { echo "assignee mismatch" >&2; exit 13; }
+      else
+        [ "$(cat "$f" 2>/dev/null)" = "$ifa" ] || { echo "assignee mismatch" >&2; exit 13; }
+        if [ -n "$assignee" ]; then echo "$assignee" >"$f"; else rm -f "$f"; fi
+      fi
+    fi ;;
 esac
 exit 0'
 }
@@ -201,7 +230,7 @@ echo "$b" >>"$TEST_TMP/ended"
 [ -n "$id" ] && factory/bin/job-set "factory/jobs/$id/job.json" ".stage = \"merged\""
 echo "{\"session_id\":\"s\",\"total_cost_usd\":0}"'
   # shellcheck disable=SC2016 # the stub expands these when it runs
-  printf '#!/usr/bin/env bash\nfor b in $(cat "%s/beads" 2>/dev/null); do case " ${FACTORY_EXCLUDE_BEADS:-} " in *" $b "*) ;; *) echo "$b"; exit 0 ;; esac; done\n' \
+  printf '#!/usr/bin/env bash\nsleep "${NB_SLEEP:-0}"\nfor b in $(cat "%s/beads" 2>/dev/null); do case " ${FACTORY_EXCLUDE_BEADS:-} " in *" $b "*) ;; *) echo "$b"; exit 0 ;; esac; done\n' \
     "$TEST_TMP" >factory/bin/next-bead
   rm -f "$TEST_TMP/session-actors"
 }
@@ -227,7 +256,8 @@ test_two_workers_run_concurrently() {
 
 test_no_double_claim() {
   pool; beads 1
-  factory/bin/autopilot --jobs 2 >/dev/null 2>&1
+  # both workers get bead-1 from next-bead before either claims it
+  NB_SLEEP=0.3 factory/bin/autopilot --jobs 2 >/dev/null 2>&1
   assert_eq 1 "$(wc -l <"$STUBS/claude.calls" | tr -d ' ')" "exactly one session for one bead"
   cd - >/dev/null || return
 }
@@ -303,7 +333,7 @@ test_actor_exported() {
   factory/bin/autopilot >/dev/null 2>&1
   assert_eq factory-autopilot "$(sort -u "$TEST_TMP/session-actors")" "session runs as factory-autopilot"
   assert_eq factory-autopilot "$(sort -u "$TEST_TMP/actors")" "drain's bd calls run as factory-autopilot"
-  assert_contains "$(cat "$STUBS/bd.calls")" "update bead-1 --claim" "the drain claims the bead"
+  assert_contains "$(cat "$STUBS/bd.calls")" "update bead-1 --status in_progress --assignee factory-autopilot --if-assignee '' --if-status open" "the drain claims the bead with a compare-and-set"
   assert_contains "$(cat "$STUBS/claude.calls")" 'Claimed\ for\ you\ by\ autopilot\ as\ factory-autopilot.' "prompt says claimed"
   cd - >/dev/null || return
 }
@@ -314,7 +344,53 @@ test_failed_worker_doesnt_stop_others() {
   factory/bin/autopilot --jobs 2 >/dev/null 2>&1; rc=$?
   assert_eq 1 "$rc" "exit 1 when a worker failed"
   assert_eq merged "$(jq -r .stage factory/jobs/001-j/job.json)" "the other job still merged"
-  assert_eq "no" "$([ -d "$TEST_TMP/claims/bead-x" ] && echo yes || echo no)" "the jobless bead's claim is given back"
+  assert_eq "no" "$([ -e "$TEST_TMP/claims/bead-x" ] && echo yes || echo no)" "the jobless bead's claim is given back"
+  cd - >/dev/null || return
+}
+
+test_skips_bead_held_by_same_actor() {
+  pool; beads 2
+  echo factory-autopilot >"$TEST_TMP/claims/bead-1" # another drain has it
+  factory/bin/autopilot >/dev/null 2>&1
+  assert_eq 1 "$(wc -l <"$STUBS/claude.calls" | tr -d ' ')" "one session"
+  assert_contains "$(cat "$STUBS/claude.calls")" "adopt\ bead-2." "only the free bead ran"
+  cd - >/dev/null || return
+}
+
+test_resubmitted_held_by_colleague_skipped() {
+  pool
+  mkjob 001-a bead-a resubmitted
+  echo colleague >"$TEST_TMP/claims/bead-a"
+  out=$(factory/bin/autopilot --jobs 2 2>&1); rc=$?
+  assert_eq 0 "$rc" "exit 0"
+  assert_eq "no" "$([ -e "$STUBS/claude.calls" ] && echo yes || echo no)" "no session as a colleague"
+  assert_contains "$out" "[001-a] bead-a is assigned to colleague" "says why"
+  assert_eq 1 "$(grep -c 'assigned to colleague' <<<"$out")" "said once"
+  assert_eq "no" "$([ -e factory/jobs/001-a/.resume-claim ] && echo yes || echo no)" "resume claim given back"
+  cd - >/dev/null || return
+}
+
+test_resubmitted_runs_as_own_actor() {
+  pool
+  me=$(git config user.name 2>/dev/null); me=${me:-$USER}
+  mkjob 001-a bead-a resubmitted
+  echo "$me" >"$TEST_TMP/claims/bead-a"
+  mkjob 002-b bead-b resubmitted 2026-02-01T00:00:00Z
+  echo factory-autopilot >"$TEST_TMP/claims/bead-b"
+  factory/bin/autopilot >/dev/null 2>&1
+  assert_eq "$me" "$(sed -n 1p "$TEST_TMP/session-actors")" "user's own bead resumes as the user"
+  assert_eq factory-autopilot "$(sed -n 2p "$TEST_TMP/session-actors")" "drain's bead resumes as factory-autopilot"
+  cd - >/dev/null || return
+}
+
+test_stop_hint_names_actor() {
+  pool; beads 1
+  STUB_SLEEP=2 factory/bin/autopilot >"$TEST_TMP/out" 2>&1 &
+  pid=$!
+  i=0
+  while [ ! -e "$TEST_TMP/conc" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+  kill -TERM "$pid" 2>/dev/null; wait "$pid"
+  assert_contains "$(cat "$TEST_TMP/out")" "BEADS_ACTOR=factory-autopilot" "stop line says which actor to use"
   cd - >/dev/null || return
 }
 
