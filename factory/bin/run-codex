@@ -8,7 +8,19 @@
 # builder.md on a bigger model. The agent works in <worktree> and may also write
 # to <job-folder>. The sandbox keeps .git read-only, so agents never commit; the
 # orchestrator does. Everything is logged to <job-folder>/.runs/. Prints one
-# line, plus the stderr tail when codex fails.
+# line, plus the stderr tail when codex fails:
+#   <key>: <model> (<effort>) exit <rc>, ended <event>. Last message: <path>
+# <event> is the type of the last parseable line of the .jsonl log (a run that
+# died ends on something other than turn.completed, often after a truncated
+# line, which is skipped); "none" if there is no such line.
+#
+# Codex roles run with no MCP servers: each configured server is started and
+# its tool schemas are loaded into every turn, which costs tokens the roles
+# never use. `-c 'mcp_servers={}'` replaces the servers table from
+# ~/.codex/config.toml with an empty one. Not verified against codex-cli 0.163.0:
+# `codex mcp list` reads the file and ignores -c, and a real run costs a model
+# call. Check a first real run's .jsonl for mcp tool calls or startup events.
+# Exit codes: codex's own, or 2 for usage and config errors.
 set -uo pipefail
 
 if [ $# -ne 4 ]; then
@@ -41,6 +53,7 @@ codex exec \
   -m "$model" \
   -c model_reasoning_effort="\"$effort\"" \
   -c sandbox_workspace_write.network_access="$network" \
+  -c 'mcp_servers={}' \
   -s workspace-write \
   -C "$worktree" \
   --add-dir "$job" \
@@ -50,6 +63,7 @@ codex exec \
 
 # One line on success, so the orchestrator's context stays small; the agent's
 # full last message stays in $log.last.md. On failure, the stderr tail.
-echo "$key: $model ($effort) exit $rc. Last message: $log.last.md"
+ended=$(jq -R 'fromjson? | .type? // empty' "$log.jsonl" 2>/dev/null | tail -n 1 | tr -d '"')
+echo "$key: $model ($effort) exit $rc, ended ${ended:-none}. Last message: $log.last.md"
 [ "$rc" -ne 0 ] && [ -s "$log.stderr" ] && tail -n 15 "$log.stderr"
 exit $rc

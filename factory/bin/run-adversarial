@@ -33,6 +33,9 @@ focus="Challenge this branch against its spec below. Look for ways it breaks: un
 
 $(cat "$job/spec.md")"
 
+# No MCP-off override here (unlike run-codex): the companion takes no codex
+# config flags and starts its own app-server, so there is nowhere to pass
+# -c 'mcp_servers={}'.
 rc=0
 node "$companion" adversarial-review --json --base "$("$factory/bin/settings" base)" --scope branch \
   --cwd "$worktree" ${model:+--model "$model"} "$focus" >"$log.json" 2>"$log.stderr" || rc=$?
