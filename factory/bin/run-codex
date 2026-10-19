@@ -17,6 +17,8 @@
 # Codex roles run with no MCP servers from the user's config.toml: each is
 # started for every run, and its tools reach into every turn. Each is switched
 # off with -c mcp_servers.<name>.enabled=false (confirmed with `codex mcp list`).
+# Needs python3 (3.11+, for tomllib) to read config.toml; without it, or with a
+# malformed config.toml, the servers stay on and one warning goes to stderr.
 # Exit codes: codex's own, or 2 for usage and config errors.
 set -uo pipefail
 
@@ -51,19 +53,20 @@ log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key"
 # reach. Plugin-provided servers are not there and cannot be switched off this
 # way; names that are not bare TOML keys are skipped.
 mcp_off=()
-while IFS= read -r name; do
-  [ -n "$name" ] && mcp_off+=(-c "mcp_servers.$name.enabled=false")
-done < <(python3 - <<'PY'
+cfgtoml="${CODEX_HOME:-$HOME/.codex}/config.toml"
+if names=$(CFG="$cfgtoml" python3 - 2>/dev/null <<'PY'
 import os, re, tomllib
-path = os.path.join(os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"), "config.toml")
+path = os.environ["CFG"]
 servers = tomllib.load(open(path, "rb")).get("mcp_servers", {}) if os.path.exists(path) else {}
 print("\n".join(k for k in servers if re.fullmatch(r"[A-Za-z0-9_-]+", k)))
 PY
-)
-
-mkdir -p "$job/.runs"
-log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key"
-{ cat "$role"; printf '\n\n---\n\n%s\n' "$prompt"; } >"$log.prompt.md"
+); then
+  while IFS= read -r name; do
+    [ -n "$name" ] && mcp_off+=(-c "mcp_servers.$name.enabled=false")
+  done <<<"$names"
+else
+  echo "run-codex: could not read $cfgtoml; MCP servers left on" >&2
+fi
 
 rc=0
 codex exec \

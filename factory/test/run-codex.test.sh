@@ -58,5 +58,16 @@ test_ended_none() {
   assert_contains "$(RC)" "ended none." "empty log"
 }
 
+test_malformed_config() {
+  setup "$NORMAL"
+  mkdir -p "$TEST_TMP/bad"
+  printf '[mcp_servers\n=== nope' >"$TEST_TMP/bad/config.toml"
+  out=$(CODEX_HOME="$TEST_TMP/bad" RC 2>"$TEST_TMP/err")
+  case $(cat "$STUBS/codex.calls") in *mcp_servers*) _fail "no mcp flags on bad config" ;; *) _pass ;; esac
+  assert_contains "$out" "ended turn.completed" "run proceeds"
+  assert_contains "$(cat "$TEST_TMP/err")" "could not read $TEST_TMP/bad/config.toml; MCP servers left on" "warning"
+  case $(cat "$TEST_TMP/err") in *Traceback*) _fail "no traceback" ;; *) _pass ;; esac
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish
