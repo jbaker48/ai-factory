@@ -38,8 +38,10 @@
 # budget cap, a time limit), runs `/factory resume <job-id>`, up to
 # MAX_RESUMES times. A job is done at merged, needs-human or dropped. A parked
 # job doesn't stop the worker. A failure (the session made no job, or the
-# resumes ran out) stops that worker, not the others; a bead whose session
-# made no job is given back (status open, no assignee).
+# resumes ran out) stops that worker, not the others; under --watch the
+# worker logs it and keeps polling instead, and the failure still sets the
+# exit code. A bead whose session made no job is given back (status open, no
+# assignee) and, under --watch, not tried again this run.
 # --budget caps each session's spend (claude --max-budget-usd).
 #
 # After each session, records its orchestrator usage in the job's usage.jsonl
@@ -49,7 +51,7 @@
 # and the API-equivalent cost (summed total_cost_usd). Ctrl-C/TERM kills every
 # worker's session and prints
 # "autopilot: stopped. In flight: <job-id> (/factory resume <job-id>) ...".
-# Exit: 0 done, 1 a worker failed, 2 usage, 130 stopped.
+# Exit: 0 done, 1 a job failed, 2 usage, 130 stopped.
 #
 # Run one driver per repo. Session output goes to factory/autopilot-runs/.
 # FACTORY_PERMISSION_MODE sets the sessions' permission mode
@@ -92,13 +94,15 @@ me=${me:-${USER:-}}
 export BEADS_ACTOR=$ACTOR
 
 # Shared state for this run: the job counter, its lock, the beads tried, the
-# resubmitted jobs skipped, one in-flight file per worker, and a flag for "a
-# worker found nothing left".
+# beads whose session made no job, the resubmitted jobs skipped, the failures,
+# one in-flight file per worker, and a flag for "a worker found nothing left".
 run="$logs/.drain-$$"
 mkdir -p "$run" || exit 1
 echo 0 >"$run/count"
 : >"$run/tried"
+: >"$run/nojob"
 : >"$run/skipped"
+: >"$run/failed"
 
 lock() { until mkdir "$run/lock" 2>/dev/null; do sleep 0.05; done; }
 unlock() { rmdir "$run/lock" 2>/dev/null; }
@@ -176,6 +180,10 @@ worker() {
   # claim is noted, so stop can give it back.
   hold() { pending=''; trap 'pending=1' TERM; }
   unhold() { trap stop TERM; [ -z "$pending" ] || stop; }
+
+  # note_failure <what>: notes a failure for the exit code. Without --watch it ends
+  # the worker; under --watch the caller goes on to the next job.
+  note_failure() { lock; echo "$1" >>"$run/failed"; unlock; [ "$watch" -eq 1 ]; }
 
   # pause <s>: a sleep the TERM trap can interrupt.
   pause() { sleep "$1" & spid=$!; wait "$spid"; spid=; }
@@ -282,14 +290,17 @@ worker() {
         give_back
         rm -f "$inflight"
         say "the session made no job (session $sid). See $logs/." >&2
-        return 1
+        lock; echo "$bead" >>"$run/nojob"; unlock
+        note_failure "$bead" || return 1
+        continue
       fi
       echo "$job (/factory resume $job)" >"$inflight"
     else
       unreserve
       [ "$watch" -eq 1 ] || { : >"$run/empty"; return 0; }
-      # Nothing left: a bead tried earlier may be claimable again later.
-      lock; : >"$run/tried"; unlock
+      # Nothing left: a bead tried earlier may be claimable again later, but
+      # not one whose session made no job.
+      lock; cp "$run/nojob" "$run/tried"; unlock
       pause "${AUTOPILOT_POLL_S:-60}"
       continue
     fi
@@ -300,10 +311,11 @@ worker() {
     stage=$(jq -r .stage "factory/jobs/$job/job.json")
     while [ "$stage" != merged ] && [ "$stage" != needs-human ] && [ "$stage" != dropped ]; do
       if [ "$resumes" -ge "$MAX_RESUMES" ]; then
-        say "$bead still at $stage after $resumes resumes (session $sid). Stopping. /factory resume $job runs Beads as $actor." >&2
+        say "$bead still at $stage after $resumes resumes (session $sid). Giving up on it. /factory resume $job runs Beads as $actor." >&2
         release
         rm -f "$inflight"
-        return 1
+        note_failure "$job" || return 1
+        continue 2
       fi
       resumes=$((resumes + 1))
       say "$bead ended at $stage; resuming ($resumes/$MAX_RESUMES)."
@@ -347,5 +359,6 @@ done
 # A trapped signal interrupts wait and runs stopped, which exits.
 failed=0
 for p in "${pids[@]}"; do wait "$p" || failed=1; done
+[ -s "$run/failed" ] && failed=1
 [ -e "$run/empty" ] && echo "autopilot: queue empty."
 exit "$failed"

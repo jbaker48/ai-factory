@@ -567,8 +567,9 @@ user runs `factory/bin/autopilot` from a shell instead: it starts one headless
 session per job with `/factory autopilot adopt <bead>`, and `/factory resume`
 when a session ends early. It resumes `resubmitted` jobs before it starts new
 beads, claiming each with `mkdir <job folder>/.resume-claim`. With
-`--watch` it keeps polling when nothing is left instead of exiting, and
-`<count>` still bounds the jobs. With `--jobs N` (default: the `jobs`
+`--watch` it keeps polling when nothing is left instead of exiting, a
+failed job (no job made, or resumes run out) is logged instead of ending
+its worker, and `<count>` still bounds the jobs. With `--jobs N` (default: the `jobs`
 setting, else 1) it runs up to N jobs at once and `<count>` counts jobs
 across all of them; it claims each bead first, as `factory-autopilot`, and
 says so in the prompt. In a headless

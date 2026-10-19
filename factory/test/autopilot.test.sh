@@ -348,6 +348,29 @@ test_failed_worker_doesnt_stop_others() {
   cd - >/dev/null || return
 }
 
+test_watch_failure_keeps_worker() {
+  pool; echo bead-x >>"$TEST_TMP/beads"; beads 1 # bead-x first: its session makes no job
+  out=$(STUB_SLEEP=0 factory/bin/autopilot 2 --watch 2>&1); rc=$?
+  assert_eq 1 "$rc" "the failure still sets the exit code"
+  assert_contains "$out" "the session made no job" "the failure is logged"
+  assert_eq merged "$(jq -r .stage factory/jobs/001-j/job.json)" "the same worker went on to the next bead"
+  cd - >/dev/null || return
+}
+
+test_watch_failure_not_retried() {
+  pool; echo bead-x >>"$TEST_TMP/beads"; beads 1
+  STUB_SLEEP=0 factory/bin/autopilot --watch >/dev/null 2>&1 &
+  pid=$!
+  i=0
+  while [ "$(jq -r .stage factory/jobs/001-j/job.json)" != merged ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+  sleep 1 # several empty polls, each forgetting the beads tried
+  alive=$(kill -0 "$pid" 2>/dev/null && echo yes || echo no)
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  assert_eq yes "$alive" "still watching after the failure"
+  assert_eq 1 "$(grep -c 'adopt\\ bead-x' "$STUBS/claude.calls")" "a bead that made no job isn't tried again"
+  cd - >/dev/null || return
+}
+
 test_skips_bead_held_by_same_actor() {
   pool; beads 2
   echo factory-autopilot >"$TEST_TMP/claims/bead-1" # another drain has it

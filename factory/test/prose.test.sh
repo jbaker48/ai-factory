@@ -119,6 +119,7 @@ test_parallel_drain() {
   local f="$ROOT/.claude/skills/factory/SKILL.md"
   assert_contains "$(section "$f" '/factory adopt')" 'factory-autopilot' "adopt accepts the drain's claim"
   assert_contains "$(section "$f" '/factory autopilot')" '--jobs' "drain text mentions --jobs"
+  assert_contains "$(section "$f" '/factory autopilot' | tr '\n' ' ')" 'is logged instead of ending its worker' "drain text: --watch outlives a failed job"
   assert_contains "$(section "$f" 'Parallel jobs')" 'factory-autopilot' "Parallel jobs names the actor"
   assert_contains "$(section "$f" '/factory resume')" 'BEADS_ACTOR=factory-autopilot' "resume writes Beads as the drain's actor"
   assert_contains "$(cat "$f")" '--if-assignee' "SKILL.md names the drain's compare-and-set"
