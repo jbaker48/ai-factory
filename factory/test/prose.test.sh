@@ -132,5 +132,12 @@ test_status_command() {
   assert_contains "$s" '`land: <mode>` (`factory/bin/settings land`' "status prints the land mode"
 }
 
+test_resume_open_pr() {
+  local s
+  s=$(section "$ROOT/.claude/skills/factory/SKILL.md" '/factory resume' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" '`decision.md` is newer than every file in `round-<N>/`, or `stage` is `autopilot` and `decision_file`'"'"'s first line is `MERGE`' "resume re-runs Merge on an open PR only after a current decision"
+  case $s in *'or `autopilot` after a MERGE decision'*) _fail "old open-PR rule is gone" ;; *) _pass ;; esac
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

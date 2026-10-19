@@ -762,8 +762,13 @@ the job folder; don't read more of the job than the step below needs.
      `gh pr list --head factory/<job-id> --state merged --json url -q '.[0].url // empty'`
      and set `pr` from it. If there is a `pr`, check it with
      `gh pr view <pr> --json state -q .state`. `MERGED`: finish **Merge** from
-     its exit-0 cleanup and stop. `OPEN` with `stage` `approve` or `autopilot`
-     after a MERGE decision: run **Merge** again (it reuses the PR).
+     its exit-0 cleanup and stop. `OPEN`: run **Merge** again (it reuses the
+     PR) only when `stage` is `approve`, `decision.md`'s first line is
+     `APPROVE` and `decision.md` is newer than every file in `round-<N>/`, or
+     `stage` is `autopilot` and `decision_file`'s first line is `MERGE`
+     (within the limits of **Autopilot decision** step 4). Otherwise carry on with step 4: the PR stays open across review rounds,
+     so after a moved base (**Merge** exit 6) an open PR doesn't mean the
+     approver has seen the new round.
    - With `land: "local"`, if `factory/<job-id>` is already merged into `main`
      (`git merge-base --is-ancestor factory/<job-id> main`), finish **Merge**
      from its exit-0 cleanup and stop. If the main checkout has a merge in
