@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Summarises token spend and quota across jobs, for /factory status.
+#
+#   factory/bin/usage-summary
+#
+# Run from the repo root. Reads factory/jobs/*/usage.jsonl and job.json and
+# prints one line per job that has usage:
+#   <job-id> <stage>: <input>M in (<cached%> cached), <output>k out, <runs> runs[, FLAG <stage> <x>× median ...]
+# then "quota: codex <window> <after>% (resets <date>)" from the newest usage
+# record with quota data ("quota: no data" if none), then "claude: tokens only".
+# With no usage files at all it prints just "quota: no data".
+#
+# Tokens are input + output (input already includes cached); null counts as 0
+# but a run with null tokens is still a run. A job is flagged for a usage
+# stage when its total there is at least 2x the median of that stage over jobs
+# at merged or dropped, and at least 3 such jobs have the stage. The flag is
+# information only. Always exits 0.
+set -uo pipefail
+
+files=()
+for f in factory/jobs/*/usage.jsonl; do [ -f "$f" ] && files+=("$f"); done
+if [ ${#files[@]} -eq 0 ]; then echo "quota: no data"; exit 0; fi
+
+# Each usage.jsonl is paired with its sibling job.json (stage); one jq program
+# reads them all, grouping records by file name.
+inputs=()
+for f in "${files[@]}"; do
+  inputs+=("$f")
+  [ -f "${f%usage.jsonl}job.json" ] && inputs+=("${f%usage.jsonl}job.json")
+done
+
+jq -n -r '
+  def n: . // 0;
+  def median: sort | length as $l | if $l % 2 == 1 then .[($l-1)/2] else (.[$l/2-1] + .[$l/2]) / 2 end;
+  def r1: (. * 10 | round) / 10 | tostring | if test("\\.") then . else . + ".0" end;
+  [inputs | {f: input_filename, v: .}]
+  | group_by(.f | sub("/[^/]*$"; "")) as $dirs
+  | [ $dirs[] | (map(select(.f | endswith("job.json")).v) | first) as $j
+      | (map(select(.f | endswith("usage.jsonl")).v)) as $u
+      | select($u | length > 0)
+      | { id: (.[0].f | split("/") | .[-2]), stage: ($j.stage // "?"), u: $u,
+          finished: (($j.stage // "") | IN("merged", "dropped")) } ] as $jobs
+  | ($jobs | map(. + {
+        by: (.u | group_by(.stage) | map({key: (.[0].stage // "?"), value: (map((.input|n) + (.output|n)) | add)}) | from_entries)
+      })) as $jobs
+  | ( [ $jobs[] | select(.finished) | .by | to_entries[] ] | group_by(.key)
+      | map({key: .[0].key, value: {n: length, med: (map(.value) | median)}}) | from_entries ) as $stats
+  | ( $jobs[]
+      | (.u | map(.input|n) | add) as $in | (.u | map(.cached|n) | add) as $ca | (.u | map(.output|n) | add) as $out
+      | ( [ .by | to_entries | sort_by(.key)[] | . as $e | $stats[$e.key] // empty
+            | select(.n >= 3 and .med > 0 and $e.value >= 2 * .med)
+            | ", FLAG \($e.key) \($e.value / .med | r1)× median" ] | join("") ) as $flags
+      | "\(.id) \(.stage): \($in / 1e6 | r1)M in (\(if $in > 0 then ($ca / $in * 100 | round) else 0 end)% cached), \(($out / 1e3) | round)k out, \(.u | length) runs\($flags)" ),
+    ( [ $jobs[].u[] | select(.quota != null) ] | sort_by(.ts) | last
+      | if . == null then "quota: no data"
+        else "quota: codex \(.quota.window // "quota") \(.quota.after | if . == null then "?" else round end)% (resets \(.quota.resets_at | if . == null then "?" else todate | .[0:10] end))" end ),
+    "claude: tokens only"
+' "${inputs[@]}"
+exit 0

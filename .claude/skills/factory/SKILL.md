@@ -524,7 +524,9 @@ Print the next job (`factory/bin/next-bead`), the ready queue
 queued jobs still waiting on dependencies
 (`bd blocked -l factory,queued`), the
 parked jobs (`bd list -l factory,needs-human`), and the stage of each job
-folder's `job.json`.
+folder's `job.json`. Then run `factory/bin/usage-summary` and print its output
+as-is (one line per job with token totals and runs, then the quota lines);
+don't read usage files yourself.
 
 ## /factory import <prd>
 

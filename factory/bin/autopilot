@@ -12,6 +12,8 @@
 #
 # After each session, records its orchestrator usage in the job's usage.jsonl
 # (factory/bin/usage-record session).
+# Each job's final line gives its tokens (from usage.jsonl) and the
+# API-equivalent cost (summed total_cost_usd).
 #
 # Run one driver per repo. Session output goes to factory/autopilot-runs/.
 # FACTORY_PERMISSION_MODE sets the sessions' permission mode
@@ -90,6 +92,7 @@ while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
     stage=$(jq -r .stage "factory/jobs/$job/job.json")
   done
 
-  printf 'autopilot: %s (%s) %s, $%.2f, session %s\n' "$job" "$bead" "$stage" "$total" "$sid"
+  tokens=$(jq -s -r '[.[] | (.input // 0) + (.output // 0)] | add // 0 | . / 1e6 * 10 | round / 10 | tostring | if test("\\.") then . else . + ".0" end' "factory/jobs/$job/usage.jsonl" 2>/dev/null || echo 0.0)
+  printf 'autopilot: %s (%s) %s, %sM tokens, API-equivalent $%.2f, session %s\n' "$job" "$bead" "$stage" "${tokens:-0.0}" "$total" "$sid"
   done_jobs=$((done_jobs + 1))
 done
