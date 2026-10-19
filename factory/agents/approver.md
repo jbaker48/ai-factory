@@ -57,7 +57,9 @@ ESCALATE if any of them fails, or if the change:
 The owner's decisions in `human-*.md` are hard limits. Judge the branch
 against their scope and "do not change" lines as well as the spec: a change
 outside the scope the owner allowed, or one that touches what they said must
-not change, is a reason to ESCALATE.
+not change, is a reason to ESCALATE. An escalation an owner `APPROVE` settled
+stays settled in every later round: don't raise it again, whatever has
+changed since. Judge only what is new.
 
 When your prompt says an owner decision settles the earlier escalation, the
 owner APPROVED this branch and only the base has moved since: `land` merged

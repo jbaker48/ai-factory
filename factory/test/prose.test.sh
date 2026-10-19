@@ -89,5 +89,29 @@ test_briefer_decision_file() {
   assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/briefer.md" | tr -s ' ')" 'the escalation or merge block this settles' "briefer APPROVE covers merge blocks"
 }
 
+test_review_fixes() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" t s
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  assert_contains "$t" '.runs/human-<j>.abandoned.md' "unresubmitted human files are moved out of the glob"
+  assert_contains "$t" 'Claimed for you by autopilot' "drain-claimed sessions skip the claim"
+  assert_contains "$t" 'rmdir <job folder>/.resume-claim' "stale claims can be cleared"
+  assert_contains "$t" "if its stage isn't \`needs-human\`" "review of one job checks its stage"
+  assert_contains "$t" '.round_base // 0' "round_base read with a default"
+  assert_contains "$t" 'N - round_base < MAX_ROUNDS' "rounds counted from round_base"
+  assert_contains "$t" 'N - round_base = MAX_ROUNDS' "last round counted from round_base"
+  assert_contains "$t" '`round_base` set to `round`' "resubmit sets round_base"
+  assert_contains "$t" 'and set `round_base` to `round`' "autopilot rework/respec sets round_base"
+  case $t in *'counting on from'*) _fail "no 'counting on from' prose left" ;; *) _pass ;; esac
+  assert_contains "$t" '--remove-label resubmitted --remove-label needs-human' "resume removes both labels"
+  assert_contains "$t" 'Superseded: dropped' "drop closes open tasks"
+  assert_contains "$t" 'is `OPEN`, `gh pr close' "drop closes only an open PR"
+  assert_contains "$t" "select(.title == \$t)" "out-of-scope beads deduped by title"
+  for c in approve rework; do
+    s=$(section "$f" "/factory $c")
+    assert_contains "$s" 'drain check' "/factory $c ends with the drain check"
+  done
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/approver.md" | tr -s ' ')" 'stays settled in every later round' "approver: owner APPROVE stays settled"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

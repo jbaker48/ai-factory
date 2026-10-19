@@ -41,7 +41,8 @@ feature ─► spec-writer ─► planner ─► Beads tasks ─► builder, one
 | autopilot | `autopilot`                      | `autopilot-<k>.md`                           |
 | review    | `briefer` (in `/factory review`) | `human-brief-<k>.md`, `human-<k>.md`         |
 
-`MAX_ROUNDS = 3` review rounds per run. `MAX_TASK_RUNS = 2` builder runs per
+`MAX_ROUNDS = 3` review rounds per run: round `N` is the run's
+`N - round_base`th (see **job.json**). `MAX_TASK_RUNS = 2` builder runs per
 task (the second on `builder-escalation`). To change the factory, edit this
 file, the role files in `factory/agents/`, and `factory/models.json`.
 
@@ -211,6 +212,10 @@ state that never lands in a commit.
   `spec`. `merged` and `dropped` are end states; `resubmitted` waits for the
   drain (see **/factory resume**).
 - `round` is the current review round (0 until the first round starts).
+- `round_base` is the last round before the current run (read it as
+  `.round_base // 0`). A rework, respec or owner decision starts a new run:
+  the `job-set` that starts it sets `round_base` to the current `round`, so
+  the run gets `MAX_ROUNDS` rounds of its own.
 - `tasks` mirrors the job bead's children: `open`, `in_progress`, `closed` or
   `blocked`, the model that last built each, and `runs`, how many builder runs
   it has started. Append fix tasks as you file them.
@@ -320,8 +325,8 @@ Repeat until no task under the bead is open:
    outside the plan: stop and tell the user, quoting
    `bd ready --parent <bead> --explain`.
 2. Pick the model: `builder`, except `builder-escalation` when the task's
-   `runs` is already 1 or more, and for fix tasks when the round being built
-   for is `MAX_ROUNDS`. `bd update <task> --claim`, then in one `job-set` set
+   `runs` is already 1 or more, and for fix tasks when the round `N` being
+   built for has `N - round_base = MAX_ROUNDS`. `bd update <task> --claim`, then in one `job-set` set
    `stage: "build"` and mark the task `in_progress` with that model and `runs`
    plus one. If `build/<task-id>.md` exists from an earlier run, move it to
    `build/<task-id>.run-<earlier runs>.md`, so a report at the plain path is
@@ -371,7 +376,7 @@ starts the next review round; anything else is `build-blocked`.
    `git -C <worktree> clean -fdq` (it keeps gitignored files).
 5. Decide:
    - **All PASS**: go to **Approve**.
-   - **Any CHANGES, `N < MAX_ROUNDS`**: for each CHANGES review, file a fix
+   - **Any CHANGES, `N - round_base < MAX_ROUNDS`**: for each CHANGES review, file a fix
      task, then one new final task that depends on all of them:
      ```bash
      bd create "Fix round N <lens> review" --type=task --parent <bead> \
@@ -383,7 +388,7 @@ starts the next review round; anything else is `build-blocked`.
      bd dep add <final-task> <fix-task>      # once per fix task
      ```
      Go to **Build**.
-   - **Any CHANGES, `N = MAX_ROUNDS`**: write `decision.md` yourself, reading
+   - **Any CHANGES, `N - round_base = MAX_ROUNDS`**: write `decision.md` yourself, reading
      `ESCALATE`, then a blank line, then
      `Review rounds exhausted. Outstanding CHANGES in round-<N>/ from: <reviewers>.`
      Go to **Needs human** with situation `rounds-exhausted`.
@@ -426,10 +431,9 @@ When it exits:
 - **6** (the base moved since `reviewed_base`): `land` merged the new base
   into the job branch with a merge commit (and pushed it with `land: "pr"`;
   the PR stays open and is reused). The final review never saw that code, so
-  it counts as another round (after an owner APPROVE, `MAX_ROUNDS` counts on
-  from the round the job was resubmitted at): if `N < MAX_ROUNDS`, go to
+  it counts as another round: if `N - round_base < MAX_ROUNDS`, go to
   **Review round N+1**, which sets `reviewed_base` to the new base, and then
-  **Approve** again. If `N = MAX_ROUNDS`, rewrite `decision.md` yourself,
+  **Approve** again. If `N - round_base = MAX_ROUNDS`, rewrite `decision.md` yourself,
   keeping the approver's text: `ESCALATE`, then a blank line, then
   `Base moved after the final review round; factory/<job-id> now merges <base> and needs another review.`,
   then a blank line, `## Approver's decision before the base moved`, and the
@@ -479,16 +483,15 @@ Every stop that needs a decision comes here with a situation: `plan-blocked`,
    - Owner decisions bind the autopilot too: it reads every `human-*.md`,
      stays within the owner's scope and "do not change" lines, and PARKs
      itself when it can't. You enforce only the limits above.
-5. Act on it. Increment `reworks` or `respecs` in the same `job-set` that
-   moves the job out of `autopilot`, so an interrupted decision is never
-   counted twice:
+5. Act on it. Increment `reworks` or `respecs`, and set `round_base` to
+   `round`, in the same `job-set` that moves the job out of `autopilot`, so an
+   interrupted decision is never counted twice:
    - **MERGE**: go to **Merge**. If that comes back `merge-blocked` again,
      PARK instead of asking the autopilot twice.
    - **REWORK**: file one fix task
      (`"Autopilot rework k"`, `-d "Address every instruction in factory/jobs/<job-id>/autopilot-<k>.md."`)
      and a new final task depending on it, exactly as a review round does.
-     Then increment `reworks`, clear `situation`, and go to **Build**. The
-     next run gets a fresh `MAX_ROUNDS`, counting on from the current round.
+     Then increment `reworks`, clear `situation`, and go to **Build**.
    - **RESPEC**: run `spec-writer` with the task
      `Amend: read autopilot-<k>.md and revise spec.md.` Close every open task
      under the bead with `--reason "Superseded by respec autopilot-<k>"`, then
@@ -613,10 +616,13 @@ job's build, review or merge. It needs a person: in a headless session, say so
 and stop.
 
 Take the jobs at `stage: "needs-human"`, oldest `updated` first
-(`jq -r 'select(.stage == "needs-human") | "\(.updated) \(.id)"' factory/jobs/*/job.json | sort`),
-or only `<job-id>` when given. For each job, pick `k`, the next number with
-neither `human-brief-<k>.md` nor `human-<k>.md` in its folder; files under a
-lower number are from an earlier review and are ignored.
+(`jq -r 'select(.stage == "needs-human") | "\(.updated) \(.id)"' factory/jobs/*/job.json | sort`).
+With `<job-id>`, take only that job, and if its stage isn't `needs-human`,
+say which stage it is at and stop. For each job, pick `k`, the next number
+with neither `human-brief-<k>.md` nor `human-<k>.md` in its folder. A
+`human-<j>.md` numbered above the one `human_decision` names (any, when it is
+unset) was never resubmitted, from a review that was cut off: move it to
+`.runs/human-<j>.abandoned.md` first, so no later role takes it as binding.
 
 1. **Brief.** Run `factory/bin/beads-snapshot <job folder>`, then `briefer`
    with the task `Brief k.` (then `usage-record claude <job folder> briefer`,
@@ -634,7 +640,10 @@ lower number are from an earlier review and are ignored.
    If it finishes with `NEEDS-OWNER: <question>`, ask the owner that question
    and run `Write decision k.` again with all the answers so far. Check
    `human-<k>.md` exists and its first line is `APPROVE`, `REWORK`, `RESPEC`
-   or `DROP`; never resubmit without one. File each chosen out-of-scope bead:
+   or `DROP`; never resubmit without one. File each chosen out-of-scope bead,
+   unless an open bead already has its title
+   (`bd list --title "<title>" --json | jq -r --arg t "<title>" '.[] | select(.title == $t) | .id'`;
+   reuse that id instead):
    ```bash
    bd create "<title>" --type=<type> -p <priority> -l factory,queued \
      -d "<description>
@@ -643,9 +652,11 @@ lower number are from an earlier review and are ignored.
    ```
    Then put their ids (or `None.`) in place of the file's `Pending:` line:
    `perl -pi -e 's/^Pending:.*/<ids>/' <job folder>/human-<k>.md`.
-4. **Resubmit.** In one `job-set`: `stage: "resubmitted"`,
-   `human_decision: "human-<k>.md"`, `situation: null`, `autopilot: true`.
-   Then `bd update <bead> --remove-label needs-human --add-label resubmitted`,
+4. **Resubmit.** `rmdir <job folder>/.resume-claim` if one is left over (it
+   is stale: a parked job has no worker). In one `job-set`:
+   `stage: "resubmitted"`, `human_decision: "human-<k>.md"`,
+   `situation: null`, `autopilot: true`, `round_base` set to `round`. Then
+   `bd update <bead> --remove-label needs-human --add-label resubmitted`,
    and move on to the next job.
 
 Then, without a job id, take the `needs-human` beads that no job folder's
@@ -658,10 +669,10 @@ if it changes what the bead asks for and the factory created the bead (see
 `bd update <bead> --remove-label needs-human --add-label factory,queued`.
 
 At the end, print one line per job or bead handled: id, outcome, and the
-beads filed. If `pgrep -f factory/bin/autopilot` finds a drain, say it will
-pick the jobs up. If not, offer to start `factory/bin/autopilot --watch` with
-Bash and `run_in_background: true`; it resumes resubmitted jobs and keeps
-watching for more.
+beads filed. Then the **drain check**: if `pgrep -f factory/bin/autopilot`
+finds a drain, say it will pick the jobs up. If not, offer to start
+`factory/bin/autopilot --watch` with Bash and `run_in_background: true`; it
+resumes resubmitted jobs and keeps watching for more.
 
 ## /factory approve <job-id>
 
@@ -671,7 +682,8 @@ every review in `job.json` `PASS` and every task closed; otherwise say so and po
 `/factory review <job-id>`. With `k` as in **/factory review**, write
 `factory/jobs/<job-id>/human-<k>.md` yourself: `APPROVE`, a blank line,
 `## Owner answers`, `/factory approve <job-id>`. Then resubmit it as in
-**/factory review** step 4. The drain merges it.
+**/factory review** step 4, and end with its drain check. The drain merges
+it.
 
 ## /factory rework <job-id> <note>
 
@@ -680,7 +692,8 @@ instructions. The job must be in `needs-human`. With `k` as in
 **/factory review**, write `factory/jobs/<job-id>/human-<k>.md` yourself:
 `REWORK`, a blank line, `## Owner answers` and the note verbatim, then
 `## Instructions` and the note verbatim again. Then resubmit it as in
-**/factory review** step 4. The drain builds it.
+**/factory review** step 4, and end with its drain check. The drain builds
+it.
 
 ## /factory resume <job-id>
 
@@ -695,11 +708,14 @@ the job folder; don't read more of the job than the step below needs.
    `needs-human`, say which situation parked it and point at
    `/factory review <job-id>`, `/factory approve`, `/factory rework` and
    `/factory autopilot <job-id>`, then stop. If it is `resubmitted`, the job
-   must be claimed: the drain claims it with an atomic
-   `mkdir <job folder>/.resume-claim` before it starts this session, and
-   removes the folder when the job's sessions end. In any other session,
-   claim it the same way; if `mkdir` fails, a drain worker has it: say so and
-   stop. Remove the claim with `rmdir` when your session leaves the job.
+   must be claimed. When your prompt says `Claimed for you by autopilot`, the
+   drain already claimed it with `mkdir <job folder>/.resume-claim` and
+   removes that when the job's sessions end. Otherwise claim it yourself with
+   the same atomic `mkdir`. If that fails, a drain worker has it: say so and
+   stop; if `pgrep -f factory/bin/autopilot` also finds no drain, the claim is
+   stale, so tell the user to clear it with `rmdir <job folder>/.resume-claim`
+   and resume again. Remove your own claim with `rmdir` when your session
+   leaves the job.
 2. Make sure nothing from the old session is still running. If
    `pgrep -fl -- "<worktree>"` lists a `codex` or `codex-companion` process,
    stop and tell the user: another session may still own the job, or the
@@ -746,21 +762,23 @@ the job folder; don't read more of the job than the step below needs.
    - **autopilot**: if `decision_file` exists with a valid first line, continue
      from **Autopilot decision** step 3. Otherwise run step 2 with that file.
    - **resubmitted**: the owner decided in `/factory review`. Run
-     `bd update <bead> --remove-label resubmitted`, then act on the first line
-     of `human_decision`. Owner decisions never change `reworks` or `respecs`.
+     `bd update <bead> --remove-label resubmitted --remove-label needs-human`,
+     then act on the first line of `human_decision`. Owner decisions never change `reworks` or `respecs`.
      - **APPROVE**: go to **Merge**. A moved base still gets its re-review
        round, and **Approve** tells the approver the escalation is settled.
      - **REWORK**: file one fix task
        (`"Owner rework k"`, `-d "Address every instruction in factory/jobs/<job-id>/human-<k>.md."`)
        and a new final task depending on it, exactly as a review round does.
-       Go to **Build**. The run gets a fresh `MAX_ROUNDS`, counting on from
-       the job's last round.
+       Go to **Build** (resubmitting set `round_base`, so the run gets its own
+       `MAX_ROUNDS`).
      - **RESPEC**: run `spec-writer` with the task
        `Amend: read human-<k>.md and revise spec.md.` Close every open task
        under the bead with `--reason "Superseded by respec human-<k>"`, then
        go to **Plan**.
      - **DROP**: take the reason from the file's `## Reason` section. With a
-       `pr`, `gh pr close <pr> --comment "Dropped: <reason>"`. Then
+       `pr` whose `gh pr view <pr> --json state -q .state` is `OPEN`,
+       `gh pr close <pr> --comment "Dropped: <reason>"`. Close every open task
+       under the bead with `--reason "Superseded: dropped"`. Then
        `git worktree remove --force <worktree>` (if it still exists),
        `git branch -D factory/<job-id>` (either may already be gone),
        `bd close <bead> --reason "Dropped: <reason>"`, set
