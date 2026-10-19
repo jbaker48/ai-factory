@@ -14,12 +14,9 @@
 # died ends on something other than turn.completed, often after a truncated
 # line, which is skipped); "none" if there is no such line.
 #
-# Codex roles run with no MCP servers: each configured server is started and
-# its tool schemas are loaded into every turn, which costs tokens the roles
-# never use. `-c 'mcp_servers={}'` replaces the servers table from
-# ~/.codex/config.toml with an empty one. Not verified against codex-cli 0.163.0:
-# `codex mcp list` reads the file and ignores -c, and a real run costs a model
-# call. Check a first real run's .jsonl for mcp tool calls or startup events.
+# Codex roles run with no MCP servers from the user's config.toml: each is
+# started for every run, and its tools reach into every turn. Each is switched
+# off with -c mcp_servers.<name>.enabled=false (confirmed with `codex mcp list`).
 # Exit codes: codex's own, or 2 for usage and config errors.
 set -uo pipefail
 
@@ -48,12 +45,32 @@ mkdir -p "$job/.runs"
 log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key"
 { cat "$role"; printf '\n\n---\n\n%s\n' "$prompt"; } >"$log.prompt.md"
 
+# No role uses the user's MCP servers, so turn off every server in config.toml:
+# each one is started for every run, logs a stderr error whenever its auth
+# expires, and puts tools such as mail or home automation within the agent's
+# reach. Plugin-provided servers are not there and cannot be switched off this
+# way; names that are not bare TOML keys are skipped.
+mcp_off=()
+while IFS= read -r name; do
+  [ -n "$name" ] && mcp_off+=(-c "mcp_servers.$name.enabled=false")
+done < <(python3 - <<'PY'
+import os, re, tomllib
+path = os.path.join(os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"), "config.toml")
+servers = tomllib.load(open(path, "rb")).get("mcp_servers", {}) if os.path.exists(path) else {}
+print("\n".join(k for k in servers if re.fullmatch(r"[A-Za-z0-9_-]+", k)))
+PY
+)
+
+mkdir -p "$job/.runs"
+log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key"
+{ cat "$role"; printf '\n\n---\n\n%s\n' "$prompt"; } >"$log.prompt.md"
+
 rc=0
 codex exec \
   -m "$model" \
   -c model_reasoning_effort="\"$effort\"" \
   -c sandbox_workspace_write.network_access="$network" \
-  -c 'mcp_servers={}' \
+  ${mcp_off[@]+"${mcp_off[@]}"} \
   -s workspace-write \
   -C "$worktree" \
   --add-dir "$job" \

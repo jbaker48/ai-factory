@@ -23,8 +23,20 @@ TRUNC='{"type":"thread.started"}
 
 test_mcp_disabled() {
   setup "$NORMAL"
-  RC >/dev/null
-  assert_contains "$(cat "$STUBS/codex.calls")" "mcp_servers=\{\}" "argv empties mcp servers"
+  mkdir -p "$TEST_TMP/ch"
+  printf '[mcp_servers.repomix]\ncommand = "x"\n[mcp_servers."a.b"]\ncommand = "y"\n' >"$TEST_TMP/ch/config.toml"
+  CODEX_HOME="$TEST_TMP/ch" RC >/dev/null
+  calls=$(cat "$STUBS/codex.calls")
+  assert_contains "$calls" "mcp_servers.repomix.enabled=false" "bare server disabled"
+  case $calls in *a.b*) _fail "non-bare name skipped" "$calls" ;; *) _pass ;; esac
+}
+
+test_no_config() {
+  setup "$NORMAL"
+  mkdir -p "$TEST_TMP/empty"
+  out=$(CODEX_HOME="$TEST_TMP/empty" RC)
+  case $(cat "$STUBS/codex.calls") in *mcp_servers*) _fail "no mcp flags without config" ;; *) _pass ;; esac
+  assert_contains "$out" "ended turn.completed" "run still works"
 }
 
 test_ended_normal() {
