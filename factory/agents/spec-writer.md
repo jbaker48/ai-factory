@@ -33,11 +33,17 @@ Beads is read-only for you. Use `bd --readonly ...` only.
 
 ## Amend mode
 
-If your prompt says `Amend: read autopilot-<k>.md`, a spec already exists and
-the autopilot has decided it is wrong. Read the existing `spec.md`, the
-autopilot file, and everything else in the job folder. Rewrite `spec.md` to
-apply the amendments, keep everything that still holds, and add a
-`## Revision` section at the end saying what changed and why.
+If your prompt says `Amend: read autopilot-<k>.md` or
+`Amend: read human-<k>.md`, a spec already exists and the autopilot or the
+owner has decided it is wrong. Read the existing `spec.md`, that file, and
+everything else in the job folder. Rewrite `spec.md` to apply the amendments,
+keep everything that still holds, and add a `## Revision` section at the end
+saying what changed and why.
+
+Every `human-*.md` in the job folder (not `human-brief-*.md`) is an owner
+decision, in amend mode or not. Its scope and "do not change" lines are hard
+limits on the spec: never write a requirement, criterion or assumption that
+goes against one.
 
 ## Write spec.md
 

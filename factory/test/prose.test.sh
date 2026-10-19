@@ -44,5 +44,50 @@ test_briefer_role() {
   assert_eq "opus" "$(jq -r '.briefer.model // empty' "$ROOT/factory/models.json")" "models.json has briefer on opus"
 }
 
+# section <file> <heading>: prints the lines of the "## <heading>" section, up to the next "## ".
+section() {
+  awk -v h="## $2" '$0 == h || index($0, h " ") == 1 {on = 1; print; next} on && /^## / {exit} on' "$1"
+}
+
+test_review_command() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" t s
+  t=$(cat "$f")
+  assert_contains "$t" '## /factory review' "SKILL.md has /factory review"
+  assert_contains "$(sed -n 3p "$f")" '/factory review' "description lists /factory review"
+  assert_contains "$t" 'human_decision' "SKILL.md mentions human_decision"
+  assert_contains "$t" 'resubmitted' "SKILL.md mentions resubmitted"
+  assert_contains "$t" '`dropped`' "SKILL.md mentions dropped"
+  assert_contains "$t" '.resume-claim' "SKILL.md mentions .resume-claim"
+  assert_contains "$t" 'NEEDS-OWNER' "SKILL.md handles the briefer's NEEDS-OWNER"
+  assert_contains "$t" 'factory/bin/autopilot --watch' "review offers a watching drain"
+  assert_contains "$(grep -m 1 '^- `stage` is one of' -A 2 "$f")" '`dropped`' "job.json stages list dropped"
+  assert_contains "$(grep -m 1 '^- `stage` is one of' -A 2 "$f")" '`resubmitted`' "job.json stages list resubmitted"
+  for c in approve rework; do
+    s=$(section "$f" "/factory $c")
+    assert_contains "$s" 'resubmit' "/factory $c resubmits"
+    case $s in *'Run **Merge**'* | *'Go to **Build**'*) _fail "/factory $c no longer runs the job" "$s" ;; *) _pass ;; esac
+  done
+}
+
+test_roles_read_owner_decisions() {
+  local r
+  for r in approver autopilot builder spec-writer planner; do
+    assert_contains "$(cat "$ROOT/factory/agents/$r.md")" 'human-*.md' "$r reads human-*.md"
+  done
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/autopilot.md" | tr -s ' ')" 'may not RESPEC against' "autopilot can't respec against the owner"
+  assert_contains "$(cat "$ROOT/factory/autopilot-policy.md")" 'human-*.md' "policy: owner decisions bind"
+  assert_contains "$(cat "$ROOT/README.md")" '/factory review' "README lists /factory review"
+}
+
+test_briefer_decision_file() {
+  local t
+  t=$(cat "$ROOT/factory/agents/briefer.md")
+  assert_contains "$t" '## Owner answers' "briefer decision has Owner answers"
+  assert_contains "$t" '## Beads filed' "briefer decision has Beads filed"
+  assert_contains "$t" 'NEEDS-OWNER' "briefer can ask the owner again"
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/briefer.md" | tr -s ' ')" 'except the `NEEDS-OWNER:` line above' "briefer Finish allows NEEDS-OWNER"
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/briefer.md" | tr -s ' ')" 'the escalation or merge block this settles' "briefer APPROVE covers merge blocks"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

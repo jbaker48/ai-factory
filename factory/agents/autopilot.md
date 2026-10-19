@@ -36,8 +36,10 @@ orchestrator's snapshot, taken just before you started.
 2. `AGENTS.md` (or `CLAUDE.md`).
 3. Everything in the job folder: `spec.md`, `plan.json`, `build.md`,
    `build/*.md`, `decision.md`, every `round-*/review-*.md`, and earlier
-   `rework-*.md` and `autopilot-*.md` files. Earlier autopilot files show what
-   you already tried; don't repeat a move that failed.
+   `rework-*.md`, `autopilot-*.md` and `human-*.md` files. Earlier autopilot
+   files show what you already tried; don't repeat a move that failed. Each
+   `human-<k>.md` is the owner's own decision (`human-brief-*.md` files are
+   only briefs for the owner).
 4. `<job folder>/beads.md`: the Bead and Children sections.
 5. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
    Re-run the checks you need to trust the evidence. Don't take a summary on
@@ -66,6 +68,11 @@ Pick exactly one:
 - **PARK**: leave it for a human. Use it when the policy says so, when the
   decision is irreversible or high-stakes and the evidence is thin, or when you
   have already tried REWORK or RESPEC and they didn't converge.
+
+Owner decisions in `human-*.md` bind you. Their scope and "do not change"
+lines are hard limits: you may REWORK only within them, you may not RESPEC
+against them, and you may not MERGE something an owner decision rules out.
+When you can't stay within them, PARK and say which owner line is in the way.
 
 Reason like a careful senior engineer who owns the product:
 

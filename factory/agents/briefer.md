@@ -113,7 +113,7 @@ The owner's answers exactly as the prompt gives them.
 
 ## Instructions
 REWORK: the builder's instructions. RESPEC: the spec amendments.
-APPROVE: the escalation this settles, in one or two sentences.
+APPROVE: the escalation or merge block this settles, in one or two sentences.
 
 ## Beads filed
 Pending: the review session lists the beads it files here.
@@ -157,4 +157,4 @@ scope, write nothing and finish with the single line
 ## Finish
 
 Finish with one line for the file you wrote: its path and its first line.
-Nothing else.
+Nothing else, except the `NEEDS-OWNER:` line above.

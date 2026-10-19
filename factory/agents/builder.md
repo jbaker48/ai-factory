@@ -30,8 +30,12 @@ orchestrator's snapshot, taken just before you started.
 4. The Children section of `beads.md` and the `build/*.md` reports of closed tasks,
    so you know what earlier tasks already did.
 5. If the task points at review files (`round-<N>/review-*.md`), a rework file
-   (`rework-<k>.md`) or an autopilot file (`autopilot-<k>.md`), read them and
-   address every finding they list.
+   (`rework-<k>.md`), an owner decision (`human-<k>.md`) or an autopilot file
+   (`autopilot-<k>.md`), read them and address every finding they list.
+6. Every `human-*.md` in the job folder (not `human-brief-*.md`): the owner's
+   decisions. Their scope and "do not change" lines are hard limits on any
+   task, even one that doesn't point at them. If your task can't be done
+   within them, report BLOCKED.
 
 ## Build
 
