@@ -103,13 +103,14 @@ test_autopilot_line() {
   mkdir -p factory/jobs/001-demo
   echo '{"id":"001-demo","bead":"demo-1","stage":"merged"}' >factory/jobs/001-demo/job.json
   { ul build 1500000 0 250000; echo '{"trunc'; } >factory/jobs/001-demo/usage.jsonl
+  stub bd 'exit 0' # the drain's claim succeeds
   stub claude 'echo "{\"session_id\":\"sid-1\",\"total_cost_usd\":1.5}"'
   # shellcheck disable=SC2016 # the stub expands these when it runs
   printf '#!/usr/bin/env bash\nn=$(cat "%s/n" 2>/dev/null || echo 0); echo $((n+1)) >"%s/n"; [ "$n" = 0 ] && echo demo-1; exit 0\n' "$TEST_TMP" "$TEST_TMP" >factory/bin/next-bead
   printf '#!/usr/bin/env bash\nexit 0\n' >factory/bin/usage-record
   out=$(factory/bin/autopilot 1 2>&1)
   # shellcheck disable=SC2016 # literal dollar sign
-  assert_contains "$out" 'autopilot: 001-demo (demo-1) merged, 1.8M tokens, API-equivalent $1.50, session sid-1' "autopilot line"
+  assert_contains "$out" '[001-demo] demo-1 merged, 1.8M tokens, API-equivalent $1.50, session sid-1' "autopilot line"
   cd - >/dev/null || return
 }
 

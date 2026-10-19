@@ -2,29 +2,47 @@
 # Drains the factory queue on autopilot, one headless Claude session per job,
 # so no job's context carries into the next.
 #
-#   factory/bin/autopilot [<count>] [--watch] [--budget <usd>]
+#   factory/bin/autopilot [<count>] [--jobs N] [--watch] [--budget <usd>]
 #
-# Each round takes the oldest resubmitted job (job.json stage "resubmitted",
+# Runs up to N jobs at once (--jobs, else the `jobs` setting in
+# factory/settings.json, else 1), one worker per job slot. <count> bounds the
+# total jobs across workers: a worker reserves a slot in a shared counter
+# (a file under factory/autopilot-runs/, guarded by a mkdir lock) before it
+# claims work and gives the slot back if it finds none.
+#
+# Each worker takes the oldest resubmitted job (job.json stage "resubmitted",
 # oldest "updated") it can claim, else the next queued bead. A resubmitted job
-# is claimed with `mkdir factory/jobs/<id>/.resume-claim`, which is removed
-# when that job's sessions end (also on Ctrl-C/TERM and when the resume cap
-# stops the drain); a claim this process didn't create is never removed. Every
-# resume prompt for a claimed job says "Claimed for you by autopilot." so the
-# session skips claiming. The drain stops when nothing is resubmitted and the
-# queue is empty. --watch sleeps AUTOPILOT_POLL_S (default 60) seconds and
-# looks again instead; <count> still bounds the total jobs.
+# is claimed with `mkdir factory/jobs/<id>/.resume-claim` (given back at once
+# if job.json no longer says resubmitted), which is removed when that job's
+# sessions end (also on Ctrl-C/TERM and when the resume cap stops the worker);
+# a claim this process didn't create is never removed. Every resume prompt for
+# a claimed job says "Claimed for you by autopilot." so the session skips
+# claiming. A queued bead is claimed before its session starts with
+# `bd update <bead> --claim` as actor factory-autopilot; if that fails,
+# next-bead is asked again without the beads this run already tried. Sessions
+# run with BEADS_ACTOR=factory-autopilot (for a resubmitted job: the bead's
+# assignee, which bd close requires), and the adopt prompt says "Claimed for
+# you by autopilot as factory-autopilot." A worker stops when nothing is
+# resubmitted and the queue is empty. --watch sleeps AUTOPILOT_POLL_S
+# (default 60) seconds and looks again instead; <count> still bounds the jobs.
 #
 # For each queued job: runs `claude -p "/factory autopilot adopt <bead>"`. If
 # the session ends before the job reaches merged or needs-human (a crash, a
 # budget cap, a time limit), runs `/factory resume <job-id>`, up to
-# MAX_RESUMES times, then stops. A job is done at merged, needs-human or
-# dropped. A parked job doesn't stop the loop.
+# MAX_RESUMES times. A job is done at merged, needs-human or dropped. A parked
+# job doesn't stop the worker. A failure (the session made no job, or the
+# resumes ran out) stops that worker, not the others; a bead whose session
+# made no job is given back (status open, no assignee).
 # --budget caps each session's spend (claude --max-budget-usd).
 #
 # After each session, records its orchestrator usage in the job's usage.jsonl
 # (factory/bin/usage-record session).
-# Each job's final line gives its tokens (from usage.jsonl) and the
-# API-equivalent cost (summed total_cost_usd).
+# Prints one line per job event, prefixed "[<job-id>]" (or "[<bead>]" before
+# the job exists); each job's final line gives its tokens (from usage.jsonl)
+# and the API-equivalent cost (summed total_cost_usd). Ctrl-C/TERM kills every
+# worker's session and prints
+# "autopilot: stopped. In flight: <job-id> (/factory resume <job-id>) ...".
+# Exit: 0 done, 1 a worker failed, 2 usage, 130 stopped.
 #
 # Run one driver per repo. Session output goes to factory/autopilot-runs/.
 # FACTORY_PERMISSION_MODE sets the sessions' permission mode
@@ -32,18 +50,25 @@
 set -uo pipefail
 
 MAX_RESUMES=2
-count=0 budget='' watch=0
+ACTOR=factory-autopilot
+usage() { echo "usage: autopilot [<count>] [--jobs N] [--watch] [--budget <usd>]" >&2; exit 2; }
+count=0 budget='' watch=0 jobs=''
 while [ $# -gt 0 ]; do
   case $1 in
     --watch) watch=1; shift ;;
     --budget) budget=${2:?--budget needs an amount}; shift 2 ;;
+    --jobs) [ $# -ge 2 ] || usage; jobs=$2; shift 2 ;;
     [0-9]*) count=$1; shift ;;
-    *) echo "usage: autopilot [<count>] [--watch] [--budget <usd>]" >&2; exit 2 ;;
+    *) usage ;;
   esac
 done
 
-repo=$(cd "$(dirname "$0")/../.." && pwd)
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo=$(cd "$here/../.." && pwd)
 cd "$repo" || exit 1
+[ -n "$jobs" ] || jobs=$("$here/settings" jobs 1) || exit 1
+case $jobs in '' | *[!0-9]* | 0*) usage ;; esac
+case $count in *[!0-9]*) usage ;; esac
 logs=factory/autopilot-runs
 mkdir -p "$logs"
 
@@ -52,94 +77,244 @@ mkdir -p "$logs"
 # without the idle cap, too.
 export BASH_DEFAULT_TIMEOUT_MS=${BASH_DEFAULT_TIMEOUT_MS:-7200000}
 export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-0}
+# The drain's own bd calls (claims) and every session run as this actor, so
+# the session that closes a bead is the one that claimed it.
+export BEADS_ACTOR=$ACTOR
 
-# The claim this process holds right now ("" when none); only ever set after
-# our own mkdir succeeded.
-claim=
-release() { [ -n "$claim" ] && rmdir "$claim" 2>/dev/null; claim=; return 0; }
-trap release EXIT
-trap 'echo; echo "autopilot: stopped. Pick up a cut-off job with /factory resume <job-id>."; exit 130' INT TERM
+# Shared state for this run: the job counter, its lock, the beads tried,
+# one in-flight file per worker, and a flag for "a worker found nothing left".
+run="$logs/.drain-$$"
+mkdir -p "$run" || exit 1
+echo 0 >"$run/count"
+: >"$run/tried"
 
-# claim_resubmitted: claims the oldest resubmitted job we can; sets $job (not
-# a subshell: $claim must survive).
-claim_resubmitted() {
-  local id
-  job=
-  while read -r id; do
-    [ -n "$id" ] || continue
-    if mkdir "factory/jobs/$id/.resume-claim" 2>/dev/null; then
-      claim="factory/jobs/$id/.resume-claim"
-      job=$id
-      return 0
-    fi
-  done < <(jq -r 'select(.stage == "resubmitted") | "\(.updated // "")\t\(.id)"' factory/jobs/*/job.json 2>/dev/null | sort | cut -f 2)
-  return 1
+lock() { until mkdir "$run/lock" 2>/dev/null; do sleep 0.05; done; }
+unlock() { rmdir "$run/lock" 2>/dev/null; }
+
+# reserve: takes one of the <count> job slots; fails when none are left.
+reserve() {
+  [ "$count" -eq 0 ] && return 0
+  local n
+  lock
+  n=$(cat "$run/count")
+  if [ "$n" -ge "$count" ]; then unlock; return 1; fi
+  echo $((n + 1)) >"$run/count"
+  unlock
+}
+unreserve() {
+  [ "$count" -eq 0 ] && return 0
+  local n
+  lock
+  n=$(cat "$run/count")
+  echo $((n - 1)) >"$run/count"
+  unlock
 }
 
-# Runs one headless session; prints "<session id> <cost>".
-session() {
-  local name=$1 prompt=$2 out
-  out="$logs/$(date +%Y%m%d-%H%M%S)-$name.json"
-  claude -p "$prompt" \
-    --permission-mode "${FACTORY_PERMISSION_MODE:-bypassPermissions}" \
-    --permission-prompts none \
-    --output-format json \
-    ${budget:+--max-budget-usd "$budget"} \
-    >"$out" 2>"${out%.json}.stderr" </dev/null
-  jq -r '"\(.session_id // "-") \(.total_cost_usd // 0)"' "$out" 2>/dev/null || echo "- 0"
+# job_of <bead>: the newest job for the bead, reading each job.json on its own.
+job_of() {
+  local f
+  for f in factory/jobs/*/job.json; do
+    [ -f "$f" ] && jq -r --arg b "$1" 'select(.bead == $b) | .id' "$f" 2>/dev/null
+  done | tail -n 1
 }
 
-# record <job> <sid>: the session's orchestrator usage; never fails the loop.
-record() {
-  [ "$2" = - ] && return 0
-  "$(dirname "${BASH_SOURCE[0]}")/usage-record" session "factory/jobs/$1" "$2" || true
+# kill_tree <pid>: the process and everything it started.
+# shellcheck disable=SC2329 # called from a trap
+kill_tree() {
+  local c
+  for c in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$c"; done
+  kill -TERM "$1" 2>/dev/null
 }
 
 headless="This is a headless run: nobody can answer questions. Run only this job, then stop."
-done_jobs=0
-while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
-  claim_resubmitted
-  note=
-  if [ -n "$job" ]; then
-    note=" Claimed for you by autopilot."
-    bead=$(jq -r '.bead // "-"' "factory/jobs/$job/job.json")
-    echo "autopilot: $job ($bead) was resubmitted; resuming."
-    read -r sid cost < <(session "$job-resume0" "/factory resume $job. $headless$note")
-  else
-    bead=$("$(dirname "${BASH_SOURCE[0]}")/next-bead")
-    if [ -z "$bead" ]; then
-      [ "$watch" -eq 1 ] || { echo "autopilot: queue empty."; break; }
-      sleep "${AUTOPILOT_POLL_S:-60}"
+
+# worker <n>: runs in a background subshell; takes jobs one at a time. Its
+# state is global on purpose: the subshell is the worker's own, and the EXIT
+# trap runs after the function returns, when locals are gone.
+worker() {
+  claim='' job='' bead='' mine='' pending='' spid='' sid=- cost=0 actor=$ACTOR inflight="$run/w$1"
+
+  say() { printf '[%s] %s\n' "${job:-$bead}" "$1"; }
+  release() { [ -n "$claim" ] && rmdir "$claim" 2>/dev/null; claim=; return 0; }
+  # give_back: a bead we claimed but no job took over goes back to the queue.
+  # Only our own claim: another worker's claim has the same actor.
+  give_back() {
+    [ -n "$mine" ] || return 0
+    mine=''
+    bd update "$bead" --status open --assignee '' --if-assignee "$ACTOR" >/dev/null 2>&1 </dev/null
+  }
+  # shellcheck disable=SC2329 # called from a trap
+  stop() {
+    [ -n "$spid" ] && kill_tree "$spid"
+    release
+    if [ -z "$job" ] && [ -n "$mine" ]; then
+      job=$(job_of "$bead")
+      if [ -n "$job" ]; then
+        echo "$job (/factory resume $job)" >"$inflight"
+      else
+        give_back
+        echo "$bead (no job yet; claim given back)" >"$inflight"
+      fi
+    fi
+    exit 143
+  }
+  trap release EXIT
+  trap stop TERM
+  # hold/unhold: a TERM between taking a claim and noting it waits until the
+  # claim is noted, so stop can give it back.
+  hold() { pending=''; trap 'pending=1' TERM; }
+  unhold() { trap stop TERM; [ -z "$pending" ] || stop; }
+
+  # pause <s>: a sleep the TERM trap can interrupt.
+  pause() { sleep "$1" & spid=$!; wait "$spid"; spid=; }
+
+  # session <name> <prompt>: one headless session; sets sid and cost.
+  session() {
+    local out
+    out="$logs/$(date +%Y%m%d-%H%M%S)-$1.json"
+    BEADS_ACTOR=$actor claude -p "$2" \
+      --permission-mode "${FACTORY_PERMISSION_MODE:-bypassPermissions}" \
+      --permission-prompts none \
+      --output-format json \
+      ${budget:+--max-budget-usd "$budget"} \
+      >"$out" 2>"${out%.json}.stderr" </dev/null &
+    spid=$!
+    wait "$spid"
+    spid=
+    read -r sid cost < <(jq -r '"\(.session_id // "-") \(.total_cost_usd // 0)"' "$out" 2>/dev/null || echo "- 0")
+    [ -n "$sid" ] || sid=- cost=0
+  }
+
+  # record: the session's orchestrator usage; never fails the worker.
+  record() {
+    [ "$sid" = - ] && return 0
+    "$here/usage-record" session "factory/jobs/$job" "$sid" || true
+  }
+
+  # claim_resubmitted: claims the oldest resubmitted job we can; sets job.
+  claim_resubmitted() {
+    local id f
+    job=
+    while read -r id; do
+      [ -n "$id" ] || continue
+      hold
+      if mkdir "factory/jobs/$id/.resume-claim" 2>/dev/null; then
+        claim="factory/jobs/$id/.resume-claim"
+        # Another worker may have finished it between the listing and the claim.
+        if [ "$(jq -r .stage "factory/jobs/$id/job.json" 2>/dev/null)" = resubmitted ]; then
+          job=$id
+          echo "$job (/factory resume $job)" >"$inflight"
+          unhold
+          return 0
+        fi
+        release
+      fi
+      unhold
+    done < <(for f in factory/jobs/*/job.json; do
+      [ -f "$f" ] && jq -r 'select(.stage == "resubmitted") | "\(.updated // "")\t\(.id)"' "$f" 2>/dev/null
+    done | sort | cut -f 2)
+    return 1
+  }
+
+  # claim_bead: claims the next queued bead we can; sets bead.
+  claim_bead() {
+    local skip
+    while :; do
+      skip=$(tr '\n' ' ' <"$run/tried")
+      bead=$(FACTORY_EXCLUDE_BEADS=$skip "$here/next-bead" </dev/null)
+      [ -n "$bead" ] || return 1
+      lock; echo "$bead" >>"$run/tried"; unlock
+      hold
+      if bd update "$bead" --claim >/dev/null 2>&1 </dev/null; then
+        mine=1
+        echo "$bead (no job yet)" >"$inflight"
+        unhold
+        return 0
+      fi
+      unhold
+    done
+  }
+
+  while :; do
+    reserve || return 0
+    job='' bead='' mine='' note=''
+    if claim_resubmitted; then
+      bead=$(jq -r '.bead // "-"' "factory/jobs/$job/job.json")
+      note=" Claimed for you by autopilot."
+      actor=$(bd show "$bead" --json 2>/dev/null </dev/null |
+        jq -r 'if type == "array" then .[0] else . end | .assignee // empty' 2>/dev/null)
+      actor=${actor:-$ACTOR}
+      say "$bead was resubmitted; resuming."
+      session "$job-resume0" "/factory resume $job. $headless$note"
+    elif claim_bead; then
+      actor=$ACTOR
+      session "$bead" "/factory autopilot adopt $bead. $headless Claimed for you by autopilot as $ACTOR."
+      job=$(job_of "$bead")
+      if [ -z "$job" ]; then
+        give_back
+        rm -f "$inflight"
+        say "the session made no job (session $sid). See $logs/." >&2
+        return 1
+      fi
+      echo "$job (/factory resume $job)" >"$inflight"
+    else
+      unreserve
+      [ "$watch" -eq 1 ] || { : >"$run/empty"; return 0; }
+      pause "${AUTOPILOT_POLL_S:-60}"
       continue
     fi
-    read -r sid cost < <(session "$bead" "/factory autopilot adopt $bead. $headless")
-    job=$(jq -r --arg b "$bead" 'select(.bead == $b) | .id' factory/jobs/*/job.json 2>/dev/null | tail -n 1)
-    if [ -z "$job" ]; then
-      echo "autopilot: $bead: the session made no job (session $sid). See $logs/." >&2
-      exit 1
-    fi
-  fi
-  total=$cost
-  record "$job" "$sid"
+    total=$cost
+    record
 
-  resumes=0
-  stage=$(jq -r .stage "factory/jobs/$job/job.json")
-  while [ "$stage" != merged ] && [ "$stage" != needs-human ] && [ "$stage" != dropped ]; do
-    if [ "$resumes" -ge "$MAX_RESUMES" ]; then
-      echo "autopilot: $job ($bead) still at $stage after $resumes resumes (session $sid). Stopping." >&2
-      release
-      exit 1
-    fi
-    resumes=$((resumes + 1))
-    echo "autopilot: $job ($bead) ended at $stage; resuming ($resumes/$MAX_RESUMES)."
-    read -r sid cost < <(session "$job-resume$resumes" "/factory resume $job. $headless$note")
-    record "$job" "$sid"
-    total=$(jq -n "$total + $cost")
+    resumes=0
     stage=$(jq -r .stage "factory/jobs/$job/job.json")
-  done
-  release
+    while [ "$stage" != merged ] && [ "$stage" != needs-human ] && [ "$stage" != dropped ]; do
+      if [ "$resumes" -ge "$MAX_RESUMES" ]; then
+        say "$bead still at $stage after $resumes resumes (session $sid). Stopping." >&2
+        release
+        rm -f "$inflight"
+        return 1
+      fi
+      resumes=$((resumes + 1))
+      say "$bead ended at $stage; resuming ($resumes/$MAX_RESUMES)."
+      session "$job-resume$resumes" "/factory resume $job. $headless$note"
+      record
+      total=$(jq -n "$total + $cost")
+      stage=$(jq -r .stage "factory/jobs/$job/job.json")
+    done
+    release
+    rm -f "$inflight"
 
-  tokens=$(jq -R -n -r '[inputs | fromjson? | select(type == "object") | (.input // 0) + (.output // 0)] | add // 0 | . / 1e6 * 10 | round / 10 | tostring | if test("\\.") then . else . + ".0" end' "factory/jobs/$job/usage.jsonl" 2>/dev/null || echo 0.0)
-  printf 'autopilot: %s (%s) %s, %sM tokens, API-equivalent $%.2f, session %s\n' "$job" "$bead" "$stage" "${tokens:-0.0}" "$total" "$sid"
-  done_jobs=$((done_jobs + 1))
+    tokens=$(jq -R -n -r '[inputs | fromjson? | select(type == "object") | (.input // 0) + (.output // 0)] | add // 0 | . / 1e6 * 10 | round / 10 | tostring | if test("\\.") then . else . + ".0" end' "factory/jobs/$job/usage.jsonl" 2>/dev/null) || tokens=0.0
+    say "$(printf '%s %s, %sM tokens, API-equivalent $%.2f, session %s' "$bead" "$stage" "${tokens:-0.0}" "$total" "$sid")"
+  done
+}
+
+pids=()
+# shellcheck disable=SC2329 # called from a trap
+cleanup() { rm -rf "$run"; }
+trap cleanup EXIT
+# shellcheck disable=SC2329 # called from a trap
+stopped() {
+  local p f list=''
+  trap '' INT TERM
+  for p in "${pids[@]}"; do kill -TERM "$p" 2>/dev/null; done
+  for p in "${pids[@]}"; do wait "$p" 2>/dev/null; done
+  for f in "$run"/w*; do
+    [ -s "$f" ] && list="$list $(cat "$f")"
+  done
+  echo
+  echo "autopilot: stopped. In flight:${list:- none}"
+  exit 130
+}
+trap stopped INT TERM
+
+for w in $(seq 1 "$jobs"); do
+  worker "$w" &
+  pids+=($!)
 done
+# A trapped signal interrupts wait and runs stopped, which exits.
+failed=0
+for p in "${pids[@]}"; do wait "$p" || failed=1; done
+[ -e "$run/empty" ] && echo "autopilot: queue empty."
+exit "$failed"

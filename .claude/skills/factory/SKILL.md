@@ -90,7 +90,8 @@ already in flight:
   factory didn't create. Add context with `bd comment`.
 - Never claim, close, reopen or relabel a bead that is `in_progress` or
   assigned to someone else. Queue claims go through `bd ready`, which skips
-  them anyway.
+  them anyway. The one exception is a bead the autopilot drain claimed for
+  your run (see **/factory adopt**).
 - Only add or remove the factory's own labels (`factory`, `queued`,
   `needs-human`, `resubmitted`, `final`, `fix`). Leave every other label alone.
 - Depend on in-flight work instead of duplicating it. A queued job whose
@@ -161,7 +162,13 @@ started or was handed.
   Only **Merge** touches it.
 - Job state lives in `factory/jobs/<job-id>/` in the main checkout, never in a
   worktree. Each job has its own `job.json`, so sessions never write the same
-  file. Queue claims go through `bd ready --claim`, which is atomic.
+  file. Queue claims go through `bd update <bead> --claim`, which is atomic:
+  of two sessions claiming one bead, exactly one wins.
+- `factory/bin/autopilot --jobs N` runs up to N headless jobs at once (the
+  `jobs` setting in `factory/settings.json`, default 1). It claims each bead
+  before its session starts, as the Beads actor `factory-autopilot`, and runs
+  the session with `BEADS_ACTOR=factory-autopilot`, so the session's own
+  `--claim` and its `bd close` work as the same actor.
 - Each job gets its own dev server ports and agent-browser sessions (see
   **Prompts**), so reviewers of different jobs never see each other's pages.
 
@@ -542,7 +549,10 @@ session per job with `/factory autopilot adopt <bead>`, and `/factory resume`
 when a session ends early. It resumes `resubmitted` jobs before it starts new
 beads, claiming each with `mkdir <job folder>/.resume-claim`. With
 `--watch` it keeps polling when nothing is left instead of exiting, and
-`<count>` still bounds the jobs. In a headless
+`<count>` still bounds the jobs. With `--jobs N` (default: the `jobs`
+setting, else 1) it runs up to N jobs at once and `<count>` counts jobs
+across all of them; it claims each bead first, as `factory-autopilot`, and
+says so in the prompt. In a headless
 session nobody can answer: never ask a question, and run only the job you
 were given.
 
@@ -605,8 +615,15 @@ Run the factory on a bead that already exists.
   existing children are kept: the planner reuses those that fit.
 - An `epic` isn't a job. Queue its open, unassigned, non-epic children with
   `bd update <child> --add-label factory,queued` and print them.
-- Anything `in_progress` or assigned to someone else: refuse, say who has it,
-  and suggest `bd dep add` so new factory work can wait for it.
+- An `in_progress` bead whose assignee is `factory-autopilot`, when your
+  prompt says `Claimed for you by autopilot as factory-autopilot.`: the
+  autopilot drain claimed it for this run. Treat it as open and unassigned;
+  step 2's `bd update <bead> --claim` succeeds because your session runs as
+  that actor.
+- Anything else `in_progress` or assigned to someone else, including a
+  `factory-autopilot` bead your prompt doesn't say was claimed for you:
+  refuse, say who has it, and suggest `bd dep add` so new factory work can
+  wait for it.
 
 `/factory autopilot adopt <bead>` does the same with `autopilot: true`.
 

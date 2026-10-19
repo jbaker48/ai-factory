@@ -113,5 +113,14 @@ test_review_fixes() {
   assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/approver.md" | tr -s ' ')" 'stays settled in every later round' "approver: owner APPROVE stays settled"
 }
 
+test_parallel_drain() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md"
+  assert_contains "$(section "$f" '/factory adopt')" 'factory-autopilot' "adopt accepts the drain's claim"
+  assert_contains "$(section "$f" '/factory autopilot')" '--jobs' "drain text mentions --jobs"
+  assert_contains "$(section "$f" 'Parallel jobs')" 'factory-autopilot' "Parallel jobs names the actor"
+  assert_contains "$(cat "$ROOT/README.md")" '--jobs' "README documents --jobs"
+  assert_contains "$(cat "$ROOT/INSTALL.md")" "\`jobs\`" "INSTALL documents the jobs setting"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

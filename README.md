@@ -140,6 +140,7 @@ For a long drain, run the queue from your shell instead:
 ```bash
 factory/bin/autopilot              # drain the queue, one headless session per job
 factory/bin/autopilot 3 --budget 20   # three jobs, at most $20 per session
+factory/bin/autopilot --jobs 3     # run up to three jobs at once
 ```
 
 `/factory autopilot` runs every job in one session, so the orchestrator's
@@ -153,6 +154,16 @@ keeps the session output in `factory/autopilot-runs/`. It runs sessions with
 `FACTORY_PERMISSION_MODE` to change that), and raises the 10-minute limit
 headless sessions put on background commands, which long Codex runs would hit.
 Run one driver per repo.
+
+`--jobs N` runs up to N jobs at once, each in its own session and worktree
+(default: `"jobs"` in `factory/settings.json`, else 1). `<count>` counts jobs
+across all of them, and every output line starts with `[<job-id>]`. The
+script claims each bead before its session starts, as the Beads actor
+`factory-autopilot`, so two workers never take the same bead; `/factory
+adopt` accepts a bead claimed that way and still refuses any other in-progress
+bead. Ctrl-C stops every session and prints the jobs that were in flight with
+their `/factory resume` commands. A failed job stops its own worker, not the
+others, and the script exits 1 at the end.
 
 When a job hits a plan BLOCKED, a build BLOCKED (after escalating to Sol), run
 out of review rounds, an approver ESCALATE or a failed merge, the autopilot

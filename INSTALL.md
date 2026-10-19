@@ -137,7 +137,8 @@ Show the user each of these and record their answer:
   Ask whether the repo has a GitHub remote: yes sets `"land": "pr"`, no sets
   `"land": "local"`. Ask which labels mark high-priority beads and put them in
   `priority_labels` (`[]` for none), and leave `jobs` at 1 unless they want
-  parallel jobs.
+  parallel jobs: `jobs` is how many jobs `factory/bin/autopilot` runs at once
+  (`--jobs N` overrides it per run).
 - **Commit**: the factory reads `AGENTS.md` from worktrees branched off
   `main`, so the install only works once it is committed on `main`. Offer to
   commit it as one commit.

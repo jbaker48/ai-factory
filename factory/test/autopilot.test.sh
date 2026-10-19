@@ -12,12 +12,29 @@ mkjob() {
     '{id:$id,bead:$b,stage:$s,updated:$u}' >"factory/jobs/$1/job.json"
 }
 
+# bdstub: a bd whose claim is a mkdir per bead (a second claimer fails) and
+# whose `update --status open` gives the claim back; it logs BEADS_ACTOR.
+bdstub() {
+  # shellcheck disable=SC2016 # the stub expands these when it runs
+  stub bd '
+echo "${BEADS_ACTOR:-}" >>"$TEST_TMP/actors"
+case "$1 ${3:-}" in
+  "update --claim") mkdir "$TEST_TMP/claims/$2" 2>/dev/null || { echo "already claimed" >&2; exit 1; } ;;
+  "update --status") rmdir "$TEST_TMP/claims/$2" 2>/dev/null ;;
+  "show "*) echo "[]" ;;
+esac
+exit 0'
+}
+
 # setup: a repo, a claude stub that merges the job named in its prompt (the
 # first /factory resume <id> or adopt <bead>), and a next-bead that hands out
 # $TEST_TMP/queue's lines one at a time.
 setup() {
   R=$(mkrepo); cd "$R" || return
-  rm -f "$TEST_TMP/queue" "$TEST_TMP/nb.n" "$TEST_TMP/claimed-during" "$STUBS/claude.calls"
+  rm -rf "$TEST_TMP/queue" "$TEST_TMP/nb.n" "$TEST_TMP/claimed-during" "$STUBS/claude.calls" \
+    "$TEST_TMP/claims" "$TEST_TMP/actors" "$TEST_TMP/active" "$TEST_TMP/conc" "$TEST_TMP/ended" "$STUBS/bd.calls"
+  mkdir -p "$TEST_TMP/claims" "$TEST_TMP/active"
+  bdstub
   # shellcheck disable=SC2016 # the stub expands these when it runs
   stub claude '
 p=$2
@@ -72,7 +89,8 @@ test_adopted_job_resume_not_claimed() {
   mkjob 001-a bead-a queued
   echo bead-a >"$TEST_TMP/queue"
   STUB_STAGE=build factory/bin/autopilot 1 >/dev/null 2>&1
-  assert_eq 0 "$(grep -c 'Claimed' "$STUBS/claude.calls")" "no claim text for adopted jobs"
+  assert_eq 0 "$(grep '^-p /factory\\ resume' "$STUBS/claude.calls" | grep -c 'Claimed')" "no claim text in an adopted job's resumes"
+  assert_eq 2 "$(grep -c '^-p /factory\\ resume' "$STUBS/claude.calls")" "two resumes ran"
   cd - >/dev/null || return
 }
 
@@ -158,6 +176,145 @@ test_watch_keeps_polling_until_killed() {
   alive=$(kill -0 "$pid" 2>/dev/null && echo yes || echo no)
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   assert_eq yes "$alive" "still running after 3 empty polls"
+  cd - >/dev/null || return
+}
+
+# pool: setup, then a claude stub that marks itself active, records how many
+# sessions were active at once, sleeps $STUB_SLEEP (default 1) and merges the
+# job, and a next-bead that prints the first bead of $TEST_TMP/beads not in
+# FACTORY_EXCLUDE_BEADS. It ignores claims, so two workers race for a bead.
+pool() {
+  setup
+  rm -f "$TEST_TMP/beads"
+  # shellcheck disable=SC2016 # the stub expands these when it runs
+  stub claude '
+echo "${BEADS_ACTOR:-}" >>"$TEST_TMP/session-actors"
+b=$(printf "%s" "$2" | sed -n "s|^/factory autopilot adopt \([^ .]*\)\..*|\1|p")
+id=$(jq -r --arg b "$b" "select(.bead == \$b) | .id" factory/jobs/*/job.json | tail -n 1)
+r=$(printf "%s" "$2" | sed -n "s|^/factory resume \([^ .]*\)\..*|\1|p")
+[ -n "$r" ] && id=$r b=$r
+touch "$TEST_TMP/active/$b"
+find "$TEST_TMP/active" -type f | wc -l | tr -d " " >>"$TEST_TMP/conc"
+sleep "${STUB_SLEEP:-1}"
+rm -f "$TEST_TMP/active/$b"
+echo "$b" >>"$TEST_TMP/ended"
+[ -n "$id" ] && factory/bin/job-set "factory/jobs/$id/job.json" ".stage = \"merged\""
+echo "{\"session_id\":\"s\",\"total_cost_usd\":0}"'
+  # shellcheck disable=SC2016 # the stub expands these when it runs
+  printf '#!/usr/bin/env bash\nfor b in $(cat "%s/beads" 2>/dev/null); do case " ${FACTORY_EXCLUDE_BEADS:-} " in *" $b "*) ;; *) echo "$b"; exit 0 ;; esac; done\n' \
+    "$TEST_TMP" >factory/bin/next-bead
+  rm -f "$TEST_TMP/session-actors"
+}
+
+# beads <n>: queues bead-1..bead-<n>, each with a queued job.
+beads() {
+  local i
+  for i in $(seq 1 "$1"); do
+    echo "bead-$i" >>"$TEST_TMP/beads"
+    mkjob "00$i-j" "bead-$i" queued
+  done
+}
+
+maxconc() { sort -n "$TEST_TMP/conc" | tail -n 1; }
+
+test_two_workers_run_concurrently() {
+  pool; beads 2
+  factory/bin/autopilot --jobs 2 >/dev/null 2>&1
+  assert_eq 2 "$(maxconc)" "two sessions overlap"
+  assert_eq merged "$(jq -r .stage factory/jobs/002-j/job.json)" "second job merged"
+  cd - >/dev/null || return
+}
+
+test_no_double_claim() {
+  pool; beads 1
+  factory/bin/autopilot --jobs 2 >/dev/null 2>&1
+  assert_eq 1 "$(wc -l <"$STUBS/claude.calls" | tr -d ' ')" "exactly one session for one bead"
+  cd - >/dev/null || return
+}
+
+test_no_double_claim_resubmitted() {
+  pool
+  mkjob 001-a bead-a resubmitted
+  factory/bin/autopilot --jobs 3 >/dev/null 2>&1
+  assert_eq 1 "$(wc -l <"$STUBS/claude.calls" | tr -d ' ')" "exactly one session for one resubmitted job"
+  cd - >/dev/null || return
+}
+
+test_count_across_workers() {
+  pool; beads 5
+  out=$(factory/bin/autopilot --jobs 2 3 2>&1)
+  assert_eq 3 "$(wc -l <"$STUBS/claude.calls" | tr -d ' ')" "exactly 3 jobs"
+  assert_eq 3 "$(grep -c ' merged, ' <<<"$out")" "3 job lines"
+  cd - >/dev/null || return
+}
+
+test_jobs_default_one() {
+  pool; beads 3
+  STUB_SLEEP=0.3 factory/bin/autopilot >/dev/null 2>&1
+  assert_eq 3 "$(wc -l <"$STUBS/claude.calls" | tr -d ' ')" "all 3 jobs ran"
+  assert_eq 1 "$(maxconc)" "never more than one session at once"
+  cd - >/dev/null || return
+}
+
+test_jobs_setting() {
+  pool; beads 2
+  echo '{"jobs":2}' >factory/settings.json
+  factory/bin/autopilot >/dev/null 2>&1
+  assert_eq 2 "$(maxconc)" "jobs setting runs two at once"
+  cd - >/dev/null || return
+}
+
+test_bad_jobs() {
+  pool
+  assert_exit 2 "--jobs 0 is a usage error" -- factory/bin/autopilot --jobs 0
+  assert_exit 2 "--jobs x is a usage error" -- factory/bin/autopilot --jobs x
+  cd - >/dev/null || return
+}
+
+test_prefixed_output() {
+  pool; beads 2
+  out=$(factory/bin/autopilot --jobs 2 2>&1)
+  assert_contains "$out" "[001-j] " "first job prefixed"
+  assert_contains "$out" "[002-j] " "second job prefixed"
+  assert_eq "" "$(grep -v -e '^\[' -e '^autopilot: ' <<<"$out")" "every line is prefixed"
+  assert_eq "" "$(grep '^autopilot: ' <<<"$out" | grep -v 'queue empty')" "only the queue line is unprefixed"
+  cd - >/dev/null || return
+}
+
+test_interrupt_lists_in_flight() {
+  pool; beads 2
+  STUB_SLEEP=2 factory/bin/autopilot --jobs 2 >"$TEST_TMP/out" 2>&1 &
+  pid=$!
+  i=0
+  while [ "$(find "$TEST_TMP/active" -type f | wc -l | tr -d ' ')" -lt 2 ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+  kill -TERM "$pid" 2>/dev/null; wait "$pid"; rc=$?
+  out=$(cat "$TEST_TMP/out")
+  assert_eq 130 "$rc" "exit 130"
+  assert_contains "$out" "In flight:" "lists the jobs in flight"
+  assert_contains "$out" "001-j (/factory resume 001-j)" "first job and its resume command"
+  assert_contains "$out" "002-j (/factory resume 002-j)" "second job and its resume command"
+  sleep 2.2
+  assert_eq "no" "$([ -e "$TEST_TMP/ended" ] && echo yes || echo no)" "sessions were killed, not left running"
+  cd - >/dev/null || return
+}
+
+test_actor_exported() {
+  pool; beads 1
+  factory/bin/autopilot >/dev/null 2>&1
+  assert_eq factory-autopilot "$(sort -u "$TEST_TMP/session-actors")" "session runs as factory-autopilot"
+  assert_eq factory-autopilot "$(sort -u "$TEST_TMP/actors")" "drain's bd calls run as factory-autopilot"
+  assert_contains "$(cat "$STUBS/bd.calls")" "update bead-1 --claim" "the drain claims the bead"
+  assert_contains "$(cat "$STUBS/claude.calls")" 'Claimed\ for\ you\ by\ autopilot\ as\ factory-autopilot.' "prompt says claimed"
+  cd - >/dev/null || return
+}
+
+test_failed_worker_doesnt_stop_others() {
+  pool; beads 1
+  echo bead-x >>"$TEST_TMP/beads" # no job: its session makes none
+  factory/bin/autopilot --jobs 2 >/dev/null 2>&1; rc=$?
+  assert_eq 1 "$rc" "exit 1 when a worker failed"
+  assert_eq merged "$(jq -r .stage factory/jobs/001-j/job.json)" "the other job still merged"
+  assert_eq "no" "$([ -d "$TEST_TMP/claims/bead-x" ] && echo yes || echo no)" "the jobless bead's claim is given back"
   cd - >/dev/null || return
 }
 

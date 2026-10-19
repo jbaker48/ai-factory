@@ -18,7 +18,7 @@ setup() { # [settings-json] [queue-json]
 ${2:-$QUEUE}
 JSON"
   rm -f "$STUBS/bd.calls"
-  unset FACTORY_PRIORITY_LABELS
+  unset FACTORY_PRIORITY_LABELS FACTORY_EXCLUDE_BEADS
 }
 N() { "$R/factory/bin/next-bead"; }
 
@@ -41,6 +41,14 @@ test_empty_queue() {
   setup '' '[]'
   assert_eq "" "$(N)" "empty queue prints nothing"
   assert_exit 0 "empty queue exits 0" -- N
+}
+
+test_exclude() {
+  setup
+  assert_eq a "$(FACTORY_EXCLUDE_BEADS=b N)" "excluded bead skipped"
+  assert_eq c "$(FACTORY_EXCLUDE_BEADS='b  a' N)" "several excluded"
+  assert_eq "" "$(FACTORY_EXCLUDE_BEADS='a b c' N)" "all excluded prints nothing"
+  assert_eq b "$(FACTORY_EXCLUDE_BEADS='' N)" "empty list skips nothing"
 }
 
 test_never_claims() {
