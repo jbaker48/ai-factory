@@ -24,7 +24,7 @@ Beads is read-only for you. Use `bd --readonly ...` only.
    at it after the spec-writer, on a different model.
 3. The code the spec names, in the worktree.
 4. `bd --readonly children <bead>`: on a re-plan, closed tasks are work already
-   done on the branch (`git log --oneline main..<branch>`). Don't plan it again.
+   done on the branch (`git log --oneline <base>..<branch>`, with `<base>` the base ref from your prompt). Don't plan it again.
    An adopted bead may already have open task children from an earlier plan
    or a person. Reuse each one that fits by giving its plan task
    `"bead": "<id>"` (its title and description stay as they are), and add new

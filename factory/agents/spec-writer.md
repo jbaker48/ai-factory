@@ -10,10 +10,11 @@ one file, `<job folder>/spec.md`. You never edit code or any other file.
 
 ## Where you work
 
-The worktree is a checkout of the job branch, fresh from `main`, outside the
-main checkout. Your shell may start anywhere, so start every shell command with
-`cd <worktree> && ` and use absolute paths for every file you read or write. The
-job folder is in the main checkout; your one file goes there.
+The worktree is a checkout of the job branch, fresh from the base ref
+(`<base>` in your prompt), outside the main checkout. Your shell may start
+anywhere, so start every shell command with `cd <worktree> && ` and use
+absolute paths for every file you read or write. The job folder is in the main
+checkout; your one file goes there.
 
 Beads is read-only for you. Use `bd --readonly ...` only.
 

@@ -36,9 +36,9 @@ In `<target>`:
 
 - `git status --porcelain` prints nothing. Uncommitted work belongs to the
   user: ask them to commit or stash it.
-- The default branch is `main`. The factory branches from, reviews against and
-  merges into `main` by name. If the default is something else, tell the user
-  before going on.
+- The default branch is `main`. The factory lands jobs into `main` by name
+  and diffs against the base ref from `factory/settings.json` (`origin/main`
+  or `main`). If the default is something else, tell the user before going on.
 - Look for an earlier install: `.claude/skills/factory/`,
   `.claude/agents/factory-agent.md`, `factory/`. If one exists, this is an
   upgrade: show the user `diff -r` against `<source>` for each and get their
@@ -133,11 +133,16 @@ Show the user each of these and record their answer:
   the policy doesn't yet name, and offer to add them.
 - **`factory/models.json`**: the model and effort per role. Confirm their
   Codex account can use the OpenAI models listed.
+- **`factory/settings.json`**: write it from `factory/settings.example.json`.
+  Ask whether the repo has a GitHub remote: yes sets `"land": "pr"`, no sets
+  `"land": "local"`. Ask which labels mark high-priority beads and put them in
+  `priority_labels` (`[]` for none), and leave `jobs` at 1 unless they want
+  parallel jobs.
 - **Commit**: the factory reads `AGENTS.md` from worktrees branched off
   `main`, so the install only works once it is committed on `main`. Offer to
   commit it as one commit.
 
-**Done when** the user has answered all three.
+**Done when** the user has answered all four.
 
 ## 7. Report
 

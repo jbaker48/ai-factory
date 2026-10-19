@@ -91,6 +91,10 @@ Agents only read Beads (`bd --readonly`). The orchestrator makes every write
 from the main checkout, so the Codex sandbox and parallel sessions never
 collide. Queue claims use `bd ready --claim`, which is atomic.
 
+Every role gets a base ref in its prompt (`Base: <base>.`) and diffs against
+that, not a literal `main`. `factory/settings.json` sets it: `origin/main` with
+`land: "pr"` (the default), `main` with `land: "local"`.
+
 ## Brownfield: an existing repo, Beads and a PRD
 
 The factory shares Beads with people and other tools. It never edits, claims,

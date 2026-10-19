@@ -34,7 +34,7 @@ focus="Challenge this branch against its spec below. Look for ways it breaks: un
 $(cat "$job/spec.md")"
 
 rc=0
-node "$companion" adversarial-review --json --base main --scope branch \
+node "$companion" adversarial-review --json --base "$("$factory/bin/settings" base)" --scope branch \
   --cwd "$worktree" ${model:+--model "$model"} "$focus" >"$log.json" 2>"$log.stderr" || rc=$?
 
 if ! jq -e '.result.verdict' "$log.json" >/dev/null 2>&1; then

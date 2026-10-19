@@ -107,7 +107,7 @@ Look the role up in `factory/models.json`.
 - **codex-plugin** (only `reviewer-adversarial`): run, with Bash and
   `run_in_background: true`,
   `factory/bin/run-adversarial <job folder> <worktree> <N>`. It runs the Codex
-  plugin's `adversarial-review` against `main`, read-only, with the spec as
+  plugin's `adversarial-review` against `<base>`, read-only, with the spec as
   its focus, and writes `round-<N>/review-adversarial.md` itself. Exit codes
   mean the same as for `run-codex`.
 
@@ -220,8 +220,10 @@ state that never lands in a commit.
 ### Prompts
 
 Every agent prompt starts with the job's paths:
-`Job folder: <repo>/factory/jobs/<job-id>/. Worktree: <worktree>. Branch: factory/<job-id>. Bead: <bead>.`
-Below, `<paths>` stands for that sentence.
+`Job folder: <repo>/factory/jobs/<job-id>/. Worktree: <worktree>. Branch: factory/<job-id>. Bead: <bead>. Base: <base>.`
+`<base>` is the ref every diff and merge check uses (`factory/bin/settings
+base`: `origin/main` with `land: "pr"`, `main` with `land: "local"`). Below,
+`<paths>` stands for that sentence.
 
 Agents that open pages also get a port. With `n` the job number (`003` → 3),
 the builder gets `5100 + 10n`, `reviewer-ux` gets `5101 + 10n` and `reviewer-ui`
@@ -250,9 +252,10 @@ gets `5102 + 10n`, appended as ` Port: <port>.`
    `stage: "spec"`, `round: 0`, `reworks: 0`, `respecs: 0`, `situation: null`,
    empty `tasks`, all reviews `pending`, and `autopilot` true only when the
    command was `/factory autopilot`.
-3. **Worktree.** Create the branch and its worktree from `main`:
+3. **Worktree.** Create the branch and its worktree from `<base>` (with `land: "pr"`,
+   run `git fetch -q origin main` first; with `land: "local"` don't fetch):
    ```bash
-   git worktree add -q -b factory/<job-id> <worktree> main
+   git worktree add -q -b factory/<job-id> <worktree> <base>
    ```
    Then, in the worktree, run the setup AGENTS.md gives for a fresh checkout
    (installing dependencies, for example), logging to `.runs/setup.log`. If
@@ -404,7 +407,7 @@ When it exits:
   then a blank line, `## Approver's decision before the base moved`, and the
   old `decision.md` below it. Go to **Needs human** with situation
   `rounds-exhausted`.
-- **3** (required checks failed), **4** (conflicts with `origin/main`) or
+- **3** (required checks failed), **4** (conflicts with `<base>`) or
   **5** (GitHub refused the merge): go to **Needs human** with situation
   `merge-blocked`, quoting the script's stderr and `tail -n 20` of
   `.runs/checks.log`. The PR stays open; a later rework pushes to the same

@@ -27,7 +27,7 @@ Beads is read-only for you. Use `bd --readonly ...` only.
 | `rounds-exhausted` | Review rounds ran out with CHANGES still outstanding             |
 | `build-blocked`    | A builder reported BLOCKED, even after escalating to a bigger model |
 | `plan-blocked`     | The planner could not plan the spec as written                   |
-| `merge-blocked`    | Approved, but the merge failed or conflicts with `main`          |
+| `merge-blocked`    | Approved, but the merge failed or conflicts with the base ref        |
 
 ## Read
 
@@ -38,7 +38,7 @@ Beads is read-only for you. Use `bd --readonly ...` only.
    `rework-*.md` and `autopilot-*.md` files. Earlier autopilot files show what
    you already tried; don't repeat a move that failed.
 4. `bd --readonly show <bead>` and `bd --readonly children <bead>`.
-5. The change: `git log --oneline main..<branch>` and `git diff main...<branch>`.
+5. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
    Re-run the checks you need to trust the evidence. Don't take a summary on
    faith.
 
@@ -55,7 +55,7 @@ Pick exactly one:
   criterion is met, and the escalation reason is something you can responsibly
   accept under the policy. For `merge-blocked`, only when the cause was
   transient (for example, the main checkout was busy) and
-  `git merge-tree --write-tree main <branch>` is now clean.
+  `git merge-tree --write-tree <base> <branch>` is now clean.
 - **REWORK**: send the job back to the builder with precise instructions. Use
   it when the problem is in the implementation and you can say exactly what
   to change.
