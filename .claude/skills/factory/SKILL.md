@@ -527,8 +527,8 @@ agent instead, under `factory/autopilot-policy.md` and the limits above.
 - `/factory autopilot` or `/factory autopilot <count>`: drain the queue. Loop:
   take the oldest `resubmitted` job you can claim (see **/factory resume**)
   and resume it, or else claim as in `/factory next`; run the job on autopilot
-  to `merged`, `needs-human` or `dropped`, then take the next. Stop when the queue is empty or after
-  `<count>` jobs. A parked job doesn't stop the loop.
+  to `merged`, `needs-human` or `dropped`, then take the next. Stop when the
+  queue is empty or after `<count>` jobs. A parked job doesn't stop the loop.
 
 When an autopilot run ends, print one line per job: id, bead, outcome, and the
 autopilot decisions it took.
@@ -537,8 +537,9 @@ A drain in one session keeps every job in your context. For long drains the
 user runs `factory/bin/autopilot` from a shell instead: it starts one headless
 session per job with `/factory autopilot adopt <bead>`, and `/factory resume`
 when a session ends early. It resumes `resubmitted` jobs before it starts new
-beads, claiming each with `mkdir <job folder>/.resume-claim`. In a headless session nobody can answer: never ask
-a question, and run only the job you were given.
+beads, claiming each with `mkdir <job folder>/.resume-claim`. In a headless
+session nobody can answer: never ask a question, and run only the job you
+were given.
 
 ## /factory status
 
@@ -619,8 +620,8 @@ lower number are from an earlier review and are ignored.
 
 1. **Brief.** Run `factory/bin/beads-snapshot <job folder>`, then `briefer`
    with the task `Brief k.` (then `usage-record claude <job folder> briefer`,
-   as after every Claude role). Check `human-brief-<k>.md` exists and starts with
-   `## Situation`. Read only this brief, never the raw job files, so your
+   as after every Claude role). Check `human-brief-<k>.md` exists and starts
+   with `## Situation`. Read only this brief, never the raw job files, so your
    context stays small across many jobs.
 2. **Ask.** Show the `## Situation` in a few lines. Ask each question under
    `## Decisions` with AskUserQuestion, one question per decision, its options
@@ -665,8 +666,8 @@ watching for more.
 ## /factory approve <job-id>
 
 A shortcut for a `/factory review` that ends in APPROVE, with no brief. The
-job must be in `needs-human` with situation `escalated` or `merge-blocked` and
-every review in `job.json` `PASS`; otherwise say so and point at
+job must be in `needs-human` with situation `escalated` or `merge-blocked`,
+every review in `job.json` `PASS` and every task closed; otherwise say so and point at
 `/factory review <job-id>`. With `k` as in **/factory review**, write
 `factory/jobs/<job-id>/human-<k>.md` yourself: `APPROVE`, a blank line,
 `## Owner answers`, `/factory approve <job-id>`. Then resubmit it as in
@@ -761,7 +762,7 @@ the job folder; don't read more of the job than the step below needs.
      - **DROP**: take the reason from the file's `## Reason` section. With a
        `pr`, `gh pr close <pr> --comment "Dropped: <reason>"`. Then
        `git worktree remove --force <worktree>` (if it still exists),
-       `git branch -D factory/<job-id>`,
+       `git branch -D factory/<job-id>` (either may already be gone),
        `bd close <bead> --reason "Dropped: <reason>"`, set
        `stage: "dropped"`, and run
        `factory/bin/usage-record session <job folder>`.
