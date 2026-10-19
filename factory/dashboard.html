@@ -419,11 +419,13 @@ function runawayFlags(jobList) {
   return flags
 }
 
-// Newest record (by ts) that carries quota data.
-function newestQuota(jobList) {
+// Newest record (by ts) per quota window; each carries {quota, ts}.
+function newestQuotas(jobList) {
   const all = jobList.flatMap((j) => (j.usage || []).filter((r) => r.quota && typeof r.quota === 'object'))
   all.sort((a, b) => String(a.ts).localeCompare(String(b.ts)))
-  return all.length ? all[all.length - 1].quota : null
+  const byWindow = new Map()
+  for (const r of all) byWindow.set(r.quota.window || 'quota', { quota: r.quota, ts: r.ts })
+  return [...byWindow.values()]
 }
 
 // Totals and per-job averages grouped by role or model.
@@ -441,14 +443,13 @@ function groupSpend(jobList, keyOf) {
   return Object.entries(g).sort().map(([k, e]) => ({ key: k, tokens: e.tokens, runs: e.runs, jobs: e.jobs.size }))
 }
 
-function quotaMeter(q) {
-  if (!q) return '<span class="meter">Codex quota: no data</span>'
+function quotaMeter({ quota: q, ts }) {
   const pct = typeof q.after === 'number' ? Math.round(q.after) : null
   const reset = typeof q.resets_at === 'number' ? new Date(q.resets_at * 1000).toLocaleString() : '?'
   const cls = pct === null ? '' : pct >= 90 ? 'full' : pct >= 70 ? 'hot' : ''
   return `<span class="meter"><span>Codex ${esc(q.window || 'quota')}</span>
     <span class="bar" role="img" aria-label="${pct ?? '?'} percent used"><i class="${cls}" style="width:${Math.min(100, pct ?? 0)}%"></i></span>
-    <span>${pct === null ? '?' : pct}% used · resets ${esc(reset)}</span></span>`
+    <span>${pct === null ? '?' : pct}% used · resets ${esc(reset)} · as of ${esc(ts ?? '?')}</span></span>`
 }
 
 function groupTable(title, rows) {
@@ -468,7 +469,7 @@ function renderSpend() {
         <div class="sub">Tokens are input + output. Spend is information only; nothing is stopped on it.</div>
       </details>`
     : ''
-  const html = `<div class="meters">${quotaMeter(newestQuota(withUsage))}<span>Claude: tokens only</span></div>${detail}`
+  const html = `<div class="meters">${newestQuotas(withUsage).map(quotaMeter).join('') || '<span class="meter">Codex quota: no data</span>'}<span>Claude: tokens only</span></div>${detail}`
   if (html !== lastSpend) { lastSpend = html; $('spend').innerHTML = html }
 }
 
@@ -477,9 +478,10 @@ function usageLine(job, flags) {
   if (!u || !u.length) return ''
   const inp = sum(u.map((r) => num(r.input)))
   const out = sum(u.map((r) => num(r.output)))
+  const cached = sum(u.map((r) => num(r.cached)))
   const split = Object.entries(stageTotals(u)).sort().map(([k, v]) => `${esc(k)} ${fmtTok(v)}`).join(' · ')
   const fl = (flags[job.id] || []).map((f) => `<span class="runaway">FLAG ${esc(f.stage)} ${f.ratio.toFixed(1)}× median</span>`).join(' ')
-  return `<div class="usage">${fmtTok(inp)} in · ${fmtTok(out)} out · ${u.length} run${u.length === 1 ? '' : 's'}
+  return `<div class="usage">${fmtTok(inp)} in (${fmtTok(cached)} cached, ${inp > 0 ? Math.round(cached / inp * 100) : 0}%) · ${fmtTok(out)} out · ${u.length} run${u.length === 1 ? '' : 's'}
     <div class="split">${split}</div>${fl ? `<div>${fl}</div>` : ''}</div>`
 }
 
@@ -630,8 +632,10 @@ async function loadLand() {
 async function loadUsage(id) {
   try {
     return parseUsage(await fetchText(`jobs/${id}/usage.jsonl`))
-  } catch {
-    return []
+  } catch (err) {
+    // Only a missing file means no usage; on any other error keep what we had.
+    if (/HTTP 404/.test(err.message)) return []
+    return jobs.find((j) => j.id === id)?.usage || []
   }
 }
 
