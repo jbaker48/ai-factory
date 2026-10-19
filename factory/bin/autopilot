@@ -2,12 +2,23 @@
 # Drains the factory queue on autopilot, one headless Claude session per job,
 # so no job's context carries into the next.
 #
-#   factory/bin/autopilot [<count>] [--budget <usd>]
+#   factory/bin/autopilot [<count>] [--watch] [--budget <usd>]
+#
+# Each round takes the oldest resubmitted job (job.json stage "resubmitted",
+# oldest "updated") it can claim, else the next queued bead. A resubmitted job
+# is claimed with `mkdir factory/jobs/<id>/.resume-claim`, which is removed
+# when that job's sessions end (also on Ctrl-C/TERM and when the resume cap
+# stops the drain); a claim this process didn't create is never removed. Every
+# resume prompt for a claimed job says "Claimed for you by autopilot." so the
+# session skips claiming. The drain stops when nothing is resubmitted and the
+# queue is empty. --watch sleeps AUTOPILOT_POLL_S (default 60) seconds and
+# looks again instead; <count> still bounds the total jobs.
 #
 # For each queued job: runs `claude -p "/factory autopilot adopt <bead>"`. If
 # the session ends before the job reaches merged or needs-human (a crash, a
 # budget cap, a time limit), runs `/factory resume <job-id>`, up to
-# MAX_RESUMES times, then stops. A parked job doesn't stop the loop.
+# MAX_RESUMES times, then stops. A job is done at merged, needs-human or
+# dropped. A parked job doesn't stop the loop.
 # --budget caps each session's spend (claude --max-budget-usd).
 #
 # After each session, records its orchestrator usage in the job's usage.jsonl
@@ -21,12 +32,13 @@
 set -uo pipefail
 
 MAX_RESUMES=2
-count=0 budget=
+count=0 budget='' watch=0
 while [ $# -gt 0 ]; do
   case $1 in
+    --watch) watch=1; shift ;;
     --budget) budget=${2:?--budget needs an amount}; shift 2 ;;
     [0-9]*) count=$1; shift ;;
-    *) echo "usage: autopilot [<count>] [--budget <usd>]" >&2; exit 2 ;;
+    *) echo "usage: autopilot [<count>] [--watch] [--budget <usd>]" >&2; exit 2 ;;
   esac
 done
 
@@ -41,7 +53,28 @@ mkdir -p "$logs"
 export BASH_DEFAULT_TIMEOUT_MS=${BASH_DEFAULT_TIMEOUT_MS:-7200000}
 export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-0}
 
+# The claim this process holds right now ("" when none); only ever set after
+# our own mkdir succeeded.
+claim=
+release() { [ -n "$claim" ] && rmdir "$claim" 2>/dev/null; claim=; return 0; }
+trap release EXIT
 trap 'echo; echo "autopilot: stopped. Pick up a cut-off job with /factory resume <job-id>."; exit 130' INT TERM
+
+# claim_resubmitted: claims the oldest resubmitted job we can; sets $job (not
+# a subshell: $claim must survive).
+claim_resubmitted() {
+  local id
+  job=
+  while read -r id; do
+    [ -n "$id" ] || continue
+    if mkdir "factory/jobs/$id/.resume-claim" 2>/dev/null; then
+      claim="factory/jobs/$id/.resume-claim"
+      job=$id
+      return 0
+    fi
+  done < <(jq -r 'select(.stage == "resubmitted") | "\(.updated // "")\t\(.id)"' factory/jobs/*/job.json 2>/dev/null | sort | cut -f 2)
+  return 1
+}
 
 # Runs one headless session; prints "<session id> <cost>".
 session() {
@@ -65,32 +98,46 @@ record() {
 headless="This is a headless run: nobody can answer questions. Run only this job, then stop."
 done_jobs=0
 while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
-  bead=$("$(dirname "${BASH_SOURCE[0]}")/next-bead")
-  [ -n "$bead" ] || { echo "autopilot: queue empty."; break; }
-
-  read -r sid cost < <(session "$bead" "/factory autopilot adopt $bead. $headless")
-  total=$cost
-  job=$(jq -r --arg b "$bead" 'select(.bead == $b) | .id' factory/jobs/*/job.json 2>/dev/null | tail -n 1)
-  if [ -z "$job" ]; then
-    echo "autopilot: $bead: the session made no job (session $sid). See $logs/." >&2
-    exit 1
+  claim_resubmitted
+  note=
+  if [ -n "$job" ]; then
+    note=" Claimed for you by autopilot."
+    bead=$(jq -r '.bead // "-"' "factory/jobs/$job/job.json")
+    echo "autopilot: $job ($bead) was resubmitted; resuming."
+    read -r sid cost < <(session "$job-resume0" "/factory resume $job. $headless$note")
+  else
+    bead=$("$(dirname "${BASH_SOURCE[0]}")/next-bead")
+    if [ -z "$bead" ]; then
+      [ "$watch" -eq 1 ] || { echo "autopilot: queue empty."; break; }
+      sleep "${AUTOPILOT_POLL_S:-60}"
+      continue
+    fi
+    read -r sid cost < <(session "$bead" "/factory autopilot adopt $bead. $headless")
+    job=$(jq -r --arg b "$bead" 'select(.bead == $b) | .id' factory/jobs/*/job.json 2>/dev/null | tail -n 1)
+    if [ -z "$job" ]; then
+      echo "autopilot: $bead: the session made no job (session $sid). See $logs/." >&2
+      exit 1
+    fi
   fi
+  total=$cost
   record "$job" "$sid"
 
   resumes=0
   stage=$(jq -r .stage "factory/jobs/$job/job.json")
-  while [ "$stage" != merged ] && [ "$stage" != needs-human ]; do
+  while [ "$stage" != merged ] && [ "$stage" != needs-human ] && [ "$stage" != dropped ]; do
     if [ "$resumes" -ge "$MAX_RESUMES" ]; then
       echo "autopilot: $job ($bead) still at $stage after $resumes resumes (session $sid). Stopping." >&2
+      release
       exit 1
     fi
     resumes=$((resumes + 1))
     echo "autopilot: $job ($bead) ended at $stage; resuming ($resumes/$MAX_RESUMES)."
-    read -r sid cost < <(session "$job-resume$resumes" "/factory resume $job. $headless")
+    read -r sid cost < <(session "$job-resume$resumes" "/factory resume $job. $headless$note")
     record "$job" "$sid"
     total=$(jq -n "$total + $cost")
     stage=$(jq -r .stage "factory/jobs/$job/job.json")
   done
+  release
 
   tokens=$(jq -R -n -r '[inputs | fromjson? | select(type == "object") | (.input // 0) + (.output // 0)] | add // 0 | . / 1e6 * 10 | round / 10 | tostring | if test("\\.") then . else . + ".0" end' "factory/jobs/$job/usage.jsonl" 2>/dev/null || echo 0.0)
   printf 'autopilot: %s (%s) %s, %sM tokens, API-equivalent $%.2f, session %s\n' "$job" "$bead" "$stage" "${tokens:-0.0}" "$total" "$sid"

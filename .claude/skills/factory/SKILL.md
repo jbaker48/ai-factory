@@ -540,7 +540,9 @@ A drain in one session keeps every job in your context. For long drains the
 user runs `factory/bin/autopilot` from a shell instead: it starts one headless
 session per job with `/factory autopilot adopt <bead>`, and `/factory resume`
 when a session ends early. It resumes `resubmitted` jobs before it starts new
-beads, claiming each with `mkdir <job folder>/.resume-claim`. In a headless
+beads, claiming each with `mkdir <job folder>/.resume-claim`. With
+`--watch` it keeps polling when nothing is left instead of exiting, and
+`<count>` still bounds the jobs. In a headless
 session nobody can answer: never ask a question, and run only the job you
 were given.
 
