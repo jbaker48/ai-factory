@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Prints the id of the next queued factory bead to run, or nothing when the
+# ready queue is empty. It doesn't claim it.
+#
+#   factory/bin/next-bead
+#
+# Beads carrying one of the priority labels (the priority_labels setting in
+# factory/settings.json) come first; within each group, higher priority, then
+# oldest. Override the labels with FACTORY_PRIORITY_LABELS (space-separated).
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+labels=${FACTORY_PRIORITY_LABELS-$("$here/settings" priority_labels)}
+
+bd ready -l factory,queued --exclude-type epic --json -n 0 |
+  jq -r --arg labels "$labels" '
+    ($labels | split(" ") | map(select(. != ""))) as $first
+    | map(. + {off_path: (if any((.labels // [])[]; . as $l | $first | index($l)) then 0 else 1 end)})
+    | sort_by(.off_path, .priority, .created_at)
+    | .[0].id // empty'

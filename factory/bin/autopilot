@@ -54,7 +54,7 @@ session() {
 headless="This is a headless run: nobody can answer questions. Run only this job, then stop."
 done_jobs=0
 while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
-  bead=$(bd ready -l factory,queued --exclude-type epic --json -n 1 | jq -r '.[0].id // empty')
+  bead=$("$(dirname "${BASH_SOURCE[0]}")/next-bead")
   [ -n "$bead" ] || { echo "autopilot: queue empty."; break; }
 
   read -r sid cost < <(session "$bead" "/factory autopilot adopt $bead. $headless")

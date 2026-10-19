@@ -437,11 +437,12 @@ Say the bead id.
 
 ## /factory next
 
-Claim the highest-priority queued job:
-`bd ready -l factory,queued --exclude-type epic --claim --json -n 1`. If it returns
-nothing, say the queue is empty and stop. Otherwise run `/factory <its title>`,
-reusing that bead in step 2. The bead's description goes to the spec-writer
-through Beads, not the prompt.
+Pick the next queued job with `factory/bin/next-bead`: beads carrying a
+priority label from `factory/settings.json` come first, then the rest, each by
+priority and then age. If it prints nothing, say the queue is empty and stop.
+Claim it with `bd update <bead> --claim`; if another session claimed it first,
+pick again. Otherwise run `/factory <its title>`, reusing that bead in step 2.
+The bead's description goes to the spec-writer through Beads, not the prompt.
 
 ## /factory autopilot [<feature> | <job-id> | <count>]
 
@@ -470,7 +471,8 @@ a question, and run only the job you were given.
 
 ## /factory status
 
-Print the ready queue (`bd ready -l factory,queued --exclude-type epic`), the
+Print the next job (`factory/bin/next-bead`), the ready queue
+(`bd ready -l factory,queued --exclude-type epic`), the
 queued jobs still waiting on dependencies
 (`bd blocked -l factory,queued`), the
 parked jobs (`bd list -l factory,needs-human`), and the stage of each job
