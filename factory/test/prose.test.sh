@@ -27,5 +27,10 @@ test_codex_roles_skip_bd() {
   assert_eq "" "$hits" "Codex roles read beads.md, not bd"
 }
 
+test_dashboard_reads_usage() {
+  grep -q "usage.jsonl" "$ROOT/factory/dashboard.html"
+  assert_eq "0" "$?" "dashboard reads usage.jsonl"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

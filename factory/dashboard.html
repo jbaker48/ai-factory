@@ -52,7 +52,7 @@
 
   /* Board */
   .board {
-    display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px;
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; row-gap: 28px;
     padding: 20px 32px 40px; align-items: start;
   }
   .col { min-width: 0; }
@@ -65,12 +65,15 @@
   .col-head .count {
     margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted);
   }
-  .col:not(:last-child):not(:nth-last-child(2)) .col-head::after {
+  .col:not(.noarrow) .col-head::after {
     content: "›"; position: absolute; right: -10px; top: -2px; color: var(--faint); font-size: 16px;
   }
+  @media (max-width: 1899px) { .col-head::after { display: none; } }
   .col.human .col-head { border-bottom-color: color-mix(in srgb, var(--human) 55%, transparent); }
   .col.human h2 { color: var(--human); }
   .col.merged-col h2 { color: var(--merged); }
+  .col.dropped-col h2 { color: var(--faint); }
+  .col.resub-col h2 { color: var(--changes); }
   .col.auto-col h2 { color: var(--auto); }
   .empty { color: var(--faint); font-size: 12px; padding: 4px 2px; }
 
@@ -89,7 +92,7 @@
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--human) 40%, transparent),
                 0 8px 24px -12px color-mix(in srgb, var(--human) 60%, transparent);
   }
-  .card.merged { opacity: .72; }
+  .card.merged, .card.dropped { opacity: .72; }
   .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .num { font-family: var(--mono); font-size: 12px; color: var(--muted); }
   .card-top .num { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -139,6 +142,26 @@
     font-family: var(--mono); font-size: 10.5px; color: var(--muted); line-height: 1.6;
     overflow-wrap: anywhere;
   }
+
+  /* Spend and quota */
+  .spend { margin: 8px 32px 0; }
+  .meters { display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: center; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .meter { display: flex; align-items: center; gap: 10px; }
+  .meter .bar { width: 140px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .meter .bar i { display: block; height: 100%; background: var(--active); }
+  .meter .bar i.hot { background: var(--changes); }
+  .meter .bar i.full { background: var(--human); }
+  .spend details { margin-top: 10px; }
+  .spend summary { cursor: pointer; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .spend summary:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
+  .spend table { border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; margin: 8px 0 4px; }
+  .spend th, .spend td { padding: 3px 14px 3px 0; text-align: right; white-space: nowrap; }
+  .spend th:first-child, .spend td:first-child { text-align: left; }
+  .spend th { color: var(--faint); font-weight: 400; }
+  .spend .sub { color: var(--faint); font-size: 11px; font-family: var(--mono); margin: 6px 0; }
+  .usage { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; color: var(--muted); line-height: 1.6; }
+  .usage .split { color: var(--faint); overflow-wrap: anywhere; }
+  .usage .runaway { color: var(--human); font-weight: 600; }
 
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
   @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
@@ -224,17 +247,22 @@
     display: flex; gap: 20px; flex-wrap: wrap;
   }
 
+  @media (min-width: 1900px) {
+    .board { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+  }
   @media (max-width: 1400px) {
-    .board { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 28px; }
+    .board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .col-head::after { display: none; }
   }
   @media (max-width: 1000px) {
-    .board { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 28px; }
+    .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .col-head::after { display: none; }
   }
   @media (max-width: 640px) {
     header { padding: 20px 16px 4px; }
     .banner { margin: 12px 16px 0; }
+    .spend { margin: 8px 16px 0; }
+    .spend details { overflow-x: auto; }
     .board { grid-template-columns: 1fr; padding: 16px 16px 32px; }
     footer { padding: 0 16px 24px; }
     .d-head { padding: 16px; }
@@ -256,6 +284,7 @@
   <div class="status" id="status">connecting…</div>
 </header>
 <div id="banner"></div>
+<section class="spend" id="spend"></section>
 <main class="board" id="board"></main>
 <footer>
   <span>/factory &lt;feature&gt;</span>
@@ -292,8 +321,10 @@ const STAGES = [
   { key: 'review', label: 'Review', roles: ['reviewer-security', 'reviewer-code', 'reviewer-ux', 'reviewer-ui', 'reviewer-adversarial'] },
   { key: 'approve', label: 'Approve', roles: ['approver'] },
   { key: 'autopilot', label: 'Autopilot', roles: ['autopilot'], cls: 'auto-col' },
-  { key: 'merged', label: 'Merged', who: 'main', cls: 'merged-col' },
-  { key: 'needs-human', label: 'Needs human', who: 'approve · rework', cls: 'human' },
+  { key: 'merged', label: 'Merged', who: 'main', cls: 'merged-col noarrow' },
+  { key: 'dropped', label: 'Dropped', who: 'abandoned', cls: 'dropped-col noarrow' },
+  { key: 'resubmitted', label: 'Resubmitted', who: 'sent back', cls: 'resub-col noarrow' },
+  { key: 'needs-human', label: 'Needs human', who: 'approve · rework', cls: 'human noarrow' },
 ]
 const LIVE = new Set(['spec', 'plan', 'build', 'review', 'approve', 'autopilot'])
 const REVIEWERS = [['security', 'sec'], ['code', 'code'], ['ux', 'ux'], ['ui', 'ui'], ['adversarial', 'adv']]
@@ -311,7 +342,9 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
 let jobs = []
+let land = 'pr'
 let lastRender = ''
+let lastSpend = ''
 const roundCache = new Map() // "<job>/<n>" -> verdicts of a finished round
 let openJobId = null
 let openPath = null
@@ -321,6 +354,144 @@ async function fetchText(url) {
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
   return res.text()
+}
+
+// ---- Usage ---------------------------------------------------------------
+
+// usage.jsonl: one JSON object per line; lines that don't parse are skipped.
+function parseUsage(text) {
+  const out = []
+  for (const line of String(text).split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const r = JSON.parse(line)
+      if (r && typeof r === 'object' && !Array.isArray(r)) out.push(r)
+    } catch { /* skip */ }
+  }
+  return out
+}
+
+const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0)
+const tokens = (r) => num(r.input) + num(r.output) // input already includes cached
+const sum = (xs) => xs.reduce((a, b) => a + b, 0)
+const median = (xs) => {
+  const s = [...xs].sort((a, b) => a - b)
+  const m = s.length
+  return m % 2 ? s[(m - 1) / 2] : (s[m / 2 - 1] + s[m / 2]) / 2
+}
+
+function fmtTok(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `${Math.round(n / 1e3)}k`
+  return String(Math.round(n))
+}
+
+// Token total per stage for one job's records.
+function stageTotals(records) {
+  const by = {}
+  for (const r of records) {
+    const k = r.stage || '?'
+    by[k] = (by[k] || 0) + tokens(r)
+  }
+  return by
+}
+
+// Same rule as factory/bin/usage-summary: a stage total at least 2x the median
+// of that stage over merged or dropped jobs, when at least 3 such jobs have it.
+function runawayFlags(jobList) {
+  const withUsage = jobList.filter((j) => j.usage && j.usage.length)
+  const buckets = {}
+  for (const j of withUsage) {
+    if (j.stage !== 'merged' && j.stage !== 'dropped') continue
+    for (const [k, v] of Object.entries(stageTotals(j.usage))) (buckets[k] ||= []).push(v)
+  }
+  const flags = {}
+  for (const j of withUsage) {
+    const f = []
+    for (const [k, v] of Object.entries(stageTotals(j.usage)).sort()) {
+      const b = buckets[k]
+      if (!b || b.length < 3) continue
+      const med = median(b)
+      if (med > 0 && v >= 2 * med) f.push({ stage: k, ratio: v / med })
+    }
+    flags[j.id] = f
+  }
+  return flags
+}
+
+// Newest record (by ts) that carries quota data.
+function newestQuota(jobList) {
+  const all = jobList.flatMap((j) => (j.usage || []).filter((r) => r.quota && typeof r.quota === 'object'))
+  all.sort((a, b) => String(a.ts).localeCompare(String(b.ts)))
+  return all.length ? all[all.length - 1].quota : null
+}
+
+// Totals and per-job averages grouped by role or model.
+function groupSpend(jobList, keyOf) {
+  const g = {}
+  for (const j of jobList) {
+    for (const r of j.usage || []) {
+      const k = keyOf(r) || '?'
+      const e = (g[k] ||= { tokens: 0, runs: 0, jobs: new Set() })
+      e.tokens += tokens(r)
+      e.runs++
+      e.jobs.add(j.id)
+    }
+  }
+  return Object.entries(g).sort().map(([k, e]) => ({ key: k, tokens: e.tokens, runs: e.runs, jobs: e.jobs.size }))
+}
+
+function quotaMeter(q) {
+  if (!q) return '<span class="meter">Codex quota: no data</span>'
+  const pct = typeof q.after === 'number' ? Math.round(q.after) : null
+  const reset = typeof q.resets_at === 'number' ? new Date(q.resets_at * 1000).toLocaleString() : '?'
+  const cls = pct === null ? '' : pct >= 90 ? 'full' : pct >= 70 ? 'hot' : ''
+  return `<span class="meter"><span>Codex ${esc(q.window || 'quota')}</span>
+    <span class="bar" role="img" aria-label="${pct ?? '?'} percent used"><i class="${cls}" style="width:${Math.min(100, pct ?? 0)}%"></i></span>
+    <span>${pct === null ? '?' : pct}% used · resets ${esc(reset)}</span></span>`
+}
+
+function groupTable(title, rows) {
+  if (!rows.length) return ''
+  return `<table><tr><th>${title}</th><th>tokens</th><th>runs</th><th>jobs</th><th>avg / job</th></tr>${rows.map((r) =>
+    `<tr><td>${esc(r.key)}</td><td>${fmtTok(r.tokens)}</td><td>${r.runs}</td><td>${r.jobs}</td><td>${fmtTok(r.tokens / r.jobs)}</td></tr>`).join('')}</table>`
+}
+
+function renderSpend() {
+  const withUsage = jobs.filter((j) => j.usage && j.usage.length)
+  const total = sum(withUsage.map((j) => sum(j.usage.map(tokens))))
+  const detail = withUsage.length
+    ? `<details ${$('spend').querySelector('details')?.open ? 'open' : ''}>
+        <summary>Spend: ${fmtTok(total)} tokens over ${withUsage.length} job${withUsage.length === 1 ? '' : 's'}</summary>
+        ${groupTable('role', groupSpend(withUsage, (r) => r.role))}
+        ${groupTable('model', groupSpend(withUsage, (r) => r.model))}
+        <div class="sub">Tokens are input + output. Spend is information only; nothing is stopped on it.</div>
+      </details>`
+    : ''
+  const html = `<div class="meters">${quotaMeter(newestQuota(withUsage))}<span>Claude: tokens only</span></div>${detail}`
+  if (html !== lastSpend) { lastSpend = html; $('spend').innerHTML = html }
+}
+
+function usageLine(job, flags) {
+  const u = job.usage
+  if (!u || !u.length) return ''
+  const inp = sum(u.map((r) => num(r.input)))
+  const out = sum(u.map((r) => num(r.output)))
+  const split = Object.entries(stageTotals(u)).sort().map(([k, v]) => `${esc(k)} ${fmtTok(v)}`).join(' · ')
+  const fl = (flags[job.id] || []).map((f) => `<span class="runaway">FLAG ${esc(f.stage)} ${f.ratio.toFixed(1)}× median</span>`).join(' ')
+  return `<div class="usage">${fmtTok(inp)} in · ${fmtTok(out)} out · ${u.length} run${u.length === 1 ? '' : 's'}
+    <div class="split">${split}</div>${fl ? `<div>${fl}</div>` : ''}</div>`
+}
+
+// Drawer view of usage.jsonl, as markdown.
+function usageMarkdown(records) {
+  const cell = (v) => (v === null || v === undefined ? '—' : String(v)).replace(/\|/g, '/')
+  const delta = (q) => (q && typeof q.after === 'number' && typeof q.before === 'number'
+    ? `${q.after - q.before >= 0 ? '+' : ''}${+(q.after - q.before).toFixed(2)}%` : '—')
+  const rows = records.map((r) => `| ${cell(r.stage)} | ${cell(r.role)} | ${cell(r.model)} | ${cell(r.round)} | ${fmtTok(tokens(r))} | ${cell(r.duration_s)}s | ${cell(r.exit)} | ${delta(r.quota)} |`)
+  return `# Usage\n\n${records.length} runs, ${fmtTok(sum(records.map(tokens)))} tokens (input + output).\n\n` +
+    `| stage | role | model | round | tokens | time | exit | quota change |\n|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n\n` +
+    `Quota change is approximate (account-wide meter): it also moves when anything else uses the account.`
 }
 
 // ---- Board ---------------------------------------------------------------
@@ -377,7 +548,7 @@ function taskDots(tasks) {
   return `<div class="tasks">${dots}<span class="tcount">${done}/${tasks.length}</span></div>`
 }
 
-function card(job, past) {
+function card(job, past, flags) {
   const live = LIVE.has(job.stage)
   const human = job.stage === 'needs-human'
   const rows = past.map((v, i) => chips(i + 1, v, false))
@@ -386,7 +557,7 @@ function card(job, past) {
   const flag = human ? '<span class="flag">your call</span>'
     : job.autopilot ? '<span class="flag auto">autopilot</span>' : ''
   return `
-    <button class="card ${live ? 'live' : ''} ${human ? 'human' : ''} ${job.stage === 'merged' ? 'merged' : ''}"
+    <button class="card ${live ? 'live' : ''} ${human ? 'human' : ''} ${job.stage === 'merged' ? 'merged' : ''} ${job.stage === 'dropped' ? 'dropped' : ''}"
             data-job="${esc(job.id)}">
       <div class="card-top">
         ${live ? '<span class="pulse" aria-label="running"></span>' : ''}
@@ -396,6 +567,7 @@ function card(job, past) {
       <p class="feature">${esc(job.feature)}</p>
       <div class="branch">${job.bead ? `<span class="bead">${esc(job.bead)}</span> · ` : ''}${esc(job.branch)}</div>
       ${taskDots(job.tasks)}
+      ${usageLine(job, flags)}
       ${rows.length ? `<div class="rounds">${rows.join('')}</div>` : ''}
       ${human ? `<div class="hint">/factory approve ${esc(job.id)}<br>/factory rework ${esc(job.id)} …<br>/factory autopilot ${esc(job.id)}</div>` : ''}
     </button>`
@@ -405,9 +577,11 @@ async function render() {
   const problems = []
   const byStage = Object.fromEntries(STAGES.map((s) => [s.key, []]))
   const pasts = await Promise.all(jobs.map(pastRounds))
+  const flags = runawayFlags(jobs)
+  renderSpend()
   jobs.forEach((job, i) => {
     if (!byStage[job.stage]) problems.push(`Job ${job.id} has unknown stage "${job.stage}"`)
-    else byStage[job.stage].push(card(job, pasts[i]))
+    else byStage[job.stage].push(card(job, pasts[i], flags))
   })
   // Newest first within a column.
   const html = STAGES.map((s) => `
@@ -430,14 +604,34 @@ async function poll() {
   const status = $('status')
   try {
     models = JSON.parse(await fetchText('models.json'))
+    land = await loadLand()
     jobs = await loadJobs()
     await render()
     if (openJobId) await refreshDrawer()
     status.className = 'status'
-    status.innerHTML = `<span class="dot"></span>jobs/ · ${new Date().toLocaleTimeString()}`
+    status.innerHTML = `<span class="dot"></span>land: ${esc(land)} · jobs/ · ${new Date().toLocaleTimeString()}`
   } catch (err) {
     status.className = 'status error'
     status.innerHTML = `<span class="dot"></span>${esc(err.message)}`
+  }
+}
+
+// settings.json is optional; without it (404) the land mode is "pr".
+async function loadLand() {
+  try {
+    const s = JSON.parse(await fetchText('settings.json'))
+    return s.land === 'local' ? 'local' : 'pr'
+  } catch {
+    return 'pr'
+  }
+}
+
+// jobs/<id>/usage.jsonl is optional too; missing means no usage.
+async function loadUsage(id) {
+  try {
+    return parseUsage(await fetchText(`jobs/${id}/usage.jsonl`))
+  } catch {
+    return []
   }
 }
 
@@ -449,7 +643,10 @@ async function loadJobs() {
     .filter((h) => h.endsWith('/'))
     .map((h) => h.slice(0, -1))
     .sort()
-  return Promise.all(ids.map(async (id) => JSON.parse(await fetchText(`jobs/${id}/job.json`))))
+  return Promise.all(ids.map(async (id) => ({
+    ...JSON.parse(await fetchText(`jobs/${id}/job.json`)),
+    usage: await loadUsage(id),
+  })))
 }
 
 // ---- Drawer --------------------------------------------------------------
@@ -468,7 +665,7 @@ async function listFiles(dir) {
 }
 
 function fileRank(path) {
-  const order = ['spec.md', 'plan.json', 'build.md', 'decision.md']
+  const order = ['spec.md', 'plan.json', 'build.md', 'decision.md', 'usage.jsonl']
   if (order.includes(path)) return [0, order.indexOf(path), path]
   if (path.startsWith('build/')) return [3, 0, path]
   const round = path.match(/^round-(\d+)\/review-(\w+)\.md$/)
@@ -503,6 +700,7 @@ function planText(json) {
 
 async function fetchDoc(url) {
   const text = await fetchText(url)
+  if (url.endsWith('usage.jsonl')) return usageMarkdown(parseUsage(text))
   return url.endsWith('plan.json') ? planText(text) : text
 }
 
@@ -517,6 +715,8 @@ async function refreshDrawer() {
 
   const base = `jobs/${job.id}/`
   const files = sortFiles(await listFiles(base))
+  if (job.usage && job.usage.length) files.push('usage.jsonl') // listFiles only lists .md and plan.json
+  sortFiles(files)
   if (!openPath || !files.includes(openPath)) openPath = files[0] || null
 
   let text = null
