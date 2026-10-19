@@ -101,7 +101,8 @@ test_review_fixes() {
   assert_contains "$t" 'N - round_base < MAX_ROUNDS' "rounds counted from round_base"
   assert_contains "$t" 'N - round_base = MAX_ROUNDS' "last round counted from round_base"
   assert_contains "$t" '`round_base` set to `round`' "resubmit sets round_base"
-  assert_contains "$t" 'and set `round_base` to `round`' "autopilot rework/respec sets round_base"
+  assert_contains "$t" 'For REWORK and RESPEC, increment `reworks` or `respecs` and set `round_base` to `round`' "autopilot rework/respec sets round_base"
+  assert_contains "$t" 'MERGE leaves `round_base` alone' "autopilot MERGE keeps the round budget"
   case $t in *'counting on from'*) _fail "no 'counting on from' prose left" ;; *) _pass ;; esac
   assert_contains "$t" '--remove-label resubmitted --remove-label needs-human' "resume removes both labels"
   assert_contains "$t" 'Superseded: dropped' "drop closes open tasks"

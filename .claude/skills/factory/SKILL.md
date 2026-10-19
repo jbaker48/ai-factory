@@ -501,9 +501,12 @@ Every stop that needs a decision comes here with a situation: `plan-blocked`,
    - Owner decisions bind the autopilot too: it reads every `human-*.md`,
      stays within the owner's scope and "do not change" lines, and PARKs
      itself when it can't. You enforce only the limits above.
-5. Act on it. Increment `reworks` or `respecs`, and set `round_base` to
-   `round`, in the same `job-set` that moves the job out of `autopilot`, so an
-   interrupted decision is never counted twice:
+5. Act on it. For REWORK and RESPEC, increment `reworks` or `respecs` and
+   set `round_base` to `round` in the same `job-set` that moves the job out
+   of `autopilot`, so an interrupted decision is never counted twice. MERGE
+   leaves `round_base` alone: a re-review after a moved base (**Merge** exit
+   6) counts against the same `MAX_ROUNDS`, so an ESCALATE → MERGE loop
+   can't run forever:
    - **MERGE**: go to **Merge**. If that comes back `merge-blocked` again,
      PARK instead of asking the autopilot twice.
    - **REWORK**: file one fix task
@@ -766,9 +769,10 @@ the job folder; don't read more of the job than the step below needs.
      PR) only when `stage` is `approve`, `decision.md`'s first line is
      `APPROVE` and `decision.md` is newer than every file in `round-<N>/`, or
      `stage` is `autopilot` and `decision_file`'s first line is `MERGE`
-     (within the limits of **Autopilot decision** step 4). Otherwise carry on with step 4: the PR stays open across review rounds,
-     so after a moved base (**Merge** exit 6) an open PR doesn't mean the
-     approver has seen the new round.
+     (within the limits of **Autopilot decision** step 4). Otherwise carry
+     on with step 4: the PR stays open across review rounds, so after a
+     moved base (**Merge** exit 6) an open PR doesn't mean the approver has
+     seen the new round.
    - With `land: "local"`, if `factory/<job-id>` is already merged into `main`
      (`git merge-base --is-ancestor factory/<job-id> main`), finish **Merge**
      from its exit-0 cleanup and stop. If the main checkout has a merge in
