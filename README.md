@@ -206,6 +206,10 @@ factory/
 
 ## Use it in your repo
 
+To have a coding agent do this, point it at [`INSTALL.md`](INSTALL.md): it
+checks the tools, copies the files, writes and tests `AGENTS.md`, and asks you
+the decisions. By hand:
+
 1. Install `bd` (Beads), the Codex CLI (logged in, with access to the models in
    `models.json`), the Codex plugin for Claude Code (for the adversarial
    reviewer), `node` and `jq`. Install
