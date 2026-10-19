@@ -152,5 +152,11 @@ test_dashboard_hints_review() {
   assert_contains "$(cat "$ROOT/factory/dashboard.html")" '<div class="hint">/factory review ${esc(job.id)}' "needs-human hint names /factory review"
 }
 
+test_import_conflict_queues_only_free_beads() {
+  local s
+  s=$(section "$ROOT/.claude/skills/factory/SKILL.md" '/factory review' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" 'if the bead is `in_progress` or assigned to someone else, only `bd update <bead> --remove-label needs-human`' "import conflicts are queued only when nobody has the bead"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

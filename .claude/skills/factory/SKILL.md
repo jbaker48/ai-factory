@@ -704,7 +704,9 @@ there is no briefer. For each, show the `PRD conflict:` comment from
 `bd comments <bead>` and ask the owner. Write the answer, verbatim, with
 `bd comment <bead> "Owner decision: <answer>"`, and into the description too
 if it changes what the bead asks for and the factory created the bead (see
-**Brownfield rules**). Then
+**Brownfield rules**). Then, if the bead is `in_progress` or assigned to
+someone else, only `bd update <bead> --remove-label needs-human`: its owner
+has it, so it isn't queued. Otherwise
 `bd update <bead> --remove-label needs-human --add-label factory,queued`.
 
 At the end, print one line per job or bead handled: id, outcome, and the
