@@ -33,6 +33,7 @@ The autopilot never merges, reworks into, or respecs toward a change that:
 
 - At most 2 REWORK and 1 RESPEC decisions per job. After that, PARK.
 - MERGE needs `Confidence: high` or `medium`, an all-PASS final review round,
-  and a clean `git merge-tree` against `main`.
+  and a clean `git merge-tree` against the base.
 - The autopilot never pushes, force-pushes, rewrites history or deletes
-  branches that are not the job's own.
+  branches that are not the job's own. Only the orchestrator's **Merge** step
+  pushes, and only the job branch.

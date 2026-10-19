@@ -206,6 +206,11 @@ state that never lands in a commit.
   moves on.
 - `decision_file` names the autopilot file of the decision in progress while
   `stage` is `autopilot`.
+- `reviewed_base` is the base commit the current review round diffs against,
+  set at the start of every **Review round N**. **Merge** lands nothing on a
+  base past it.
+- `pr` is the job's pull request url, set by **Merge** once the PR exists
+  (`land: "pr"` only).
 - `updated` is stamped by `job-set` on every change.
 - Change it only with `factory/bin/job-set` (see **Keep your context small**).
   Together with Beads and the job folder, it is everything **/factory resume**
@@ -322,7 +327,10 @@ starts the next review round; anything else is `build-blocked`.
 ### Review round N
 
 1. Set `stage: "review"`, `round: N` and all five reviews to `pending`. Create
-   `factory/jobs/<job-id>/round-<N>/`.
+   `factory/jobs/<job-id>/round-<N>/`. With `land: "pr"`, `git fetch -q origin
+   main` so reviewers diff against the current `origin/main`. Then set
+   `reviewed_base` to `git rev-parse <base>` (`<base>` is
+   `factory/bin/settings base`).
 2. Run all five reviewers **in one message**, so they run in parallel. The
    four with role files get the task `Review round N.`, plus a port for
    `reviewer-ux` and `reviewer-ui`. `reviewer-adversarial` gets `N` as
@@ -365,25 +373,44 @@ When it finishes, read the first line of `decision.md`:
 
 ### Merge
 
-The merge happens in the main checkout, so it must be clean and on `main`:
-`git status --porcelain -- . ':!factory/'` prints nothing and
-`git branch --show-current` prints `main`. If not, go to **Needs human** with
-situation `merge-blocked`, saying the job is approved but the main checkout is
-busy. Otherwise:
+Every job lands through `factory/bin/land <job folder>`, never a push to
+`main`. With `land: "pr"` (the default) it pushes the job branch, opens its PR
+(or reuses the open one), waits for `main`'s required checks (all checks when
+none are required) and squash-merges; the main checkout is never touched.
+With `land: "local"` it merges `factory/<job-id>` into `main` in the main
+checkout, one landing at a time, and never fetches or pushes. Either way,
+nothing lands on a base past `reviewed_base`. Run it with Bash and
+`run_in_background: true`. With `land: "pr"` its first line of output is the
+PR url: set `pr` in `job.json` from it. When it exits:
 
-```bash
-git merge -q --no-ff factory/<job-id> -m "Merge factory/<job-id>"
-git worktree remove <worktree>
-git branch -d factory/<job-id>
-bd close <bead> --reason "Merged factory/<job-id> into main"
-```
-
-Remove the `needs-human` label if the bead has it, and set `stage: "merged"`
-and `situation: null`.
-If the merge fails, run `git merge --abort` (when a merge is in progress) and go
-to **Needs human** with situation `merge-blocked`. If removing the worktree
-fails, the job is still merged: tell the user what `git worktree remove`
-printed. Never push.
+- **0**: the job merged. Clean up and close:
+  ```bash
+  git worktree remove <worktree>
+  git branch -D factory/<job-id>
+  bd close <bead> --reason "Merged <pr>"    # local: "Merged factory/<job-id> into main"
+  ```
+  Remove the `needs-human` label if the bead has it, and set
+  `stage: "merged"` and `situation: null`. If removing the worktree fails,
+  the job is still merged: tell the user what `git worktree remove` printed.
+- **6** (the base moved since `reviewed_base`): `land` merged the new base
+  into the job branch with a merge commit (and pushed it with `land: "pr"`;
+  the PR stays open and is reused). The final review never saw that code, so
+  it counts as another round: if `N < MAX_ROUNDS`, go to
+  **Review round N+1**, which sets `reviewed_base` to the new base, and then
+  **Approve** again. If `N = MAX_ROUNDS`, write `decision.md` yourself, reading
+  `ESCALATE`, then a blank line, then
+  `Base moved after the final review round; factory/<job-id> now merges <base> and needs another review.`
+  and go to **Needs human** with situation `rounds-exhausted`.
+- **3** (required checks failed), **4** (conflicts with `origin/main`) or
+  **5** (GitHub refused the merge): go to **Needs human** with situation
+  `merge-blocked`, quoting the script's stderr and `tail -n 20` of
+  `.runs/checks.log`. The PR stays open; a later rework pushes to the same
+  branch and **Merge** reuses it.
+- **7** (`land: "local"` only: the main checkout is not on `main`, has changes
+  outside `factory/`, or another landing held `factory/.land-lock` for 10
+  minutes): go to **Needs human** with situation `merge-blocked`, saying the
+  job is approved but the main checkout is busy.
+- Anything else is an environment failure: stop and tell the user.
 
 ### Needs human
 
@@ -409,7 +436,8 @@ Every stop that needs a decision comes here with a situation: `plan-blocked`,
 4. Enforce the limits, turning a decision that breaks one into **PARK**:
    - **MERGE** needs situation `escalated` or `merge-blocked`, confidence
      `high` or `medium`, all five final-round reviews `PASS`, and
-     `git merge-tree --write-tree main factory/<job-id>` clean.
+     `git merge-tree --write-tree <base> factory/<job-id>` clean (after
+     `git fetch -q origin main` with `land: "pr"`).
    - **REWORK** needs `reworks < 2`. **RESPEC** needs `respecs < 1`.
 5. Act on it. Increment `reworks` or `respecs` in the same `job-set` that
    moves the job out of `autopilot`, so an interrupted decision is never
@@ -564,10 +592,15 @@ the job folder; don't read more of the job than the step below needs.
    ports (`lsof -ti tcp:<port> | xargs kill`, ignoring errors) and close its
    agent-browser sessions (`agent-browser --session <job-id>-<builder|ux|ui> close`,
    ignoring errors).
-3. If `factory/<job-id>` is already merged into `main`
-   (`git merge-base --is-ancestor factory/<job-id> main`), finish **Merge**
-   from the step after `git merge` and stop. If the main checkout has a merge
-   in progress for it, `git merge --abort` and go to **Merge**.
+3. Check whether the job already landed:
+   - With `land: "pr"`, if `job.json` has a `pr`, check it with
+     `gh pr view <pr> --json state -q .state`. `MERGED`: finish **Merge** from
+     its exit-0 cleanup and stop. `OPEN` with `stage` `approve` or `autopilot`
+     after a MERGE decision: run **Merge** again (it reuses the PR).
+   - With `land: "local"`, if `factory/<job-id>` is already merged into `main`
+     (`git merge-base --is-ancestor factory/<job-id> main`), finish **Merge**
+     from its exit-0 cleanup and stop. If the main checkout has a merge in
+     progress for it, `git merge --abort` and go to **Merge**.
 4. Check the worktree exists and
    `git -C <worktree> branch --show-current` prints `factory/<job-id>`. If the
    worktree is missing and `stage` is `spec`, create it as in step 3 of

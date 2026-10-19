@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Lands an approved factory job on local main with a merge commit in the main
+# checkout (the repo two levels above this script). For repos without GitHub:
+# never fetches or pushes.
+#
+#   factory/bin/local-land <job-folder>
+#
+# Landings are serialised by the lock dir factory/.land-lock (retried every
+# LAND_LOCK_INTERVAL seconds, default 2, for up to 10 minutes). Under the lock:
+# the main checkout must be on main and clean outside factory/; if main has
+# moved past job.json's reviewed_base, main is merged into the job branch in
+# the worktree (a merge commit) and the script exits 6 for another review
+# round; otherwise `git merge --no-ff factory/<id>`.
+#
+# Prints nothing on success. Exit codes: 0 merged; 4 conflicts with main;
+# 6 main moved, branch updated, re-review needed; 7 main checkout busy (dirty,
+# not on main, or the lock stayed taken); anything else is an environment
+# failure.
+set -uo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: local-land <job-folder>" >&2
+  exit 2
+fi
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+root=$(cd "$here/../.." && pwd)
+j="$1/job.json"
+id=$(jq -r .id "$j") worktree=$(jq -r .worktree "$j") || exit 1
+reviewed_base=$(jq -r '.reviewed_base // empty' "$j") || exit 1
+base=$("$here/settings" base) || exit 1
+branch="factory/$id" lock="$root/factory/.land-lock"
+interval=${LAND_LOCK_INTERVAL:-2}
+deadline=$(($(date +%s) + 600))
+
+until mkdir "$lock" 2>/dev/null; do
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    echo "local-land: $lock held for 10 minutes; remove it if no landing is running" >&2
+    exit 7
+  fi
+  sleep "$interval"
+done
+trap 'rmdir "$lock" 2>/dev/null' EXIT
+
+if [ -n "$(git -C "$root" status --porcelain -- . ':!factory/')" ] ||
+  [ "$(git -C "$root" branch --show-current)" != main ]; then
+  echo "local-land: the main checkout $root is busy (not clean outside factory/, or not on main)" >&2
+  exit 7
+fi
+
+[ -n "$reviewed_base" ] || reviewed_base=$(git -C "$root" merge-base "$branch" "$base") || exit 1
+now=$(git -C "$root" rev-parse "$base") || exit 1
+if ! git -C "$root" merge-base --is-ancestor "$now" "$reviewed_base"; then
+  if ! git -C "$root" merge-tree --write-tree "$base" "$branch" >/dev/null; then
+    echo "local-land: $branch conflicts with $base" >&2
+    exit 4
+  fi
+  git -C "$worktree" merge -q --no-ff --no-edit "$base" ||
+    { git -C "$worktree" merge --abort 2>/dev/null; exit 1; }
+  echo "local-land: $base moved since review; merged it into $branch, re-review needed" >&2
+  exit 6
+fi
+
+if ! git -C "$root" merge -q --no-ff "$branch" -m "Merge $branch"; then
+  git -C "$root" merge --abort 2>/dev/null
+  echo "local-land: merging $branch into $base failed" >&2
+  exit 4
+fi
