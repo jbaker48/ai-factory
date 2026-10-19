@@ -1,0 +1,5 @@
+{"type":"session_meta","payload":{"id":"01a152f0-a71f-7721-99c4-97eea420e361"}}
+{"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":null}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":90000,"cached_input_tokens":70000,"cache_write_input_tokens":0,"output_tokens":600,"reasoning_output_tokens":10}},"rate_limits":{"limit_id":"codex","primary":{"used_percent":30.0,"window_minutes":10080,"resets_at":1792874508},"secondary":null,"plan_type":"prolite"}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":180312,"cached_input_tokens":155520,"cache_write_input_tokens":0,"output_tokens":1272,"reasoning_output_tokens":24}},"rate_limits":{"limit_id":"codex","primary":{"used_percent":32.0,"window_minutes":10080,"resets_at":1792874508},"secondary":null,"plan_type":"prolite"}}}

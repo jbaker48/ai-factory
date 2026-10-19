@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# Appends one usage line for an agent run to <job-folder>/usage.jsonl.
+#
+#   factory/bin/usage-record codex <job-folder> <log-prefix> <role> <exit-code> [--thread <id>]
+#
+# Subcommands are dispatched by name; each builds one JSON object and hands it
+# to write_line, the only place that touches usage.jsonl. Further sources
+# (claude, session) add a cmd_<name> function and a case arm.
+#
+# codex: <log-prefix> is the run's log path without extension (run-codex's
+# $log). Tokens are summed over every turn.completed in <log-prefix>.jsonl;
+# without one (a run that died, or run-adversarial's companion JSON), they come
+# from the last token_count in the thread's rollout under
+# ${CODEX_SESSIONS_DIR:-~/.codex/sessions}. The thread id is the log's
+# thread.started, or --thread. Quota is the first and last rate_limits.primary
+# in that rollout. Anything unavailable is null, never guessed.
+#
+# Prints nothing and always exits 0, so recording never fails the run it
+# records. On an internal error the line carries nulls and an "error" message;
+# if the line cannot be written, one line goes to stderr.
+set -uo pipefail
+
+factory=$(cd "$(dirname "$0")/.." && pwd)
+
+# write_line <job-folder> <json>: appends the object as one compact line.
+write_line() {
+  { jq -c . <<<"$2" >>"$1/usage.jsonl"; } 2>/dev/null ||
+    echo "usage-record: could not write $1/usage.jsonl" >&2
+}
+
+now_iso() { date +%Y-%m-%dT%H:%M:%S%z | sed -E 's/([0-9]{2})$/:\1/'; }
+
+# epoch_of_prefix <log-prefix>: epoch seconds from its YYYYmmdd-HHMMSS stamp.
+# shellcheck disable=SC2329 # called from cmd_codex
+epoch_of_prefix() {
+  local s
+  s=$(basename "$1" | grep -oE '^[0-9]{8}-[0-9]{6}') || return 1
+  date -j -f %Y%m%d-%H%M%S "$s" +%s 2>/dev/null ||
+    date -d "${s:0:4}-${s:4:2}-${s:6:2} ${s:9:2}:${s:11:2}:${s:13:2}" +%s 2>/dev/null
+}
+
+# base_line <job> <role> <exit>: fields shared by every source, as JSON.
+base_line() {
+  local job=$1 role=$2 rc=$3 entry jobj jf=$1/job.json
+  entry=$(jq -c --arg r "$role" '.[$r] // {}' "$factory/models.json" 2>/dev/null) || entry='{}'
+  jobj=$(jq -c 'if type == "object" then . else {} end' "$jf" 2>/dev/null) || jobj='{}'
+  jq -n -c --arg ts "$(now_iso)" --arg role "$role" --argjson rc "$rc" \
+    --argjson m "$entry" --argjson job "$jobj" '
+    { ts: $ts, role: $role, provider: ($m.provider // null), model: ($m.model // null),
+        effort: ($m.effort // null), stage: ($job.stage // null), round: ($job.round // null),
+        task: ([$job.tasks[]? | select(.status == "in_progress") | .id][0] // null),
+        input: null, cached: null, cache_write: null, output: null, reasoning: null,
+        duration_s: null, exit: $rc, ended: null, quota: null, log: null }'
+}
+
+# shellcheck disable=SC2329 # called through run_source
+cmd_codex() {
+  local job=$1 prefix=$2 role=$3 rc=$4 thread=""
+  shift 4
+  while [ $# -gt 0 ]; do
+    case $1 in --thread) thread=${2:-}; shift 2 ;; *) shift ;; esac
+  done
+  case $rc in '' | *[!0-9]*) rc=null ;; esac
+
+  local base log=$prefix.jsonl events='[]' rollout="" tokens quota duration
+  base=$(base_line "$job" "$role" "$rc") || return 1
+  jq -e --arg r "$role" 'has($r)' "$factory/models.json" >/dev/null 2>&1 || { echo "no '$role' in models.json" >&2; return 1; }
+  if [ -f "$log" ]; then
+    events=$(jq -R 'fromjson? // empty' "$log" | jq -s -c .) || events='[]'
+    [ -n "$thread" ] || thread=$(jq -r '[.[] | select(.type == "thread.started") | .thread_id][0] // empty' <<<"$events")
+  fi
+  if [ -n "$thread" ]; then
+    rollout=$(find "${CODEX_SESSIONS_DIR:-$HOME/.codex/sessions}" -name "rollout-*-$thread.jsonl" 2>/dev/null | head -n 1)
+  fi
+  local rolled='[]'
+  [ -n "$rollout" ] && { rolled=$(jq -R 'fromjson? // empty | select(.payload.type? == "token_count")' "$rollout" | jq -s -c .) || rolled='[]'; }
+
+  tokens=$(jq -n -c --argjson ev "$events" --argjson ro "$rolled" '
+    def pick: { input: .input_tokens, cached: .cached_input_tokens, cache_write: .cache_write_input_tokens,
+                output: .output_tokens, reasoning: .reasoning_output_tokens };
+    ([$ev[] | select(.type == "turn.completed" and .usage != null) | .usage]) as $u
+    | if ($u | length) > 0 then
+        ($u | map(pick) | { input: (map(.input) | add), cached: (map(.cached) | add),
+           cache_write: (map(.cache_write) | add), output: (map(.output) | add), reasoning: (map(.reasoning) | add) })
+      else
+        ([$ro[] | .payload.info.total_token_usage? | select(. != null)] | last | if . == null then {} else pick end)
+      end')
+  quota=$(jq -n -c --argjson ro "$rolled" '
+    [$ro[] | .payload | select(.rate_limits.primary? != null) | {p: .rate_limits.primary, plan: .rate_limits.plan_type}] as $r
+    | if ($r | length) == 0 then null else
+        ($r[-1].p.window_minutes) as $w
+        | { window: (if $w == 10080 then "weekly" elif $w == 300 then "5h" elif $w == null then null else "\($w)m" end),
+            before: $r[0].p.used_percent, after: $r[-1].p.used_percent,
+            resets_at: $r[-1].p.resets_at, plan: $r[-1].plan }
+      end')
+  local start; duration=null
+  if start=$(epoch_of_prefix "$prefix"); then duration=$(( $(date +%s) - start )); fi
+  local rel=${prefix#"$job"/}
+
+  jq -n -c --argjson b "$base" --argjson t "$tokens" --argjson q "$quota" --argjson d "$duration" \
+    --argjson ev "$events" --arg log "$rel" '
+    $b + $t + { duration_s: $d, quota: $q, log: $log,
+                ended: ([$ev[] | .type? // empty] | last // null) }
+    | . + { input: (.input // null), cached: (.cached // null), cache_write: (.cache_write // null),
+            output: (.output // null), reasoning: (.reasoning // null) }'
+}
+
+# run_source <job> <role> <exit> <fn> args...: runs a source function and
+# writes its line, or a null line carrying the error if it fails.
+run_source() {
+  local job=$1 role=$2 rc=$3 fn=$4 out err
+  shift 4
+  err=$(mktemp "${TMPDIR:-/tmp}/usage-record.XXXXXX") || err=/dev/null
+  if out=$("$fn" "$@" 2>"$err") && [ -n "$out" ]; then
+    write_line "$job" "$out"
+  else
+    local msg
+    msg=$(head -n 1 "$err" 2>/dev/null); msg=${msg:-failed}
+    case $rc in '' | *[!0-9]*) rc=null ;; esac
+    out=$(base_line "$job" "$role" "$rc" 2>/dev/null) || out=$(jq -n -c --arg role "$role" '{role: $role}')
+    write_line "$job" "$(jq -c --arg e "$msg" '. + {error: $e}' <<<"$out")"
+  fi
+  [ "$err" = /dev/null ] || rm -f "$err"
+}
+
+main() {
+  local sub=${1:-}
+  case $sub in
+    codex)
+      if [ $# -lt 5 ]; then
+        echo "usage: usage-record codex <job-folder> <log-prefix> <role> <exit-code> [--thread <id>]" >&2
+        return 0
+      fi
+      run_source "$2" "$4" "$5" cmd_codex "$2" "$3" "$4" "$5" "${@:6}"
+      ;;
+    *) echo "usage: usage-record codex <job-folder> <log-prefix> <role> <exit-code> [--thread <id>]" >&2 ;;
+  esac
+  return 0
+}
+
+main "$@"
+exit 0

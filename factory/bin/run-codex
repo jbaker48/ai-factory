@@ -19,6 +19,7 @@
 # off with -c mcp_servers.<name>.enabled=false (confirmed with `codex mcp list`).
 # Needs python3 (3.11+, for tomllib) to read config.toml; without it, or with a
 # malformed config.toml, the servers stay on and one warning goes to stderr.
+# Usage is appended to <job-folder>/usage.jsonl by usage-record.
 # Exit codes: codex's own, or 2 for usage and config errors.
 set -uo pipefail
 
@@ -80,6 +81,9 @@ codex exec \
   --json \
   -o "$log.last.md" \
   - <"$log.prompt.md" >"$log.jsonl" 2>"$log.stderr" || rc=$?
+
+# Record token and quota usage; this never changes the run's outcome.
+"$factory/bin/usage-record" codex "$job" "$log" "$key" "$rc" >&2 || true
 
 # One line on success, so the orchestrator's context stays small; the agent's
 # full last message stays in $log.last.md. On failure, the stderr tail.
