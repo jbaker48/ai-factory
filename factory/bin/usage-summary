@@ -4,7 +4,7 @@
 #   factory/bin/usage-summary
 #
 # Run from the repo root. Reads factory/jobs/*/usage.jsonl and job.json and
-# prints one line per job that has usage:
+# prints one line per unfinished job (not at merged or dropped) that has usage:
 #   <job-id> <stage>: <input>M in (<cached%> cached), <output>k out, <runs> runs[, FLAG <stage> <x>× median ...]
 # then "quota: codex <window> <after>% (resets <date>)" from the newest usage
 # record with quota data ("quota: no data" if none), then "claude: tokens only".
@@ -46,7 +46,7 @@ jq -n -R -r '
       })) as $jobs
   | ( [ $jobs[] | select(.finished) | .by | to_entries[] ] | group_by(.key)
       | map({key: .[0].key, value: {n: length, med: (map(.value) | median)}}) | from_entries ) as $stats
-  | ( $jobs[]
+  | ( $jobs[] | select(.finished | not)
       | (.u | map(.input|n) | add) as $in | (.u | map(.cached|n) | add) as $ca | (.u | map(.output|n) | add) as $out
       | ( [ .by | to_entries | sort_by(.key)[] | . as $e | $stats[$e.key] // empty
             | select(.n >= 3 and .med > 0 and $e.value >= 2 * .med)

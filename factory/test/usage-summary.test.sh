@@ -44,7 +44,22 @@ test_flag_needs_three_finished() {
   job 004-d dropped "$(ul build 1000000 0 0)"
   out=$(run)
   assert_contains "$out" "001-a build: 5.0M in (0% cached), 0k out, 1 runs, FLAG build 5.0× median" "flag with 3 finished"
-  case $(grep '^002-b' <<<"$out") in *FLAG*) _fail "no flag at 1x" ;; *) _pass ;; esac
+  case $out in *002-b*) _fail "finished jobs get no line" "$out" ;; *) _pass ;; esac
+}
+
+test_finished_jobs_no_line() {
+  fresh
+  job 001-a review "$(ul build 1000000 0 0)"
+  job 002-b merged "$(ul build 1000000 0 0)"
+  job 003-c dropped "$(ul build 1000000 0 0)"
+  out=$(run)
+  assert_eq "001-a review: 1.0M in (0% cached), 0k out, 1 runs
+quota: no data
+claude: tokens only" "$out" "only the unfinished job, then quota and claude"
+  fresh
+  job 002-b merged "$(ul build 1000000 0 0)"
+  assert_eq "quota: no data
+claude: tokens only" "$(run)" "all finished: quota and claude lines only"
 }
 
 test_null_tokens_count_as_runs() {

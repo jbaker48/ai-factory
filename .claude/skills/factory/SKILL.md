@@ -578,8 +578,8 @@ owner and waiting for the drain (`bd list -l factory,resubmitted`), the
 `needs-human` beads with no job folder (import conflicts for
 `/factory review`), and the stage of each job folder's `job.json`, `dropped`
 included. Then run `factory/bin/usage-summary` and print its output
-as-is (one line per job with token totals and runs, then the quota lines);
-don't read usage files yourself.
+as-is (one line per job not yet merged or dropped, with token totals and
+runs, then the quota lines); don't read usage files yourself.
 
 ## /factory import <prd>
 

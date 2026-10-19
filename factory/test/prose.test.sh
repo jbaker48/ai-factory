@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks on the prose the orchestrator and roles read (SKILL.md, role files, template).
 # shellcheck source=/dev/null
+# shellcheck disable=SC2016 # backticks in the needles are literal Markdown
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 ROOT=$(cd "$FACTORY_SRC/.." && pwd)
 
@@ -122,6 +123,12 @@ test_parallel_drain() {
   assert_contains "$(cat "$f")" '--if-assignee' "SKILL.md names the drain's compare-and-set"
   assert_contains "$(cat "$ROOT/README.md")" '--jobs' "README documents --jobs"
   assert_contains "$(cat "$ROOT/INSTALL.md")" "\`jobs\`" "INSTALL documents the jobs setting"
+}
+
+test_status_command() {
+  local s
+  s=$(section "$ROOT/.claude/skills/factory/SKILL.md" '/factory status' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" 'one line per job not yet merged or dropped' "status: usage lines for unfinished jobs only"
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
