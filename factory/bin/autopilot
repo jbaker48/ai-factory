@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Drains the factory queue on autopilot, one headless Claude session per job,
+# so no job's context carries into the next.
+#
+#   factory/bin/autopilot [<count>] [--budget <usd>]
+#
+# For each queued job: runs `claude -p "/factory autopilot adopt <bead>"`. If
+# the session ends before the job reaches merged or needs-human (a crash, a
+# budget cap, a time limit), runs `/factory resume <job-id>`, up to
+# MAX_RESUMES times, then stops. A parked job doesn't stop the loop.
+# --budget caps each session's spend (claude --max-budget-usd).
+#
+# Run one driver per repo. Session output goes to factory/autopilot-runs/.
+# FACTORY_PERMISSION_MODE sets the sessions' permission mode
+# (default bypassPermissions: nobody is there to answer prompts).
+set -uo pipefail
+
+MAX_RESUMES=2
+count=0 budget=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --budget) budget=${2:?--budget needs an amount}; shift 2 ;;
+    [0-9]*) count=$1; shift ;;
+    *) echo "usage: autopilot [<count>] [--budget <usd>]" >&2; exit 2 ;;
+  esac
+done
+
+repo=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$repo" || exit 1
+logs=factory/autopilot-runs
+mkdir -p "$logs"
+
+# Background commands in a -p run stop after 10 minutes unless the timeout is
+# raised; Codex runs at xhigh effort take longer. Wait for background work
+# without the idle cap, too.
+export BASH_DEFAULT_TIMEOUT_MS=${BASH_DEFAULT_TIMEOUT_MS:-7200000}
+export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-0}
+
+trap 'echo; echo "autopilot: stopped. Pick up a cut-off job with /factory resume <job-id>."; exit 130' INT TERM
+
+# Runs one headless session; prints "<session id> <cost>".
+session() {
+  local name=$1 prompt=$2 out
+  out="$logs/$(date +%Y%m%d-%H%M%S)-$name.json"
+  claude -p "$prompt" \
+    --permission-mode "${FACTORY_PERMISSION_MODE:-bypassPermissions}" \
+    --permission-prompts none \
+    --output-format json \
+    ${budget:+--max-budget-usd "$budget"} \
+    >"$out" 2>"${out%.json}.stderr" </dev/null
+  jq -r '"\(.session_id // "-") \(.total_cost_usd // 0)"' "$out" 2>/dev/null || echo "- 0"
+}
+
+headless="This is a headless run: nobody can answer questions. Run only this job, then stop."
+done_jobs=0
+while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
+  bead=$(bd ready -l factory,queued --exclude-type epic --json -n 1 | jq -r '.[0].id // empty')
+  [ -n "$bead" ] || { echo "autopilot: queue empty."; break; }
+
+  read -r sid cost < <(session "$bead" "/factory autopilot adopt $bead. $headless")
+  total=$cost
+  job=$(jq -r --arg b "$bead" 'select(.bead == $b) | .id' factory/jobs/*/job.json 2>/dev/null | tail -n 1)
+  if [ -z "$job" ]; then
+    echo "autopilot: $bead: the session made no job (session $sid). See $logs/." >&2
+    exit 1
+  fi
+
+  resumes=0
+  stage=$(jq -r .stage "factory/jobs/$job/job.json")
+  while [ "$stage" != merged ] && [ "$stage" != needs-human ]; do
+    if [ "$resumes" -ge "$MAX_RESUMES" ]; then
+      echo "autopilot: $job ($bead) still at $stage after $resumes resumes (session $sid). Stopping." >&2
+      exit 1
+    fi
+    resumes=$((resumes + 1))
+    echo "autopilot: $job ($bead) ended at $stage; resuming ($resumes/$MAX_RESUMES)."
+    read -r sid cost < <(session "$job-resume$resumes" "/factory resume $job. $headless")
+    total=$(jq -n "$total + $cost")
+    stage=$(jq -r .stage "factory/jobs/$job/job.json")
+  done
+
+  printf 'autopilot: %s (%s) %s, $%.2f, session %s\n' "$job" "$bead" "$stage" "$total" "$sid"
+  done_jobs=$((done_jobs + 1))
+done

@@ -130,6 +130,25 @@ planner reuses an adopted bead's existing child tasks where they fit.
 /factory autopilot <job-id>       hand a parked job to the autopilot
 ```
 
+For a long drain, run the queue from your shell instead:
+
+```bash
+factory/bin/autopilot              # drain the queue, one headless session per job
+factory/bin/autopilot 3 --budget 20   # three jobs, at most $20 per session
+```
+
+`/factory autopilot` runs every job in one session, so the orchestrator's
+context keeps growing. `factory/bin/autopilot` starts a new `claude -p`
+session for each job, so every job starts clean. If a session ends before its
+job merges or parks (a crash, the budget cap, a time limit), the script runs
+`/factory resume <job-id>` in a new session, up to twice. It prints each job's
+outcome, cost and session id (`claude --resume <id>` opens the session) and
+keeps the session output in `factory/autopilot-runs/`. It runs sessions with
+`bypassPermissions`, because nobody is there to answer prompts (set
+`FACTORY_PERMISSION_MODE` to change that), and raises the 10-minute limit
+headless sessions put on background commands, which long Codex runs would hit.
+Run one driver per repo.
+
 When a job hits a plan BLOCKED, a build BLOCKED (after escalating to Sol), run
 out of review rounds, an approver ESCALATE or a failed merge, the autopilot
 reads everything about the job, re-runs the checks it needs, and writes
@@ -158,6 +177,7 @@ two REWORKs and one RESPEC per job, never push.
 /factory status                  queue, running and parked jobs
 /factory approve <job-id>        merge a needs-human job into main
 /factory rework <job-id> <note>  send a needs-human job back to the builder
+/factory resume <job-id>         pick up a job whose session ended mid-step
 ```
 
 ## Layout
@@ -169,15 +189,19 @@ two REWORKs and one RESPEC per job, never push.
 factory/
   models.json                    role → provider, model, effort
   autopilot-policy.md            what the autopilot may decide alone
+  AGENTS.template.md             starting point for your repo's AGENTS.md
   agents/                        one instruction file per role, for any provider
     spec-writer.md  planner.md  builder.md
     reviewer-security.md  reviewer-code.md  reviewer-ux.md  reviewer-ui.md
     approver.md  autopilot.md  importer.md
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
+  bin/job-set                    updates a job.json field with jq, quietly
+  bin/autopilot                  drains the queue, one headless session per job
   dashboard.html                 the visual board
   jobs/                          one folder per job (runtime state)
   imports/                       one folder per PRD import (runtime state)
+  autopilot-runs/                headless session output from bin/autopilot
 ```
 
 ## Use it in your repo
@@ -190,11 +214,14 @@ factory/
 2. Copy `.claude/` and `factory/` into your repo root.
 3. Run `bd init` in the repo if it has no Beads workspace yet. If it has one,
    keep it: see **Brownfield** above, and start with `/factory import <prd>`.
-4. Add `/factory/jobs/` and `/factory/imports/` to your `.gitignore`. They
-   are runtime state.
-5. Make sure your `AGENTS.md` (or `CLAUDE.md`) says how to set up a fresh
-   checkout, start the dev server on a given port, and run your tests, build
-   and lint. The agents carry nothing repo-specific.
+4. Add `/factory/jobs/`, `/factory/imports/` and `/factory/autopilot-runs/`
+   to your `.gitignore`. They are runtime state.
+5. Write your `AGENTS.md` from `factory/AGENTS.template.md`, and make
+   `CLAUDE.md` the one line `@AGENTS.md`. The agents carry nothing
+   repo-specific: they get setup for a fresh worktree, the dev server on a
+   given port, validation commands and conventions from this file. The
+   template's header comment lists the conditions those commands must work
+   under (no gitignored files, parallel jobs, no network for reviewers).
 6. Read `factory/autopilot-policy.md` and adjust it before using autopilot.
 7. Commit everything on `main`, then run `/factory <feature>`.
 

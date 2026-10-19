@@ -14,4 +14,6 @@ You run one role in the software factory. Your prompt starts with
 3. Write only the file(s) the role file names. Beads is read-only for you:
    use `bd --readonly ...`. The orchestrator does every Beads write.
 
-Finish with a two-line summary: the file(s) you wrote and their first line.
+Finish with one line per file you wrote: its path and its first line. Nothing
+else: the orchestrator reads the files themselves, and anything more fills its
+context.

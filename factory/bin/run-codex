@@ -7,7 +7,8 @@
 # file in factory/agents/ (default: the key itself), so builder-escalation runs
 # builder.md on a bigger model. The agent works in <worktree> and may also write
 # to <job-folder>. The sandbox keeps .git read-only, so agents never commit; the
-# orchestrator does. Everything is logged to <job-folder>/.runs/.
+# orchestrator does. Everything is logged to <job-folder>/.runs/. Prints one
+# line, plus the stderr tail when codex fails.
 set -uo pipefail
 
 if [ $# -ne 4 ]; then
@@ -47,6 +48,8 @@ codex exec \
   -o "$log.last.md" \
   - <"$log.prompt.md" >"$log.jsonl" 2>"$log.stderr" || rc=$?
 
+# One line on success, so the orchestrator's context stays small; the agent's
+# full last message stays in $log.last.md. On failure, the stderr tail.
 echo "$key: $model ($effort) exit $rc. Last message: $log.last.md"
-[ -s "$log.last.md" ] && tail -n 20 "$log.last.md"
+[ "$rc" -ne 0 ] && [ -s "$log.stderr" ] && tail -n 15 "$log.stderr"
 exit $rc

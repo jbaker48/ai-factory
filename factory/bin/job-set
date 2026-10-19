@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Updates a job's job.json in place with a jq filter.
+#
+#   factory/bin/job-set <job.json> <jq-filter> [jq args...]
+#
+# Starts from {} when the file doesn't exist yet. Stamps "updated" with the
+# current UTC time, writes atomically, and prints nothing on success, so the
+# orchestrator never has to paste the whole file to change one field.
+# Extra arguments go to jq, e.g. --arg id app-k2f.1.
+set -uo pipefail
+
+if [ $# -lt 2 ]; then
+  echo "usage: job-set <job.json> <jq-filter> [jq args...]" >&2
+  exit 2
+fi
+file=$1 filter=$2
+shift 2
+
+tmp=$(mktemp "$file.XXXXXX") || exit 1
+{ if [ -f "$file" ]; then cat "$file"; else echo '{}'; fi; } |
+  jq "$@" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "($filter) | .updated = \$now" >"$tmp" ||
+  { rm -f "$tmp"; echo "job-set: jq failed; $file unchanged" >&2; exit 1; }
+mv "$tmp" "$file"
