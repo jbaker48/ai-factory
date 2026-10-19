@@ -152,10 +152,28 @@ test_run_adversarial_appends() {
 CSID=5e55a0f1-0000-4000-8000-000000000001
 setup_claude() {
   export CLAUDE_PROJECTS_DIR="$TEST_TMP/projects.$RANDOM"
-  PROJ="$CLAUDE_PROJECTS_DIR/$(cd "$FACTORY_SRC/.." && pwd | sed 's#[/.]#-#g')"
+  local src
+  src=$(cd "$FACTORY_SRC/.." && pwd)
+  PROJ="$CLAUDE_PROJECTS_DIR/${src//[^A-Za-z0-9-]/-}"
   mkdir -p "$PROJ" && cp -R "$FIX/claude-project/." "$PROJ/"
   JOB="$TEST_TMP/w.$RANDOM/factory/jobs/${1:-001-demo}"; mkdir -p "$JOB"
   echo '{"stage":"spec","round":0,"tasks":[]}' >"$JOB/job.json"
+}
+
+# Claude Code turns every character but letters, digits and "-" into "-"
+# (/Users/me/my_app v2 -> -Users-me-my-app-v2).
+test_project_slug_underscore_space() {
+  local d
+  mkdir -p "$TEST_TMP/my_repo dir.v2" && d=$(cd "$TEST_TMP/my_repo dir.v2" && pwd)
+  cp -R "$FACTORY_SRC" "$d/factory"
+  export CLAUDE_PROJECTS_DIR="$TEST_TMP/projects.$RANDOM"
+  PROJ="$CLAUDE_PROJECTS_DIR/${d//[^A-Za-z0-9-]/-}"
+  case $PROJ in *my-repo-dir-v2) _pass ;; *) _fail "slug of the test path" "$PROJ" ;; esac
+  mkdir -p "$PROJ" && cp -R "$FIX/claude-project/." "$PROJ/"
+  JOB="$TEST_TMP/w.$RANDOM/factory/jobs/001-demo"; mkdir -p "$JOB"
+  echo '{"stage":"spec","round":0,"tasks":[]}' >"$JOB/job.json"
+  "$d/factory/bin/usage-record" claude "$JOB" spec-writer
+  assert_eq 46720 "$(field .input)" "finds the project of a repo path with _ and a space"
 }
 
 test_subagent_tokens_dedup() {

@@ -145,9 +145,10 @@ cmd_codex() {
             output: (.output // null), reasoning: (.reasoning // null) }'
 }
 
-# project_dir: this repo's Claude Code project folder.
+# project_dir: this repo's Claude Code project folder, named after the repo
+# path with every character but letters, digits and "-" turned into "-".
 project_dir() {
-  echo "${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}/$(dirname "$factory" | sed 's#[/.]#-#g')"
+  echo "${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}/$(dirname "$factory" | sed 's#[^A-Za-z0-9-]#-#g')"
 }
 
 # recorded <job> <log>: true if a line in usage.jsonl already has this log.
