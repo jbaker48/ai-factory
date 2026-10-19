@@ -100,7 +100,10 @@ Look the role up in `factory/models.json`.
 
 - **anthropic**: spawn the `factory-agent` subagent with `model` set to the
   entry's `model` and the prompt `Role: factory/agents/<agent>.md. <paths> <task>`.
-- **openai**: run, with Bash and `run_in_background: true`,
+- **openai**: first run `factory/bin/beads-snapshot <job folder>` (Codex
+  can't open the Beads lock; roles read `<job folder>/beads.md` instead; skip
+  it for the importer, which has no job). Then run, with Bash and
+  `run_in_background: true`,
   `factory/bin/run-codex <key> <job folder> <worktree> "<paths> <task>"`.
   You are notified when it exits. A non-zero exit is an environment failure:
   stop and tell the user, quoting the script's output.

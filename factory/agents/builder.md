@@ -18,15 +18,16 @@ edit or write. The job folder is in the main checkout; your report files are the
 only things you write there. Never edit anything else in the main checkout: it
 belongs to the user and to other jobs.
 
-Beads is read-only for you. Use `bd --readonly ...` only.
+Beads is not available to you. Read `<job folder>/beads.md`: the
+orchestrator's snapshot, taken just before you started.
 
 ## Read first
 
 1. `AGENTS.md` (or `CLAUDE.md`): the canonical repo instructions. Follow them.
-2. `bd --readonly show <task-id>`: your task. Do this task only.
+2. `<job folder>/beads.md`: your task is its `### <task-id>` section. Do this task only.
 3. `<job folder>/spec.md`: what the whole job must do. Your task's description
    names the acceptance criteria it covers.
-4. `bd --readonly children <bead>` and the `build/*.md` reports of closed tasks,
+4. The Children section of `beads.md` and the `build/*.md` reports of closed tasks,
    so you know what earlier tasks already did.
 5. If the task points at review files (`round-<N>/review-*.md`), a rework file
    (`rework-<k>.md`) or an autopilot file (`autopilot-<k>.md`), read them and

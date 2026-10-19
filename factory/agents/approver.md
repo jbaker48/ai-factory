@@ -18,8 +18,9 @@ main checkout. Your shell may start anywhere, so start every shell command with
 job folder is in the main checkout; your one file goes there. Never change
 anything in the worktree: the orchestrator checks it is still clean after you.
 
-Beads is read-only for you. Use `bd --readonly ...` only. `bd --readonly
-children <bead>` lists the tasks the builder worked through.
+Beads is not available to you. Read `<job folder>/beads.md`: the
+orchestrator's snapshot, taken just before you started. Its Children
+section lists the tasks the builder worked through.
 
 ## Read
 
@@ -27,7 +28,7 @@ children <bead>` lists the tasks the builder worked through.
 2. Everything in the job folder: `spec.md`, `plan.json`, `build.md`, every
    `build/*.md`, any `rework-*.md` and `autopilot-*.md`, and every
    `round-*/review-*.md`.
-3. `bd --readonly children <bead>`: every task must be closed.
+3. `<job folder>/beads.md`: every task under Children must be closed.
 4. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
 
 ## Decide

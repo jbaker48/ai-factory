@@ -17,7 +17,8 @@ shell may start anywhere, so start every shell command with `cd <worktree> && `
 and use absolute paths for every file you read or write. Never change anything
 in the worktree.
 
-Beads is read-only for you. Use `bd --readonly ...` only.
+Beads is not available to you. Read `<job folder>/beads.md`: the
+orchestrator's snapshot, taken just before you started.
 
 ## Situations
 
@@ -37,7 +38,7 @@ Beads is read-only for you. Use `bd --readonly ...` only.
    `build/*.md`, `decision.md`, every `round-*/review-*.md`, and earlier
    `rework-*.md` and `autopilot-*.md` files. Earlier autopilot files show what
    you already tried; don't repeat a move that failed.
-4. `bd --readonly show <bead>` and `bd --readonly children <bead>`.
+4. `<job folder>/beads.md`: the Bead and Children sections.
 5. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
    Re-run the checks you need to trust the evidence. Don't take a summary on
    faith.
