@@ -141,7 +141,10 @@ Show the user each of these and record their answer:
   (`--jobs N` overrides it per run).
 - **Commit**: the factory reads `AGENTS.md` from worktrees branched off
   `main`, so the install only works once it is committed on `main`. Offer to
-  commit it as one commit.
+  commit it as one commit. With `land: "pr"` worktrees branch from
+  `origin/main`, not the local `main`, so the commit must also be pushed (or
+  landed through a PR) before any job runs; say so, and offer to push it or
+  open the PR.
 
 **Done when** the user has answered all four.
 

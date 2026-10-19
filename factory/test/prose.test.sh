@@ -124,6 +124,7 @@ test_parallel_drain() {
   assert_contains "$(cat "$f")" '--if-assignee' "SKILL.md names the drain's compare-and-set"
   assert_contains "$(cat "$ROOT/README.md")" '--jobs' "README documents --jobs"
   assert_contains "$(cat "$ROOT/INSTALL.md")" "\`jobs\`" "INSTALL documents the jobs setting"
+  assert_contains "$(tr '\n' ' ' <"$ROOT/INSTALL.md" | tr -s ' ')" 'With `land: "pr"` worktrees branch from `origin/main`, not the local `main`, so the commit must also be pushed' "INSTALL: pr mode needs the install pushed"
 }
 
 test_status_command() {
