@@ -141,5 +141,12 @@ test_resume_open_pr() {
   case $s in *'or `autopilot` after a MERGE decision'*) _fail "old open-PR rule is gone" ;; *) _pass ;; esac
 }
 
+test_snapshot_before_every_role() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" s
+  s=$(section "$f" 'Running a role' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" 'Before any role that has a job folder, whatever its provider, run `factory/bin/beads-snapshot <job folder>`' "snapshot before every role with a job folder"
+  case $(tr '\n' ' ' <"$f" | tr -s ' ') in *'Agents only read Beads (`bd --readonly`)'*) _fail "stale bd --readonly wording" ;; *) _pass ;; esac
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

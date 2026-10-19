@@ -58,8 +58,11 @@ The spec and Beads do different jobs. Keep them apart.
 - Beads tracks **the work**: one `feature` bead per job (linked to the spec with
   `--spec-id`), one `task` child per unit of build work, and the queue of
   features waiting for `/factory next` or the autopilot.
-- Agents only read Beads (`bd --readonly`). You make every write, from the main
-  checkout, so the Codex sandbox and parallel sessions never fight over it.
+- Agents never write Beads. Some roles read it with `bd --readonly`; the rest
+  read `<job folder>/beads.md`, the snapshot you take before every role (see
+  **Running a role**), because the Codex sandbox can't open the Beads lock.
+  You make every write, from the main checkout, so parallel sessions never
+  fight over it.
 
 Beads conventions:
 
@@ -107,7 +110,12 @@ already in flight:
 
 ## Running a role
 
-Look the role up in `factory/models.json`.
+Look the role up in `factory/models.json`. Before any role that has a job
+folder, whatever its provider, run `factory/bin/beads-snapshot <job folder>`
+(once for a step that runs several roles at once):
+roles read `<job folder>/beads.md` for task state, and a model swap in
+`models.json` must not leave one reading a stale or missing snapshot (skip it
+for the importer, which has no job).
 
 - **anthropic**: spawn the `factory-agent` subagent with `model` set to the
   entry's `model` and the prompt `Role: factory/agents/<agent>.md. <paths> <task>`.
@@ -115,10 +123,7 @@ Look the role up in `factory/models.json`.
   `factory/bin/usage-record claude <job folder> <key>` (skip it for the
   importer, which has no job). It records the subagent's tokens in
   `<job folder>/usage.jsonl` and prints nothing.
-- **openai**: first run `factory/bin/beads-snapshot <job folder>` (Codex
-  can't open the Beads lock; roles read `<job folder>/beads.md` instead; skip
-  it for the importer, which has no job). Then run, with Bash and
-  `run_in_background: true`,
+- **openai**: run, with Bash and `run_in_background: true`,
   `factory/bin/run-codex <key> <job folder> <worktree> "<paths> <task>"`.
   You are notified when it exits. A non-zero exit is an environment failure:
   stop and tell the user, quoting the script's output.
