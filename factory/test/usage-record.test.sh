@@ -146,5 +146,110 @@ test_run_adversarial_appends() {
   assert_eq '["reviewer-adversarial",180312]' "$(jq -c '[.role,.input]' "$JOB/usage.jsonl")" "recorded from rollout"
 }
 
+# Claude sources. The fixture project is copied under a temp projects dir at
+# the slug of this repo (where the script looks), and the job folder ends in
+# factory/jobs/001-demo like the fixture prompts.
+CSID=5e55a0f1-0000-4000-8000-000000000001
+setup_claude() {
+  export CLAUDE_PROJECTS_DIR="$TEST_TMP/projects.$RANDOM"
+  PROJ="$CLAUDE_PROJECTS_DIR/$(cd "$FACTORY_SRC/.." && pwd | sed 's#[/.]#-#g')"
+  mkdir -p "$PROJ" && cp -R "$FIX/claude-project/." "$PROJ/"
+  JOB="$TEST_TMP/w.$RANDOM/factory/jobs/${1:-001-demo}"; mkdir -p "$JOB"
+  echo '{"stage":"spec","round":0,"tasks":[]}' >"$JOB/job.json"
+}
+
+test_subagent_tokens_dedup() {
+  setup_claude
+  out=$("$UR" claude "$JOB" spec-writer 2>&1); rc=$?
+  assert_eq "" "$out" "prints nothing"
+  assert_eq 0 "$rc" "exit 0"
+  assert_eq 1 "$(line)" "one line"
+  assert_eq "[46720,29421,17294,484,null]" "$(field '[.input,.cached,.cache_write,.output,.reasoning]')" "each message id once, last usage wins"
+  assert_eq '["spec-writer","anthropic","claude-opus-5-5",null,"spec",0,null,null,"finished",null,167]' \
+    "$(field '[.role,.provider,.model,.effort,.stage,.round,.task,.exit,.ended,.quota,.duration_s]')" "metadata"
+  assert_eq "\"$PROJ/$CSID/subagents/agent-a1.jsonl\"" "$(field .log)" "log is the transcript"
+  assert_eq 18 "$(field '[keys[]]|length')" "exact keys"
+}
+
+test_subagent_not_recorded_twice() {
+  setup_claude
+  "$UR" claude "$JOB" spec-writer
+  "$UR" claude "$JOB" spec-writer
+  assert_eq 1 "$(line)" "one line after two runs"
+}
+
+test_matches_role_and_job() {
+  setup_claude
+  "$UR" claude "$JOB" reviewer-code
+  assert_eq 1 "$(line)" "only the reviewer-code transcript"
+  assert_eq '["reviewer-code",1203,40,null,"claude-opus-5-5",30]' "$(field '[.role,.input,.output,.ended,.model,.duration_s]')" "content-array prompt, no meta"
+  setup_claude 003-none
+  "$UR" claude "$JOB" spec-writer
+  assert_eq 1 "$(line)" "no transcript for this job: one error line"
+  assert_eq true "$(field '.error != null and .input == null')" "error with null tokens"
+  setup_claude 002-other
+  "$UR" claude "$JOB" spec-writer
+  assert_eq 102 "$(field .input)" "other job's transcript only"
+}
+
+test_subagent_model_from_meta() {
+  setup_claude
+  sed -i.bak 's/"model":"claude-opus-5-5",//' "$PROJ/$CSID/subagents/agent-a1.jsonl"
+  "$UR" claude "$JOB" spec-writer
+  assert_eq '"opus"' "$(field .model)" "meta model when transcript has none"
+}
+
+test_session_main_transcript_only() {
+  setup_claude
+  out=$("$UR" session "$JOB" "$CSID" 2>&1); rc=$?
+  assert_eq "" "$out" "prints nothing"
+  assert_eq 0 "$rc" "exit 0"
+  assert_eq "[6204,5000,1200,90,null]" "$(field '[.input,.cached,.cache_write,.output,.reasoning]')" "main transcript tokens only"
+  assert_eq '["orchestrator","anthropic","claude-opus-5-5",null,null,null,600]' \
+    "$(field '[.role,.provider,.model,.effort,.ended,.exit,.duration_s]')" "metadata"
+  assert_eq "\"$PROJ/$CSID.jsonl\"" "$(field .log)" "log"
+  assert_eq 18 "$(field '[keys[]]|length')" "exact keys"
+}
+
+test_session_once_per_id() {
+  setup_claude
+  "$UR" session "$JOB" "$CSID"
+  "$UR" session "$JOB" "$CSID"
+  assert_eq 1 "$(line)" "one line per session"
+}
+
+test_session_latest_mentioning_job() {
+  setup_claude
+  touch -t 202610190100 "$PROJ/$CSID.jsonl"
+  touch -t 202610190200 "$PROJ/5e55a0f1-0000-4000-8000-000000000002.jsonl"
+  touch -t 202610190300 "$PROJ/5e55a0f1-0000-4000-8000-000000000003.jsonl"
+  "$UR" session "$JOB"
+  assert_eq 7 "$(field .input)" "newest transcript that mentions the job"
+}
+
+test_claude_failures_never_fail() {
+  setup_claude
+  out=$("$UR" session "$JOB" no-such-session 2>&1); rc=$?
+  assert_eq "" "$out" "prints nothing"
+  assert_eq 0 "$rc" "exit 0"
+  assert_eq true "$(field '.error != null and .input == null and .role == "orchestrator"')" "error line"
+  assert_exit 0 "claude without role" -- "$UR" claude "$JOB"
+  CLAUDE_PROJECTS_DIR="$TEST_TMP/nowhere" "$UR" claude "$JOB" spec-writer; rc=$?
+  assert_eq 0 "$rc" "no projects dir"
+}
+
+test_autopilot_records_sessions() {
+  R=$(mkrepo); cd "$R" || return
+  mkdir -p factory/jobs/001-demo
+  echo '{"id":"001-demo","bead":"demo-1","stage":"merged"}' >factory/jobs/001-demo/job.json
+  stub claude 'echo "{\"session_id\":\"sid-1\",\"total_cost_usd\":0}"'
+  # shellcheck disable=SC2016 # the stub expands these when it runs
+  printf '#!/usr/bin/env bash\nn=$(cat "%s/n" 2>/dev/null || echo 0); echo $((n+1)) >"%s/n"; [ "$n" = 0 ] && echo demo-1; exit 0\n' "$TEST_TMP" "$TEST_TMP" >factory/bin/next-bead
+  printf '#!/usr/bin/env bash\necho "$@" >>"%s/ur.calls"\n' "$TEST_TMP" >factory/bin/usage-record
+  factory/bin/autopilot 1 >/dev/null 2>&1
+  assert_eq "session factory/jobs/001-demo sid-1" "$(cat "$TEST_TMP/ur.calls" 2>/dev/null)" "records the session"
+  cd - >/dev/null || return
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

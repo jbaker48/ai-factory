@@ -100,6 +100,10 @@ Look the role up in `factory/models.json`.
 
 - **anthropic**: spawn the `factory-agent` subagent with `model` set to the
   entry's `model` and the prompt `Role: factory/agents/<agent>.md. <paths> <task>`.
+  After each `factory-agent` returns, run
+  `factory/bin/usage-record claude <job folder> <key>` (skip it for the
+  importer, which has no job). It records the subagent's tokens in
+  `<job folder>/usage.jsonl` and prints nothing.
 - **openai**: first run `factory/bin/beads-snapshot <job folder>` (Codex
   can't open the Beads lock; roles read `<job folder>/beads.md` instead; skip
   it for the importer, which has no job). Then run, with Bash and
@@ -119,6 +123,10 @@ several roles at once, issue every Agent and Bash call in **one message** so
 they run in parallel. After any role finishes, check that the file it should
 have written exists and starts with a valid first line; if not, stop and tell
 the user.
+
+When a job reaches `merged`, `needs-human` or `dropped`, run
+`factory/bin/usage-record session <job folder>`. It records your own
+session's tokens for the job (once per session) and prints nothing.
 
 ## Keep your context small
 
@@ -397,7 +405,8 @@ When it exits:
   bd close <bead> --reason "Merged <pr>"    # local: "Merged factory/<job-id> into main"
   ```
   Remove the `needs-human` label if the bead has it, and set
-  `stage: "merged"` and `situation: null`. If removing the worktree fails,
+  `stage: "merged"` and `situation: null`, then run
+  `factory/bin/usage-record session <job folder>`. If removing the worktree fails,
   the job is still merged: tell the user what `git worktree remove` printed.
 - **6** (the base moved since `reviewed_base`): `land` merged the new base
   into the job branch with a merge commit (and pushed it with `land: "pr"`;
@@ -429,7 +438,8 @@ Every stop that needs a decision comes here with a situation: `plan-blocked`,
 
 - **On autopilot** (`job.json` `autopilot: true`): go to **Autopilot decision**.
 - **Otherwise**: set `stage: "needs-human"`, run
-  `bd update <bead> --add-label needs-human`, and tell the user which job is
+  `bd update <bead> --add-label needs-human` and
+  `factory/bin/usage-record session <job folder>`, and tell the user which job is
   waiting, give the worktree path, and quote `decision.md`, the BLOCKED reason
   from the build report, or `plan.json`'s `blocked`. The branch and its
   worktree stay for the human to inspect.
@@ -462,7 +472,8 @@ Every stop that needs a decision comes here with a situation: `plan-blocked`,
      `Amend: read autopilot-<k>.md and revise spec.md.` Close every open task
      under the bead with `--reason "Superseded by respec autopilot-<k>"`, then
      increment `respecs`, clear `situation`, and go to **Plan**.
-   - **PARK**: set `stage: "needs-human"`, add the `needs-human` label, and tell
+   - **PARK**: set `stage: "needs-human"`, add the `needs-human` label, run
+     `factory/bin/usage-record session <job folder>`, and tell
      the user what the autopilot says a human must decide, quoting its
      `## Instructions`.
 

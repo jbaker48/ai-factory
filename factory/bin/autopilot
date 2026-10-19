@@ -10,6 +10,9 @@
 # MAX_RESUMES times, then stops. A parked job doesn't stop the loop.
 # --budget caps each session's spend (claude --max-budget-usd).
 #
+# After each session, records its orchestrator usage in the job's usage.jsonl
+# (factory/bin/usage-record session).
+#
 # Run one driver per repo. Session output goes to factory/autopilot-runs/.
 # FACTORY_PERMISSION_MODE sets the sessions' permission mode
 # (default bypassPermissions: nobody is there to answer prompts).
@@ -51,6 +54,12 @@ session() {
   jq -r '"\(.session_id // "-") \(.total_cost_usd // 0)"' "$out" 2>/dev/null || echo "- 0"
 }
 
+# record <job> <sid>: the session's orchestrator usage; never fails the loop.
+record() {
+  [ "$2" = - ] && return 0
+  "$(dirname "${BASH_SOURCE[0]}")/usage-record" session "factory/jobs/$1" "$2" || true
+}
+
 headless="This is a headless run: nobody can answer questions. Run only this job, then stop."
 done_jobs=0
 while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
@@ -64,6 +73,7 @@ while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
     echo "autopilot: $bead: the session made no job (session $sid). See $logs/." >&2
     exit 1
   fi
+  record "$job" "$sid"
 
   resumes=0
   stage=$(jq -r .stage "factory/jobs/$job/job.json")
@@ -75,6 +85,7 @@ while [ "$count" -eq 0 ] || [ "$done_jobs" -lt "$count" ]; do
     resumes=$((resumes + 1))
     echo "autopilot: $job ($bead) ended at $stage; resuming ($resumes/$MAX_RESUMES)."
     read -r sid cost < <(session "$job-resume$resumes" "/factory resume $job. $headless")
+    record "$job" "$sid"
     total=$(jq -n "$total + $cost")
     stage=$(jq -r .stage "factory/jobs/$job/job.json")
   done
