@@ -12,12 +12,15 @@
 # reviewed_base, the base is merged into the job branch in the worktree (a
 # merge commit), pushed, and the script exits 6 for another review round.
 #
-# Prints the PR url as its first stdout line (once the PR exists). Exit codes:
+# Prints the PR url as its first stdout line, and records it as job.json's
+# "pr", as soon as the PR exists. Exit codes:
 # 0 merged; 3 required checks failed (log in <job-folder>/.runs/checks.log);
 # 4 the branch conflicts with the base; 5 GitHub refused the merge; 6 base
 # moved, branch updated, re-review needed; anything else is an environment
-# failure. PR_LAND_REGISTER_WAIT (default 40) and PR_LAND_REGISTER_INTERVAL
-# (default 15 seconds) set how long to wait for checks to register.
+# failure (including a gh error while probing checks). PR_LAND_REGISTER_WAIT
+# (default 40) and PR_LAND_REGISTER_INTERVAL (default 15 seconds) set how long
+# to wait for any check to register. The merge is pinned to the job branch's
+# head (--match-head-commit), so a push during the CI wait never lands unseen.
 set -uo pipefail
 
 if [ $# -ne 1 ]; then
@@ -71,32 +74,41 @@ if [ -z "$pr" ]; then
     "$id" "$bead" "$round" "$(sed -n '1,30p' "$job/decision.md" 2>/dev/null)")
   pr=$(gh pr create --base "$base_branch" --head "$branch" --title "$bead: $feature" --body "$body") || exit 1
 fi
+# shellcheck disable=SC2016 # $pr is a jq variable
+"$here/job-set" "$j" '.pr = $pr' --arg pr "$pr" || exit 1
 echo "$pr"
 
-# probe [--required]: sets out and rc from one gh pr checks call.
-probe() { out=$(gh pr checks "$pr" "$@" 2>&1); rc=$?; }
-# none: the last probe said there are no checks (8 means checks are pending).
-none() {
-  [ "$rc" -ne 0 ] && [ "$rc" -ne 8 ] || return 1
-  case "$out" in *"no checks reported"* | *"no required checks"*) return 0 ;; esac
-  return 1
+# probe [--required]: one `gh pr checks --json bucket` call; sets seen to
+# yes (checks registered), no (none reported) or exits 1 on any other gh error.
+errf="$job/.runs/checks-probe.err"
+probe() {
+  local out rc
+  out=$(gh pr checks "$pr" "$@" --json bucket 2>"$errf")
+  rc=$?
+  if [ "$rc" -eq 8 ] || printf '%s' "$out" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+    seen=yes
+  elif printf '%s' "$out" | jq -e '. == []' >/dev/null 2>&1 ||
+    grep -qE 'no (required )?checks reported|no required checks' "$errf"; then
+    seen=no
+  else
+    echo "pr-land: gh pr checks $* failed on $pr (exit $rc): $({ cat "$errf"; printf '%s' "$out"; } | head -n 3 | tr '\n' ' ')" >&2
+    exit 1
+  fi
 }
 
 # Checks register a little after the push; until then gh says there are none.
-probe --required
+# Watch the required checks once any register; when none are required, all
+# checks as soon as any register; when nothing registers, merge straight away.
 tries=0
-while none && [ "$tries" -lt "$wait_tries" ]; do
-  sleep "$wait_secs"
+while :; do
   probe --required
+  [ "$seen" = yes ] && { watch=required; break; }
+  probe
+  [ "$seen" = yes ] && { watch=all; break; }
+  [ "$tries" -ge "$wait_tries" ] && { watch=nothing; break; }
+  sleep "$wait_secs"
   tries=$((tries + 1))
 done
-
-# No required checks: watch all of them; no checks at all: merge straight away.
-watch=required
-if none; then
-  probe
-  if none; then watch=nothing; else watch=all; fi
-fi
 
 if [ "$watch" = nothing ]; then
   echo "pr-land: no checks reported on $pr; merging without waiting" >"$log"
@@ -111,7 +123,7 @@ fi
 
 g fetch -q "$remote" "$base_branch" || exit 1
 check_base
-gh pr merge "$pr" --squash >>"$log" 2>&1 || {
+gh pr merge "$pr" --squash --match-head-commit "$(g rev-parse "$branch")" >>"$log" 2>&1 || {
   echo "pr-land: GitHub refused to merge $pr; see $log" >&2
   exit 5
 }

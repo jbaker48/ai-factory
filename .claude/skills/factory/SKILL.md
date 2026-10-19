@@ -209,8 +209,8 @@ state that never lands in a commit.
 - `reviewed_base` is the base commit the current review round diffs against,
   set at the start of every **Review round N**. **Merge** lands nothing on a
   base past it.
-- `pr` is the job's pull request url, set by **Merge** once the PR exists
-  (`land: "pr"` only).
+- `pr` is the job's pull request url, written by `factory/bin/land` as soon as
+  the PR exists (`land: "pr"` only).
 - `updated` is stamped by `job-set` on every change.
 - Change it only with `factory/bin/job-set` (see **Keep your context small**).
   Together with Beads and the job folder, it is everything **/factory resume**
@@ -380,8 +380,9 @@ none are required) and squash-merges; the main checkout is never touched.
 With `land: "local"` it merges `factory/<job-id>` into `main` in the main
 checkout, one landing at a time, and never fetches or pushes. Either way,
 nothing lands on a base past `reviewed_base`. Run it with Bash and
-`run_in_background: true`. With `land: "pr"` its first line of output is the
-PR url: set `pr` in `job.json` from it. When it exits:
+`run_in_background: true`. With `land: "pr"` it writes the PR url to
+`job.json`'s `pr` as soon as the PR exists (and prints it as its first line).
+When it exits:
 
 - **0**: the job merged. Clean up and close:
   ```bash
@@ -397,10 +398,12 @@ PR url: set `pr` in `job.json` from it. When it exits:
   the PR stays open and is reused). The final review never saw that code, so
   it counts as another round: if `N < MAX_ROUNDS`, go to
   **Review round N+1**, which sets `reviewed_base` to the new base, and then
-  **Approve** again. If `N = MAX_ROUNDS`, write `decision.md` yourself, reading
-  `ESCALATE`, then a blank line, then
-  `Base moved after the final review round; factory/<job-id> now merges <base> and needs another review.`
-  and go to **Needs human** with situation `rounds-exhausted`.
+  **Approve** again. If `N = MAX_ROUNDS`, rewrite `decision.md` yourself,
+  keeping the approver's text: `ESCALATE`, then a blank line, then
+  `Base moved after the final review round; factory/<job-id> now merges <base> and needs another review.`,
+  then a blank line, `## Approver's decision before the base moved`, and the
+  old `decision.md` below it. Go to **Needs human** with situation
+  `rounds-exhausted`.
 - **3** (required checks failed), **4** (conflicts with `origin/main`) or
   **5** (GitHub refused the merge): go to **Needs human** with situation
   `merge-blocked`, quoting the script's stderr and `tail -n 20` of
@@ -593,7 +596,10 @@ the job folder; don't read more of the job than the step below needs.
    agent-browser sessions (`agent-browser --session <job-id>-<builder|ux|ui> close`,
    ignoring errors).
 3. Check whether the job already landed:
-   - With `land: "pr"`, if `job.json` has a `pr`, check it with
+   - With `land: "pr"`, take `pr` from `job.json`; if it is unset, look for
+     a merged one with
+     `gh pr list --head factory/<job-id> --state merged --json url -q '.[0].url // empty'`
+     and set `pr` from it. If there is a `pr`, check it with
      `gh pr view <pr> --json state -q .state`. `MERGED`: finish **Merge** from
      its exit-0 cleanup and stop. `OPEN` with `stage` `approve` or `autopilot`
      after a MERGE decision: run **Merge** again (it reuses the PR).

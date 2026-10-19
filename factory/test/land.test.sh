@@ -43,15 +43,20 @@ origin_commit() {
   } >/dev/null 2>&1
 }
 
-# gh_stub <required-checks-body> [watch-body] [all-checks-body] [list-body]
+# Bodies for the gh pr checks --json probes.
+PASS="echo '[{\"bucket\":\"pass\"}]'"
+PENDING="echo '[{\"bucket\":\"pending\"}]'; exit 8"
+NONE_REQ="echo 'no required checks reported on the factory/001-a branch' >&2; exit 1"
+NONE="echo 'no checks reported on the factory/001-a branch' >&2; exit 1"
+
+# gh_stub <required-probe-body> [watch-body] [all-probe-body] [list-body]
 gh_stub() {
   stub gh "case \"\$*\" in
   'pr list'*) ${4:-:} ;;
   'pr create'*) echo $URL ;;
-  *'--required --watch'*) ${2:-echo pass} ;;
   *'--watch'*) ${2:-echo pass} ;;
-  *'--required'*) $1 ;;
-  'pr checks'*) ${3:-echo pass} ;;
+  *'--required --json'*) $1 ;;
+  'pr checks'*'--json'*) ${3:-$PASS} ;;
   'pr merge'*) : ;;
   *) echo \"unexpected gh \$*\" >&2; exit 99 ;;
 esac"
@@ -63,47 +68,60 @@ L() { "$R/factory/bin/land" "$JOB"; }
 within() { perl -e 'alarm shift; exec @ARGV' "$@"; }
 
 test_pr_merges_with_required_checks() {
-  setup; mkjob 001-a origin/main; gh_stub 'echo pass'
+  setup; mkjob 001-a origin/main; gh_stub "$PASS"
   out=$(L); rc=$?
   assert_eq 0 "$rc" "pr: merged exits 0"
   assert_eq "$URL" "$(printf '%s\n' "$out" | head -n1)" "pr: url is first stdout line"
-  assert_contains "$(calls)" "pr merge $URL --squash" "pr: squash merge called"
+  assert_contains "$(calls)" "pr merge $URL --squash --match-head-commit $(git -C "$WT" rev-parse HEAD)" "pr: squash merge pinned to the branch head"
+  assert_eq "$URL" "$(jq -r .pr "$JOB/job.json")" "pr: job.json .pr set"
   assert_eq "$(git -C "$WT" rev-parse HEAD)" "$(git -C "$R" ls-remote "$ORIGIN" refs/heads/factory/001-a | cut -f1)" "pr: branch pushed"
 }
 
 test_pr_no_required_checks_watches_all() {
   setup; mkjob 001-a origin/main
-  gh_stub "echo 'no required checks reported on the factory/001-a branch'; exit 1"
+  gh_stub "$NONE_REQ"
   within 5 "$R/factory/bin/land" "$JOB" >/dev/null 2>&1; rc=$?
   assert_eq 0 "$rc" "no required checks: exits 0 in time"
   assert_contains "$(calls)" "pr checks $URL --watch" "no required checks: watches all checks"
   assert_contains "$(calls)" "pr merge $URL --squash" "no required checks: merged"
 }
 
+test_pr_no_required_checks_no_full_wait() {
+  setup; mkjob 001-a origin/main; gh_stub "$NONE_REQ" '' "$PENDING"
+  (unset PR_LAND_REGISTER_WAIT PR_LAND_REGISTER_INTERVAL; within 5 "$R/factory/bin/land" "$JOB" >/dev/null 2>&1); rc=$?
+  assert_eq 0 "$rc" "registered non-required checks end the wait at once"
+  assert_eq 1 "$(grep -c -- '--required --json' "$STUBS/gh.calls")" "one required probe only"
+}
+
+test_pr_gh_error_is_environment_failure() {
+  setup; mkjob 001-a origin/main; gh_stub "echo 'HTTP 401: Bad credentials' >&2; exit 1"
+  assert_exit 1 "gh probe error: exit 1" -- L
+  case $(calls) in *--watch*) _fail "gh probe error: must not watch" ;; *) _pass ;; esac
+}
+
 test_pr_no_checks_at_all_merges() {
   setup; mkjob 001-a origin/main
-  gh_stub "echo 'no checks reported on the factory/001-a branch'; exit 1" '' \
-    "echo 'no checks reported on the factory/001-a branch'; exit 1"
+  gh_stub "$NONE" '' "$NONE"
   assert_exit 0 "no checks at all: exits 0" -- L
   case $(calls) in *--watch*) _fail "no checks at all: should not watch" ;; *) _pass ;; esac
   assert_contains "$(calls)" "pr merge $URL --squash" "no checks at all: merged"
 }
 
 test_pr_reuses_open_pr() {
-  setup; mkjob 001-a origin/main; gh_stub 'echo pass' '' '' "echo $URL"
+  setup; mkjob 001-a origin/main; gh_stub "$PASS" '' '' "echo $URL"
   assert_exit 0 "reuse: exits 0" -- L
   case $(calls) in *"pr create"*) _fail "reuse: must not create a PR" ;; *) _pass ;; esac
 }
 
 test_pr_checks_fail() {
-  setup; mkjob 001-a origin/main; gh_stub 'echo pass' 'echo boom; exit 1'
+  setup; mkjob 001-a origin/main; gh_stub "$PASS" 'echo boom; exit 1'
   assert_exit 3 "checks fail: exit 3" -- L
   assert_eq yes "$([ -s "$JOB/.runs/checks.log" ] && echo yes)" "checks fail: checks.log written"
   case $(calls) in *"pr merge"*) _fail "checks fail: must not merge" ;; *) _pass ;; esac
 }
 
 test_conflict() {
-  setup; mkjob 001-a origin/main; gh_stub 'echo pass'
+  setup; mkjob 001-a origin/main; gh_stub "$PASS"
   origin_commit 001-a.txt upstream
   assert_exit 4 "conflict: exit 4" -- L
   assert_eq "" "$(git -C "$R" ls-remote "$ORIGIN" refs/heads/factory/001-a)" "conflict: branch not pushed"
@@ -111,7 +129,7 @@ test_conflict() {
 }
 
 test_base_moved_clean() {
-  setup; mkjob 001-a origin/main; gh_stub 'echo pass'
+  setup; mkjob 001-a origin/main; gh_stub "$PASS"
   origin_commit other.txt upstream
   assert_exit 6 "moved base: exit 6" -- L
   assert_eq "$(git -C "$R" rev-parse origin/main)" "$(git -C "$WT" rev-parse HEAD^2)" "moved base: merge commit's 2nd parent is new origin/main"
@@ -122,14 +140,14 @@ test_base_moved_clean() {
 test_base_moves_during_ci_wait() {
   setup; mkjob 001-a origin/main
   c="$TEST_TMP/ci-clone"
-  gh_stub 'echo pass' "git clone -q $ORIGIN $c >/dev/null 2>&1; echo x >$c/ci.txt; git -C $c add -A; git -C $c commit -q -m ci; git -C $c push -q origin main >/dev/null 2>&1; echo pass"
+  gh_stub "$PASS" "git clone -q $ORIGIN $c >/dev/null 2>&1; echo x >$c/ci.txt; git -C $c add -A; git -C $c commit -q -m ci; git -C $c push -q origin main >/dev/null 2>&1; echo pass"
   assert_exit 6 "moved during CI: exit 6" -- L
   assert_eq "$(git -C "$c" rev-parse HEAD)" "$(git -C "$WT" rev-parse HEAD^2)" "moved during CI: merged the new base"
   case $(calls) in *"pr merge"*) _fail "moved during CI: must not merge" ;; *) _pass ;; esac
 }
 
 test_missing_reviewed_base_after_move() {
-  setup; mkjob 001-a origin/main; gh_stub 'echo pass'
+  setup; mkjob 001-a origin/main; gh_stub "$PASS"
   jq 'del(.reviewed_base)' "$JOB/job.json" >"$JOB/j" && mv "$JOB/j" "$JOB/job.json"
   origin_commit other.txt upstream
   assert_exit 6 "no reviewed_base, base moved: exit 6" -- L
