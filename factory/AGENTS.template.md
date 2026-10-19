@@ -14,6 +14,8 @@ The factory runs these commands in conditions most AGENTS.md files don't plan fo
 - Only builders have network access. Validation must work offline after setup.
 - .git is read-only in the Codex sandbox. Validation must not write to it.
 - Builders lint only the files they changed, so give scoped forms of each check.
+- Never commit or push to main directly. In local land mode the factory's Merge
+  step is the only thing that commits to main.
 - Don't describe branching, committing, pushing or Beads workflow here. The
   factory owns that, and agents never commit, push or write to Beads. If
   `bd init` added a section telling agents to do those things, remove it or

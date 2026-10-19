@@ -53,6 +53,7 @@ models, a reasoning effort. Edit it to move any role to any model.
 | `reviewer-adversarial` | gpt-6.1-sol* | The Codex plugin's `adversarial-review`: tries to break the branch against its spec |
 | `approver`           | gpt-6-astra    | The big decision: merge without a human?                    |
 | `autopilot`          | gpt-6-astra    | Stands in for the human, at `xhigh` effort                  |
+| `briefer`            | opus           | Briefs you on a parked job in `/factory review` and writes up your decision |
 
 The rule of thumb: code is checked by both providers. Luna writes it; Astra,
 Sol and Sonnet review it.
@@ -89,7 +90,13 @@ change.
 
 Agents only read Beads (`bd --readonly`). The orchestrator makes every write
 from the main checkout, so the Codex sandbox and parallel sessions never
-collide. Queue claims use `bd ready --claim`, which is atomic.
+collide. Queue claims use `bd update <bead> --claim`, which is atomic; the
+autopilot drain claims with a compare-and-set (`--if-assignee ''`) so that
+two of its workers, which share one actor, can't both take a bead.
+
+Every role gets a base ref in its prompt (`Base: <base>.`) and diffs against
+that, not a literal `main`. `factory/settings.json` sets it: `origin/main` with
+`land: "pr"` (the default), `main` with `land: "local"`.
 
 ## Brownfield: an existing repo, Beads and a PRD
 
@@ -135,6 +142,7 @@ For a long drain, run the queue from your shell instead:
 ```bash
 factory/bin/autopilot              # drain the queue, one headless session per job
 factory/bin/autopilot 3 --budget 20   # three jobs, at most $20 per session
+factory/bin/autopilot --jobs 3     # run up to three jobs at once
 ```
 
 `/factory autopilot` runs every job in one session, so the orchestrator's
@@ -148,6 +156,16 @@ keeps the session output in `factory/autopilot-runs/`. It runs sessions with
 `FACTORY_PERMISSION_MODE` to change that), and raises the 10-minute limit
 headless sessions put on background commands, which long Codex runs would hit.
 Run one driver per repo.
+
+`--jobs N` runs up to N jobs at once, each in its own session and worktree
+(default: `"jobs"` in `factory/settings.json`, else 1). `<count>` counts jobs
+across all of them, and every output line starts with `[<job-id>]`. The
+script claims each bead before its session starts, as the Beads actor
+`factory-autopilot`, so two workers never take the same bead; `/factory
+adopt` accepts a bead claimed that way and still refuses any other in-progress
+bead. Ctrl-C stops every session and prints the jobs that were in flight with
+their `/factory resume` commands. A failed job stops its own worker, not the
+others, and the script exits 1 at the end.
 
 When a job hits a plan BLOCKED, a build BLOCKED (after escalating to Sol), run
 out of review rounds, an approver ESCALATE or a failed merge, the autopilot
@@ -174,11 +192,30 @@ two REWORKs and one RESPEC per job, never push.
 /factory autopilot [...]         see above
 /factory import <prd>            map a PRD onto existing beads and queue the gaps
 /factory adopt <bead>            run a job from an existing bead (or queue an epic's children)
-/factory status                  queue, running and parked jobs
-/factory approve <job-id>        merge a needs-human job into main
-/factory rework <job-id> <note>  send a needs-human job back to the builder
+/factory status                  queue, running, parked and resubmitted jobs
+/factory review [<job-id>]       decide parked jobs with a brief, then resubmit them
+/factory approve <job-id>        resubmit a needs-human job to be merged
+/factory rework <job-id> <note>  resubmit a needs-human job to the builder with a note
 /factory resume <job-id>         pick up a job whose session ended mid-step
 ```
+
+## Human review
+
+Parked jobs wait for you at `needs-human`. `/factory review` works through
+them oldest first. For each job a `briefer` agent reads everything about it
+and writes `human-brief-<k>.md`: the situation with file:line evidence, one to
+three decisions only you can make (each with options and a recommendation),
+and out-of-scope problems as proposed beads. The session asks you those
+questions, the briefer writes your answers up as `human-<k>.md` (APPROVE,
+REWORK, RESPEC or DROP), the session files the beads you chose, and the job
+is resubmitted. The review session never builds or merges anything: the
+autopilot drain picks resubmitted jobs up before new beads, and the session
+offers to start `factory/bin/autopilot --watch` if none is running. Your
+decisions bind every later role: the builder, planner, spec-writer, approver
+and autopilot all work within the scope and "do not change" lines you set,
+and they don't count toward the autopilot's rework and respec limits. A
+dropped job closes its PR and bead and ends at `dropped`. `/factory review`
+also clears import conflicts labelled `needs-human` by asking you about each.
 
 ## Layout
 
@@ -193,7 +230,7 @@ factory/
   agents/                        one instruction file per role, for any provider
     spec-writer.md  planner.md  builder.md
     reviewer-security.md  reviewer-code.md  reviewer-ux.md  reviewer-ui.md
-    approver.md  autopilot.md  importer.md
+    approver.md  autopilot.md  importer.md  briefer.md
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
   bin/job-set                    updates a job.json field with jq, quietly

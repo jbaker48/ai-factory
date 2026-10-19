@@ -8,7 +8,8 @@
 # read-only. Findings at a severity in "block_on" with confidence of at least
 # "min_confidence" (factory/models.json, key reviewer-adversarial) make the
 # verdict CHANGES; everything else goes under Notes. The raw JSON is kept in
-# <job-folder>/.runs/. Set CODEX_COMPANION to use a specific codex-companion.mjs.
+# <job-folder>/.runs/, and its usage goes to <job-folder>/usage.jsonl via
+# usage-record. Set CODEX_COMPANION to use a specific codex-companion.mjs.
 set -uo pipefail
 
 if [ $# -ne 3 ]; then
@@ -33,9 +34,17 @@ focus="Challenge this branch against its spec below. Look for ways it breaks: un
 
 $(cat "$job/spec.md")"
 
+# No MCP-off override here (unlike run-codex): the companion takes no codex
+# config flags and starts its own app-server, so there is nowhere to pass
+# the per-server -c mcp_servers.<name>.enabled=false flags.
 rc=0
-node "$companion" adversarial-review --json --base main --scope branch \
+node "$companion" adversarial-review --json --base "$("$factory/bin/settings" base)" --scope branch \
   --cwd "$worktree" ${model:+--model "$model"} "$focus" >"$log.json" 2>"$log.stderr" || rc=$?
+
+thread=$(jq -r '.threadId // empty' "$log.json" 2>/dev/null)
+# Record usage first, whatever the review produced; this never changes the exit code.
+"$factory/bin/usage-record" codex "$job" "$log" reviewer-adversarial "$rc" \
+  ${thread:+--thread "$thread"} >&2 || true
 
 if ! jq -e '.result.verdict' "$log.json" >/dev/null 2>&1; then
   echo "run-adversarial: no structured review (exit $rc). See $log.json and $log.stderr" >&2

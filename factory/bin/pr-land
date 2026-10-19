@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Lands an approved factory job on the base (factory/bin/settings base,
+# origin/main) through a pull request: pushes the job branch, opens its PR (or
+# reuses the open one), waits for the base's required checks (all checks when
+# none are required; none when there are no checks) and squash-merges it. The
+# main checkout is never touched.
+#
+#   factory/bin/pr-land <job-folder>
+#
+# Nothing lands on a base the final review didn't see: after fetching, and
+# again right before merging, if the base has moved past job.json's
+# reviewed_base, the base is merged into the job branch in the worktree (a
+# merge commit), pushed, and the script exits 6 for another review round.
+#
+# Prints the PR url as its first stdout line, and records it as job.json's
+# "pr", as soon as the PR exists. Exit codes:
+# 0 merged; 3 required checks failed (log in <job-folder>/.runs/checks.log);
+# 4 the branch conflicts with the base; 5 GitHub refused the merge; 6 base
+# moved, branch updated, re-review needed; anything else is an environment
+# failure (including a gh error while probing checks). PR_LAND_REGISTER_WAIT
+# (default 40) and PR_LAND_REGISTER_INTERVAL (default 15 seconds) set how long
+# to wait for any check to register. The merge is pinned to the job branch's
+# head (--match-head-commit), so a push during the CI wait never lands unseen.
+set -uo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: pr-land <job-folder>" >&2
+  exit 2
+fi
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+job=$1
+j="$job/job.json"
+id=$(jq -r .id "$j") bead=$(jq -r .bead "$j") feature=$(jq -r .feature "$j") || exit 1
+worktree=$(jq -r .worktree "$j") round=$(jq -r .round "$j") || exit 1
+reviewed_base=$(jq -r '.reviewed_base // empty' "$j") || exit 1
+base=$("$here/settings" base) || exit 1
+remote=${base%%/*} base_branch=${base#*/}
+branch="factory/$id" log="$job/.runs/checks.log"
+wait_tries=${PR_LAND_REGISTER_WAIT:-40} wait_secs=${PR_LAND_REGISTER_INTERVAL:-15}
+mkdir -p "$job/.runs"
+g() { git -C "$worktree" "$@"; }
+
+g fetch -q "$remote" "$base_branch" || exit 1
+# An old job without reviewed_base: assume its review saw only the fork point.
+[ -n "$reviewed_base" ] || reviewed_base=$(g merge-base "$branch" "$base") || exit 1
+
+# Exits 6 (after merging and pushing the moved base) or 4 if the base moved
+# past reviewed_base; returns when it hasn't.
+check_base() {
+  local now
+  now=$(g rev-parse "$base") || exit 1
+  g merge-base --is-ancestor "$now" "$reviewed_base" && return 0
+  if ! g merge-tree --write-tree "$base" "$branch" >/dev/null; then
+    echo "pr-land: $branch conflicts with $base" >&2
+    exit 4
+  fi
+  g merge -q --no-ff --no-edit "$base" || { g merge --abort 2>/dev/null; exit 1; }
+  g push -q -u "$remote" "$branch" || exit 1
+  echo "pr-land: $base moved since review; merged it into $branch, re-review needed" >&2
+  exit 6
+}
+
+check_base
+if ! g merge-tree --write-tree "$base" "$branch" >/dev/null; then
+  echo "pr-land: $branch conflicts with $base" >&2
+  exit 4
+fi
+g push -q -u "$remote" "$branch" || exit 1
+
+pr=$(gh pr list --head "$branch" --state open --json url -q '.[0].url // empty') || exit 1
+if [ -z "$pr" ]; then
+  # shellcheck disable=SC2016 # the backticks are Markdown
+  body=$(printf 'Factory job `%s` for bead `%s`, approved after review round %s.\n\n%s\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n' \
+    "$id" "$bead" "$round" "$(sed -n '1,30p' "$job/decision.md" 2>/dev/null)")
+  pr=$(gh pr create --base "$base_branch" --head "$branch" --title "$bead: $feature" --body "$body") || exit 1
+fi
+# shellcheck disable=SC2016 # $pr is a jq variable
+"$here/job-set" "$j" '.pr = $pr' --arg pr "$pr" || exit 1
+echo "$pr"
+
+# probe [--required]: one `gh pr checks --json bucket` call; sets seen to
+# yes (checks registered), no (none reported) or exits 1 on any other gh error.
+errf="$job/.runs/checks-probe.err"
+probe() {
+  local out rc
+  out=$(gh pr checks "$pr" "$@" --json bucket 2>"$errf")
+  rc=$?
+  if [ "$rc" -eq 8 ] || printf '%s' "$out" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+    seen=yes
+  elif printf '%s' "$out" | jq -e '. == []' >/dev/null 2>&1 ||
+    grep -qE 'no (required )?checks reported|no required checks' "$errf"; then
+    seen=no
+  else
+    echo "pr-land: gh pr checks $* failed on $pr (exit $rc): $({ cat "$errf"; printf '%s' "$out"; } | head -n 3 | tr '\n' ' ')" >&2
+    exit 1
+  fi
+}
+
+# Checks register a little after the push; until then gh says there are none.
+# Watch the required checks once any register; when none are required, all
+# checks as soon as any register; when nothing registers, merge straight away.
+tries=0
+while :; do
+  probe --required
+  [ "$seen" = yes ] && { watch=required; break; }
+  probe
+  [ "$seen" = yes ] && { watch=all; break; }
+  [ "$tries" -ge "$wait_tries" ] && { watch=nothing; break; }
+  sleep "$wait_secs"
+  tries=$((tries + 1))
+done
+
+if [ "$watch" = nothing ]; then
+  echo "pr-land: no checks reported on $pr; merging without waiting" >"$log"
+else
+  set -- --watch --fail-fast --interval 30
+  [ "$watch" = required ] && set -- --required "$@"
+  if ! gh pr checks "$pr" "$@" >"$log" 2>&1; then
+    echo "pr-land: $watch checks failed on $pr; see $log" >&2
+    exit 3
+  fi
+fi
+
+g fetch -q "$remote" "$base_branch" || exit 1
+check_base
+gh pr merge "$pr" --squash --match-head-commit "$(g rev-parse "$branch")" >>"$log" 2>&1 || {
+  echo "pr-land: GitHub refused to merge $pr; see $log" >&2
+  exit 5
+}

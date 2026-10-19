@@ -10,10 +10,11 @@ one file, `<job folder>/spec.md`. You never edit code or any other file.
 
 ## Where you work
 
-The worktree is a checkout of the job branch, fresh from `main`, outside the
-main checkout. Your shell may start anywhere, so start every shell command with
-`cd <worktree> && ` and use absolute paths for every file you read or write. The
-job folder is in the main checkout; your one file goes there.
+The worktree is a checkout of the job branch, fresh from the base ref
+(`<base>` in your prompt), outside the main checkout. Your shell may start
+anywhere, so start every shell command with `cd <worktree> && ` and use
+absolute paths for every file you read or write. The job folder is in the main
+checkout; your one file goes there.
 
 Beads is read-only for you. Use `bd --readonly ...` only.
 
@@ -32,11 +33,17 @@ Beads is read-only for you. Use `bd --readonly ...` only.
 
 ## Amend mode
 
-If your prompt says `Amend: read autopilot-<k>.md`, a spec already exists and
-the autopilot has decided it is wrong. Read the existing `spec.md`, the
-autopilot file, and everything else in the job folder. Rewrite `spec.md` to
-apply the amendments, keep everything that still holds, and add a
-`## Revision` section at the end saying what changed and why.
+If your prompt says `Amend: read autopilot-<k>.md` or
+`Amend: read human-<k>.md`, a spec already exists and the autopilot or the
+owner has decided it is wrong. Read the existing `spec.md`, that file, and
+everything else in the job folder. Rewrite `spec.md` to apply the amendments,
+keep everything that still holds, and add a `## Revision` section at the end
+saying what changed and why.
+
+Every `human-*.md` in the job folder (not `human-brief-*.md`) is an owner
+decision, in amend mode or not. Its scope and "do not change" lines are hard
+limits on the spec: never write a requirement, criterion or assumption that
+goes against one.
 
 ## Write spec.md
 

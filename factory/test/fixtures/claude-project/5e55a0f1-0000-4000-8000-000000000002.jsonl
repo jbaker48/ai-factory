@@ -1,0 +1,2 @@
+{"type":"user","isSidechain":false,"timestamp":"2026-10-19T05:00:00.000Z","message":{"role":"user","content":"/factory resume 001-demo (see factory/jobs/001-demo/job.json)"}}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-10-19T05:00:10.000Z","message":{"model":"claude-opus-5-5","id":"msg_T1","role":"assistant","content":[],"usage":{"input_tokens":7,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":7}}}

@@ -10,5 +10,6 @@
   "reviewer-adversarial": { "provider": "codex-plugin", "model": "gpt-6.1-sol", "block_on": ["critical", "high"], "min_confidence": 0.6 },
   "approver":           { "provider": "openai",    "model": "gpt-6-astra", "effort": "high" },
   "autopilot":          { "provider": "openai",    "model": "gpt-6-astra", "effort": "xhigh" },
-  "importer":           { "provider": "anthropic", "model": "opus" }
+  "importer":           { "provider": "anthropic", "model": "opus" },
+  "briefer":            { "provider": "anthropic", "model": "opus" }
 }

@@ -22,7 +22,7 @@ children <bead>` lists the tasks the builder worked through.
 1. `AGENTS.md` (or `CLAUDE.md`), plus any doc it says to read for the area the
    branch touches.
 2. `<job folder>/spec.md` and `<job folder>/build.md`.
-3. The change: `git log --oneline main..<branch>` and `git diff main...<branch>`.
+3. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
    Read the changed files in full where the diff isn't enough.
 4. From round 2 on, your own `round-<N-1>/review-code.md`. Check whether each
    finding was fixed.

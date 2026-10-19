@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Writes a read-only snapshot of a job's Beads state for sandboxed roles.
+#
+#   factory/bin/beads-snapshot <job-folder>
+#
+# Codex roles run in a sandbox that can't open the Beads lock, so they can't
+# call bd. The orchestrator runs this just before each role that has a job
+# folder, whatever its provider; roles read <job-folder>/beads.md instead. The bead id comes from <job-folder>/job.json.
+# The file has "## Bead" (bd show), "## Children" (bd children, with status)
+# and, under "### <child-id>", the full bd show of every child not closed.
+# Prints one line, "beads.md: <n> children, <m> open" (open = not closed).
+# Exit codes: 0 ok, 1 bd or job.json failed (the error is written into
+# beads.md as "bd failed: ..."), 2 usage.
+set -uo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: beads-snapshot <job-folder>" >&2
+  exit 2
+fi
+dir=$1
+out=$dir/beads.md
+
+fail() {
+  printf '# Beads snapshot\n\nbd failed: %s\n' "$1" >"$out"
+  echo "beads-snapshot: bd failed: $1" >&2
+  exit 1
+}
+
+bead=$(jq -r '.bead // empty' "$dir/job.json" 2>/dev/null)
+[ -n "$bead" ] || fail "no .bead in $dir/job.json"
+
+bead_txt=$(bd --readonly show "$bead" 2>&1) || fail "show $bead: $bead_txt"
+kids_txt=$(bd --readonly children "$bead" 2>&1) || fail "children $bead: $kids_txt"
+kids_json=$(bd --readonly children "$bead" --json 2>&1) || fail "children $bead --json: $kids_json"
+total=$(jq 'length' <<<"$kids_json" 2>/dev/null) || fail "children $bead --json: not JSON"
+open_ids=$(jq -r '.[] | select(.status != "closed") | .id' <<<"$kids_json") || fail "children $bead --json: unexpected shape"
+
+details=""
+for id in $open_ids; do
+  child_txt=$(bd --readonly show "$id" 2>&1) || fail "show $id: $child_txt"
+  details+=$(printf '\n### %s\n\n%s\n' "$id" "$child_txt")$'\n'
+done
+open=$(jq 'map(select(.status != "closed")) | length' <<<"$kids_json")
+
+tmp=$(mktemp "$out.XXXXXX") || exit 1
+printf '# Beads snapshot\n\nTaken by the orchestrator just before you started. Read-only.\n\n## Bead\n\n%s\n\n## Children\n\n%s\n%s' \
+  "$bead_txt" "$kids_txt" "$details" >"$tmp"
+mv "$tmp" "$out"
+echo "beads.md: $total children, $open open"

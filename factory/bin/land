@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Lands an approved factory job, through a PR or a local merge as the "land"
+# setting says (factory/bin/settings land: pr, the default, or local).
+#
+#   factory/bin/land <job-folder>
+#
+# Runs pr-land or local-land and passes on their output and exit code:
+# 0 merged; 3 required checks failed (log in <job-folder>/.runs/checks.log);
+# 4 conflicts with the base; 5 GitHub refused the merge; 6 the base moved
+# since job.json's reviewed_base, the job branch now has a merge commit and
+# needs another review round; 7 the main checkout is busy (local only);
+# 2 usage or unknown land setting; anything else is an environment failure.
+set -uo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: land <job-folder>" >&2
+  exit 2
+fi
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+mode=$("$here/settings" land) || exit 1
+case $mode in
+  pr) exec "$here/pr-land" "$1" ;;
+  local) exec "$here/local-land" "$1" ;;
+  *)
+    echo "land: unknown land setting '$mode' (want pr or local)" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+# Appends one usage line for an agent run to <job-folder>/usage.jsonl.
+#
+#   factory/bin/usage-record codex <job-folder> <log-prefix> <role> <exit-code> [--thread <id>]
+#   factory/bin/usage-record claude <job-folder> <role>
+#   factory/bin/usage-record session <job-folder> [<session-id>]
+#
+# Subcommands are dispatched by name; each builds one JSON object and hands it
+# to write_line, the only place that touches usage.jsonl.
+#
+# codex: <log-prefix> is the run's log path without extension (run-codex's
+# $log). Tokens are summed over every turn.completed in <log-prefix>.jsonl;
+# without one (a run that died, or run-adversarial's companion JSON), they come
+# from the last token_count in the thread's rollout under
+# ${CODEX_SESSIONS_DIR:-~/.codex/sessions}. The thread id is the log's
+# thread.started, or --thread. Quota is the first and last rate_limits.primary
+# in that rollout. Anything unavailable is null, never guessed.
+#
+# claude and session read Claude Code transcripts under
+# ${CLAUDE_PROJECTS_DIR:-~/.claude/projects}/<slug>/, the slug being this
+# repo's absolute path with / and . turned into -. Tokens sum message.usage
+# over assistant messages, each message.id counted once (streamed messages
+# repeat it; the last copy wins). The transcript path is the line's "log", and
+# a transcript already logged in usage.jsonl is never recorded again.
+#
+# claude: records every <session>/subagents/agent-*.jsonl whose first user
+# message starts "Role: factory/agents/<agent>.md. Job folder: <job-folder>"
+# (<agent> is the role's models.json "agent", or the role). ended is
+# finished/unfinished from the sibling .meta.json.
+#
+# session: records the orchestrator's own main transcript <slug>/<id>.jsonl
+# (never its subagents, which claude records). Without an id, the most
+# recently modified top-level transcript mentioning factory/jobs/<job-id>/.
+#
+# Prints nothing and always exits 0, so recording never fails the run it
+# records. On an internal error the line carries nulls and an "error" message;
+# if the line cannot be written, one line goes to stderr.
+set -uo pipefail
+
+factory=$(cd "$(dirname "$0")/.." && pwd)
+
+# write_line <job-folder> <json>: appends the object as one compact line.
+write_line() {
+  { jq -c . <<<"$2" >>"$1/usage.jsonl"; } 2>/dev/null ||
+    echo "usage-record: could not write $1/usage.jsonl" >&2
+}
+
+now_iso() { date +%Y-%m-%dT%H:%M:%S%z | sed -E 's/([0-9]{2})$/:\1/'; }
+
+# epoch_of_prefix <log-prefix>: epoch seconds from its YYYYmmdd-HHMMSS stamp.
+# shellcheck disable=SC2329 # called from cmd_codex
+epoch_of_prefix() {
+  local s
+  s=$(basename "$1" | grep -oE '^[0-9]{8}-[0-9]{6}') || return 1
+  date -j -f %Y%m%d-%H%M%S "$s" +%s 2>/dev/null ||
+    date -d "${s:0:4}-${s:4:2}-${s:6:2} ${s:9:2}:${s:11:2}:${s:13:2}" +%s 2>/dev/null
+}
+
+# base_line <job> <role> <exit>: fields shared by every source, as JSON.
+base_line() {
+  local job=$1 role=$2 rc=$3 entry jobj jf=$1/job.json
+  entry=$(jq -c --arg r "$role" '.[$r] // {}' "$factory/models.json" 2>/dev/null) || entry='{}'
+  jobj=$(jq -c 'if type == "object" then . else {} end' "$jf" 2>/dev/null) || jobj='{}'
+  jq -n -c --arg ts "$(now_iso)" --arg role "$role" --argjson rc "$rc" \
+    --argjson m "$entry" --argjson job "$jobj" '
+    { ts: $ts, role: $role, provider: ($m.provider // null), model: ($m.model // null),
+        effort: ($m.effort // null), stage: ($job.stage // null), round: ($job.round // null),
+        task: ([$job.tasks[]? | select(.status == "in_progress") | .id] | if length == 1 then .[0] else null end),
+        input: null, cached: null, cache_write: null, output: null, reasoning: null,
+        duration_s: null, exit: $rc, ended: null, quota: null, log: null }'
+}
+
+# shellcheck disable=SC2329 # called through run_source
+cmd_codex() {
+  local job=$1 prefix=$2 role=$3 rc=$4 thread=""
+  shift 4
+  while [ $# -gt 0 ]; do
+    case $1 in --thread) thread=${2:-}; shift 2 ;; *) shift ;; esac
+  done
+  case $rc in '' | *[!0-9]*) rc=null ;; esac
+
+  local base log=$prefix.jsonl ev='{}' ro='{}' rollout="" tokens quota duration
+  base=$(base_line "$job" "$role" "$rc") || return 1
+  jq -e --arg r "$role" 'has($r)' "$factory/models.json" >/dev/null 2>&1 || { echo "no '$role' in models.json" >&2; return 1; }
+  # Logs and rollouts can be megabytes: stream them through jq reducers that
+  # keep only a small summary, so nothing large ever travels in argv.
+  if [ -f "$log" ]; then
+    ev=$(jq -R -n -c '
+      reduce (inputs | fromjson?) as $e ({ended: null, thread: null, n: 0, sum: {}};
+        ($e | if type == "object" then . else {} end) as $o
+        | (if ($o.type | type) == "string" then .ended = $o.type else . end)
+        | (if .thread == null and $o.type == "thread.started" then .thread = $o.thread_id else . end)
+        | if $o.type == "turn.completed" and ($o.usage | type) == "object" then
+            .n += 1
+            | reduce ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens") as $k
+                (.; .sum[$k] = ((.sum[$k] // 0) + ($o.usage[$k] // 0)))
+          else . end)' "$log") || ev='{}'
+    [ -n "$thread" ] || thread=$(jq -r '.thread // empty' <<<"$ev")
+  fi
+  if [ -n "$thread" ]; then
+    local root=${CODEX_SESSIONS_DIR:-$HOME/.codex/sessions} day="" d
+    day=$(basename "$prefix" | sed -nE 's#^([0-9]{4})([0-9]{2})([0-9]{2})-.*#\1/\2/\3#p')
+    for d in ${day:+"$root/$day"} "$root"; do
+      [ -d "$d" ] || continue
+      rollout=$(find "$d" -name "rollout-*-$thread.jsonl" 2>/dev/null | head -n 1)
+      [ -n "$rollout" ] && break
+    done
+  fi
+  if [ -n "$rollout" ]; then
+    ro=$(grep token_count "$rollout" | jq -R -n -c '
+      reduce (inputs | fromjson?) as $e ({first: null, last: null, plan: null, tok: null};
+        ($e.payload? // {}) as $p
+        | if ($p | type) == "object" and $p.type == "token_count" then
+            (if ($p.info.total_token_usage? | type) == "object" then .tok = $p.info.total_token_usage else . end)
+            | (if ($p.rate_limits.primary? | type) == "object"
+               then (.first //= $p.rate_limits.primary) | .last = $p.rate_limits.primary | .plan = $p.rate_limits.plan_type
+               else . end)
+          else . end)') || ro='{}'
+  fi
+
+  tokens=$(jq -n -c --argjson ev "$ev" --argjson ro "$ro" '
+    def pick: { input: .input_tokens, cached: .cached_input_tokens, cache_write: .cache_write_input_tokens,
+                output: .output_tokens, reasoning: .reasoning_output_tokens };
+    if ($ev.n // 0) > 0 then ($ev.sum | pick)
+    elif ($ro.tok // null) != null then ($ro.tok | pick)
+    else {} end')
+  quota=$(jq -n -c --argjson ro "$ro" '
+    if ($ro.last // null) == null then null else
+      ($ro.last.window_minutes) as $w
+      | { window: (if $w == 10080 then "weekly" elif $w == 300 then "5h" elif $w == null then null else "\($w)m" end),
+          before: $ro.first.used_percent, after: $ro.last.used_percent,
+          resets_at: $ro.last.resets_at, plan: $ro.plan }
+    end')
+  local start; duration=null
+  if start=$(epoch_of_prefix "$prefix"); then
+    duration=$(( $(date +%s) - start ))
+    [ "$duration" -lt 0 ] && duration=0
+  fi
+  local rel=${prefix#"$job"/}
+
+  jq -n -c --argjson b "$base" --argjson t "$tokens" --argjson q "$quota" --argjson d "$duration" \
+    --argjson ev "$ev" --arg log "$rel" '
+    $b + $t + { duration_s: $d, quota: $q, log: $log, ended: ($ev.ended // null) }
+    | . + { input: (.input // null), cached: (.cached // null), cache_write: (.cache_write // null),
+            output: (.output // null), reasoning: (.reasoning // null) }'
+}
+
+# project_dir: this repo's Claude Code project folder, named after the repo
+# path with every character but letters, digits and "-" turned into "-".
+project_dir() {
+  echo "${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}/$(dirname "$factory" | sed 's#[^A-Za-z0-9-]#-#g')"
+}
+
+# recorded <job> <log>: true if a line in usage.jsonl already has this log.
+recorded() {
+  [ -f "$1/usage.jsonl" ] || return 1
+  jq -R -r 'fromjson? | .log? // empty' "$1/usage.jsonl" 2>/dev/null | grep -Fxq -- "$2"
+}
+
+# transcript_summary <transcript> <main>: streams the transcript through a
+# reducer that keeps the last usage per message id, the last real model and
+# the first/last timestamps, and prints {model, duration_s, tokens}. With
+# main=true, sidechain entries are skipped so a subagent is never counted here.
+# shellcheck disable=SC2329 # called from claude_line / session_line
+transcript_summary() {
+  jq -R -n -c --argjson main "$2" '
+    def epoch: if type == "string" then (sub("\\.[0-9]+"; "") | try fromdateiso8601 catch null) else null end;
+    def tot($u; $k): [$u[] | .[$k] // 0] | add;
+    reduce (inputs | fromjson? | select(type == "object")) as $e ({ids: {}, n: 0, model: null, t0: null, t1: null};
+      if $main and $e.isSidechain == true then . else
+        ($e.timestamp | epoch) as $t
+        | (if $t == null then . else .t0 = ([.t0 // $t, $t] | min) | .t1 = ([.t1 // $t, $t] | max) end)
+        | if $e.type == "assistant" and ($e.message.usage? | type) == "object" then
+            .n += 1
+            | .ids[($e.message.id | if type == "string" then . else null end) // "#\(.n)"] =
+                ($e.message.usage | {input_tokens, cache_read_input_tokens, cache_creation_input_tokens, output_tokens})
+            | ($e.message.model | if type == "string" and . != "<synthetic>" then . else null end) as $m
+            | if $m == null then . else .model = $m end
+          else . end
+      end)
+    | { model, duration_s: (if .t0 == null then null else .t1 - .t0 end),
+        tokens: (if (.ids | length) == 0 then {} else
+          [.ids[]] as $u
+          | { input: (tot($u; "input_tokens") + tot($u; "cache_read_input_tokens") + tot($u; "cache_creation_input_tokens")),
+              cached: tot($u; "cache_read_input_tokens"), cache_write: tot($u; "cache_creation_input_tokens"),
+              output: tot($u; "output_tokens") }
+        end) }' "$1"
+}
+
+# claude_line <job> <role> <transcript>: the line for one subagent transcript.
+# shellcheck disable=SC2329 # called through run_source
+claude_line() {
+  local job=$1 role=$2 tr=$3 base sum meta='{}'
+  base=$(base_line "$job" "$role" null) || return 1
+  sum=$(transcript_summary "$tr" false) || return 1
+  [ -f "${tr%.jsonl}.meta.json" ] && { meta=$(jq -c 'if type == "object" then . else {} end' "${tr%.jsonl}.meta.json" 2>/dev/null) || meta='{}'; }
+  jq -n -c --argjson b "$base" --argjson s "$sum" --argjson meta "$meta" --arg log "$tr" '
+    $b + $s.tokens + { model: ($s.model // $meta.model // null), duration_s: $s.duration_s, log: $log,
+      ended: (if $meta.finished == true then "finished" elif $meta.finished == false then "unfinished" else null end) }'
+}
+
+
+cmd_claude() {
+  local job=$1 role=$2 agent proj abs id tr found=0
+  agent=$(jq -r --arg r "$role" '.[$r].agent // $r' "$factory/models.json" 2>/dev/null) || agent=$role
+  [ -n "$agent" ] || agent=$role
+  abs=$(cd "$job" 2>/dev/null && pwd) || { error_line "$job" "$role" "no job folder $job"; return; }
+  id=$(basename "$abs")
+  proj=$(project_dir)
+  # grep narrows the candidates without reading whole files into jq; jq then
+  # checks the first user message only.
+  while IFS= read -r tr; do
+    [ -n "$tr" ] || continue
+    jq -R -n -e --arg pre "Role: factory/agents/$agent.md. Job folder: " --arg abs "$abs" --arg id "$id" '
+      first(inputs | fromjson? | select(type == "object" and .type == "user")) | .message.content
+      | (if type == "string" then . elif type == "array" then [.[]? | select(.type? == "text") | .text] | join("") else "" end)
+      | startswith($pre) and
+        (ltrimstr($pre) | capture("^(?<p>\\S*)").p | sub("\\.$"; "") | sub("/+$"; "")
+         | . == $abs or . == "factory/jobs/\($id)" or endswith("/factory/jobs/\($id)"))' "$tr" >/dev/null 2>&1 || continue
+    found=1
+    recorded "$job" "$tr" && continue
+    run_source "$job" "$role" null claude_line "$job" "$role" "$tr"
+  done < <(find "$proj/" -mindepth 3 -maxdepth 3 -path '*/subagents/agent-*.jsonl' \
+             -exec grep -l -F -- "Role: factory/agents/$agent.md. Job folder: " {} + 2>/dev/null | sort)
+  [ "$found" = 1 ] || error_line "$job" "$role" "no $agent transcript for $id under $proj"
+}
+
+# session_line <job> <transcript>: the orchestrator line for a main transcript.
+# shellcheck disable=SC2329 # called through run_source
+session_line() {
+  local base sum
+  base=$(base_line "$1" orchestrator null) || return 1
+  sum=$(transcript_summary "$2" true) || return 1
+  jq -n -c --argjson b "$base" --argjson s "$sum" --arg log "$2" '
+    $b + $s.tokens + { provider: "anthropic", model: $s.model, effort: null,
+                       duration_s: $s.duration_s, ended: null, log: $log }'
+}
+
+
+cmd_session() {
+  local job=$1 sid=${2:-} proj id f tr=""
+  proj=$(project_dir)
+  id=$(basename "$(cd "$job" 2>/dev/null && pwd || echo "$job")")
+  if [ -n "$sid" ]; then
+    case $sid in *[!A-Za-z0-9_-]*) error_line "$job" orchestrator "bad session id $sid"; return ;; esac
+    tr=$proj/$sid.jsonl
+  else
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if [ -z "$tr" ] || [ "$f" -nt "$tr" ]; then tr=$f; fi
+    done < <(find "$proj/" -mindepth 1 -maxdepth 1 -name '*.jsonl' \
+               -exec grep -l -F -- "factory/jobs/$id/" {} + 2>/dev/null)
+    [ -n "$tr" ] || { error_line "$job" orchestrator "no session transcript mentions factory/jobs/$id/ under $proj"; return; }
+  fi
+  [ -f "$tr" ] || { error_line "$job" orchestrator "no transcript $tr"; return; }
+  recorded "$job" "$tr" && return
+  run_source "$job" orchestrator null session_line "$job" "$tr"
+}
+
+# error_line <job> <role> <msg> [<exit>]: a null line carrying the error.
+error_line() {
+  local job=$1 role=$2 msg=$3 rc=${4:-null} out
+  case $rc in '' | *[!0-9]*) rc=null ;; esac
+  out=$(base_line "$job" "$role" "$rc" 2>/dev/null) || out=$(jq -n -c --arg role "$role" '{role: $role}')
+  [ "$role" = orchestrator ] && out=$(jq -c '. + {provider: "anthropic"}' <<<"$out")
+  write_line "$job" "$(jq -c --arg e "$msg" '. + {error: $e}' <<<"$out")"
+}
+
+# run_source <job> <role> <exit> <fn> args...: runs a source function and
+# writes its line, or a null line carrying the error if it fails.
+run_source() {
+  local job=$1 role=$2 rc=$3 fn=$4 out err
+  shift 4
+  err=$(mktemp "${TMPDIR:-/tmp}/usage-record.XXXXXX") || err=/dev/null
+  if out=$("$fn" "$@" 2>"$err") && [ -n "$out" ]; then
+    write_line "$job" "$out"
+  else
+    local msg
+    msg=$(head -n 1 "$err" 2>/dev/null)
+    error_line "$job" "$role" "${msg:-failed}" "$rc"
+  fi
+  [ "$err" = /dev/null ] || rm -f "$err"
+}
+
+main() {
+  local sub=${1:-}
+  case $sub in
+    codex)
+      if [ $# -lt 5 ]; then
+        echo "usage: usage-record codex <job-folder> <log-prefix> <role> <exit-code> [--thread <id>]" >&2
+        return 0
+      fi
+      run_source "$2" "$4" "$5" cmd_codex "$2" "$3" "$4" "$5" "${@:6}"
+      ;;
+    claude)
+      if [ $# -lt 3 ]; then echo "usage: usage-record claude <job-folder> <role>" >&2; return 0; fi
+      cmd_claude "$2" "$3"
+      ;;
+    session)
+      if [ $# -lt 2 ]; then echo "usage: usage-record session <job-folder> [<session-id>]" >&2; return 0; fi
+      cmd_session "$2" "${3:-}"
+      ;;
+    *) echo "usage: usage-record codex|claude|session <job-folder> ..." >&2 ;;
+  esac
+  return 0
+}
+
+main "$@"
+exit 0

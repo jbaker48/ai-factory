@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Runs every factory/test/*.test.sh and fails if any fails.
+#
+#   factory/test/run
+#
+# Prints each test file's summary line, then a final line; exits 1 if any file failed.
+set -uo pipefail
+dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+fail=0
+for t in "$dir"/*.test.sh; do
+  [ -e "$t" ] || continue
+  echo "== $(basename "$t")"
+  bash "$t" || fail=$((fail + 1))
+done
+if [ "$fail" -ne 0 ]; then echo "$fail test file(s) failed" >&2; exit 1; fi
+echo "all test files passed"

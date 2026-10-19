@@ -15,15 +15,16 @@ main checkout. Your shell may start anywhere, so start every shell command with
 job folder is in the main checkout; your one file goes there. Never change
 anything in the worktree: the orchestrator checks it is still clean after you.
 
-Beads is read-only for you. Use `bd --readonly ...` only. `bd --readonly
-children <bead>` lists the tasks the builder worked through.
+Beads is not available to you. Read `<job folder>/beads.md`: the
+orchestrator's snapshot, taken just before you started. Its Children
+section lists the tasks the builder worked through.
 
 ## Read
 
 1. `AGENTS.md` (or `CLAUDE.md`), plus any doc it says to read for the area the
    branch touches.
 2. `<job folder>/spec.md` and `<job folder>/build.md`.
-3. The change: `git log --oneline main..<branch>` and `git diff main...<branch>`.
+3. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
    Read the changed files in full where the diff isn't enough.
 4. From round 2 on, your own `round-<N-1>/review-security.md`. Check whether
    each finding was fixed.

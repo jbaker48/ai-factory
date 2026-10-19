@@ -18,6 +18,15 @@ The autopilot never merges, reworks into, or respecs toward a change that:
 - sends email, SMS or push notifications to real users;
 - deletes user-facing features or content.
 
+## Owner decisions
+
+A job's owner decides parked jobs in `/factory review`, and each decision is
+written to `human-<k>.md` in the job folder. Owner decisions (`human-*.md`)
+bind: their
+scope and "do not change" lines override anything below. The autopilot
+reworks only within them, never respecs against them, and never merges what
+they rule out; when it can't stay within them, it parks.
+
 ## May decide
 
 - A product Assumption in the spec that is cheap to reverse: copy, defaults,
@@ -31,8 +40,10 @@ The autopilot never merges, reworks into, or respecs toward a change that:
 
 ## Limits (enforced by the orchestrator)
 
-- At most 2 REWORK and 1 RESPEC decisions per job. After that, PARK.
+- At most 2 REWORK and 1 RESPEC decisions per job. After that, PARK. The
+  owner's own REWORK and RESPEC decisions don't count.
 - MERGE needs `Confidence: high` or `medium`, an all-PASS final review round,
-  and a clean `git merge-tree` against `main`.
+  and a clean `git merge-tree` against the base.
 - The autopilot never pushes, force-pushes, rewrites history or deletes
-  branches that are not the job's own.
+  branches that are not the job's own. Only the orchestrator's **Merge** step
+  pushes, and only the job branch.
