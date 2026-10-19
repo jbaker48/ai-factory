@@ -4,8 +4,8 @@
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-if ! command -v bd >/dev/null; then
-  echo "skip: bd not on PATH"
+if ! command -v bd >/dev/null || ! command -v jq >/dev/null; then
+  echo "skip: bd or jq not on PATH"
   finish
 fi
 
@@ -19,6 +19,14 @@ test_bad_usage() {
   assert_eq 2 "$?" "non-numeric arg exits 2"
 }
 
+test_zero_args() {
+  "$FACTORY_SRC/bin/bd-stress" 0 2 >/dev/null 2>&1
+  assert_eq 2 "$?" "0 writers exits 2"
+  "$FACTORY_SRC/bin/bd-stress" 2 0 >/dev/null 2>&1
+  assert_eq 2 "$?" "0 rounds exits 2"
+}
+
 test_smoke
+test_zero_args
 test_bad_usage
 finish
