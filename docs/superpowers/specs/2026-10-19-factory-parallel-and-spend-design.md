@@ -1,4 +1,4 @@
-# Factory: parallel jobs and spend visibility
+# Factory: parallel jobs, spend visibility and human review
 
 - Date: 2026-10-19
 - Status: ready for review by the user
@@ -19,6 +19,12 @@ out of that:
    blows out.
 3. Jobs run one at a time, though nothing in the design needs that. Each job
    already has its own worktree, job folder, ports and branch.
+4. Working through a parked job has no defined flow. For job 001 the user
+   said "help me through the human situation on 001" and a session improvised:
+   summarised the escalation, read the code, asked one decision question,
+   filed a follow-up bead (`garmin-ai-coach-jo6q`), wrote `rework-1.md`, ran
+   `/factory rework`, and then became the job's orchestrator, running the
+   build interactively outside the drain.
 
 Both plans are flat-rate subscriptions: Claude on a Max plan, Codex on a
 ChatGPT plan. Dollars are not the meter. What runs out is plan quota (5-hour
@@ -31,6 +37,8 @@ and weekly windows). Tokens are the detail under it.
 - Record every agent run's usage and show live spend per job, stage, role and
   model, plus plan-quota meters, on the dashboard and in `/factory status`.
 - Run several jobs at once from `factory/bin/autopilot`.
+- `/factory review`: an easy, repeatable way to work through parked jobs, end
+  each with a recorded decision, and resubmit it to the autopilot drain.
 
 ## Non-goals
 
@@ -299,6 +307,112 @@ pool isn't built until it passes, with or without the wrapper. If it fails, wrap
 `factory/bin/bd-write` wrapper, and use it in the skill. 1d removes the
 sandboxed readers from the picture.
 
+## Part 4 — Human review and resubmission
+
+### `/factory review [<job-id>]`
+
+Works through jobs at `stage: "needs-human"`, oldest `updated` first, one at a
+time; with a job id, only that job. For each job:
+
+1. **Brief.** Spawn a new Claude role, `briefer` (`factory/agents/briefer.md`,
+   `models.json` entry `{"provider":"anthropic","model":"opus"}`, Claude's
+   call), with the standard job prompt. It reads what the approver and
+   autopilot read (spec, plan, build reports, every review round,
+   `decision*.md`, `autopilot-*.md`, `rework-*.md`, the branch diff against
+   the base, and the code the escalation cites) and writes exactly one file,
+   `<job folder>/human-brief-<k>.md`:
+   - `## Situation`: the job's situation (`escalated`, `plan-blocked`, …) and
+     what's wrong, in plain words, with file:line evidence it checked itself.
+   - `## Decisions`: one to three questions only the owner can answer, each
+     with 2–4 options, a recommended option, and what each option means for
+     the next step. Only outcomes valid for the situation are offered:
+     APPROVE only for `escalated` or `merge-blocked` (final round all PASS,
+     every task closed); REWORK, RESPEC and DROP for any situation.
+   - `## Out of scope`: problems found that this job shouldn't fix, each as a
+     proposed bead (title, type, priority, one-paragraph description).
+   The session reads only this brief, never the raw job files, so its context
+   stays small across many jobs.
+2. **Ask.** Show the situation in a few lines, then ask the brief's decisions
+   (AskUserQuestion, one question per decision; the user can answer
+   free-form). Then confirm the outcome: **approve**, **rework**, **respec**
+   or **drop**, and which proposed out-of-scope beads to file.
+3. **Record.** Spawn the briefer again with the task `Write decision k.` and
+   the owner's answers verbatim in the prompt (Claude's call: the briefer has
+   read the code, the session hasn't). It writes `<job folder>/human-<k>.md`.
+   First line is the outcome (`APPROVE`, `REWORK`, `RESPEC`, `DROP`). Then the
+   owner's answers verbatim, and for REWORK/RESPEC the instructions the builder
+   or spec-writer will get, written from those answers to the standard of
+   001's `rework-1.md`: specific, scoped, with the code-level facts they rest
+   on, and saying what must not change. The session files the chosen
+   out-of-scope beads (`factory,queued` labels) and list their ids in the
+   file. For DROP, ask for a one-line reason.
+4. **Resubmit.** In one `job-set`: `stage: "resubmitted"`,
+   `human_decision: "human-<k>.md"`, `situation: null`, `autopilot: true`.
+   On the bead: remove `needs-human`, add `resubmitted`. Then move to the next
+   job. The review session never runs the job's build, review or merge.
+
+At the end, print one line per job handled (job, outcome, beads filed) and
+whether an autopilot drain is running; if none is, say how to start one.
+
+### The drain picks up resubmitted jobs
+
+- **Drain lifetime (Claude's call; the user's reply left the choice open).**
+  The drain still exits when there's nothing to do, as today. A new
+  `--watch` flag keeps it running instead, polling for resubmitted jobs and
+  new queued beads (e.g. every 60s) until Ctrl-C. At the end of
+  `/factory review`, if no drain is running, the session offers to start one
+  in the background (`factory/bin/autopilot --watch` with the repo's `jobs`
+  setting).
+
+- Each worker, before asking `next-bead`, looks for a job at
+  `stage: "resubmitted"` (oldest first, Claude's call: finish work before
+  starting more). It claims it with an atomic `mkdir <job folder>/.resume-claim`
+  (removed when the worker's sessions for that job end), then runs
+  `/factory resume <job-id>` under the usual resume loop. A resubmitted job
+  takes one worker slot like any other.
+- `/factory resume` on a `resubmitted` job reads `human_decision` and acts:
+  - **APPROVE** → **Merge** (including the moved-base re-review rule).
+  - **REWORK** → today's `/factory rework` steps 2–3, with the human file in
+    place of the note: fix task plus final task, then **Build**, fresh
+    `MAX_ROUNDS` counting on from the last round.
+  - **RESPEC** → the spec-writer with the human file as input, then plan and
+    build as a respec does today.
+  - **DROP** → close the PR if any, remove the worktree, delete the branch,
+    `bd close <bead> --reason "Dropped: <reason>"`, `stage: "dropped"`.
+  It removes the `resubmitted` label when it starts acting.
+- **Limits (Claude's call).** Owner REWORK/RESPEC decisions don't count toward
+  the autopilot's `reworks < 2` / `respecs < 1`. If the job escalates again,
+  the autopilot decides again under its normal limits and can still PARK.
+- **Owner decisions bind later roles (Claude's call).** Every role that reads
+  `rework-*.md` and `autopilot-*.md` today also reads `human-*.md`. The
+  owner's scope and "must not change" lines are hard limits: the approver
+  judges against them, and the autopilot may REWORK only within them, may
+  not RESPEC against them, and may not MERGE something an owner decision
+  rules out. When it can't stay within them it PARKs.
+- **Owner APPROVE and a moved base (Claude's call).** An owner APPROVE settles
+  the escalation on its merits. If the base moved, the job still gets the
+  re-review round (five reviewers on the updated branch), and the approver
+  then judges only what the base merge changed, told by `human-<k>.md` that
+  the earlier escalation is settled. A new problem from the base merge
+  escalates as usual; the settled one can't be re-raised.
+
+### `needs-human` beads with no job
+
+`/factory import` labels PRD conflicts `needs-human` on beads that have no job
+folder. `/factory review` lists these after the parked jobs and handles each
+inline (Claude's call, no briefer: they're questions, not code): show the
+conflict from the bead, ask the owner, write the answer into the bead
+(`bd comment`, and the description if the answer changes it), and swap
+`needs-human` for `queued`.
+
+### Existing commands
+
+`/factory approve <job-id>` and `/factory rework <job-id> <note>` stay, as
+shortcuts: they write `human-<k>.md` (APPROVE, or REWORK with the note
+verbatim) and resubmit, instead of running the job in the current session.
+`/factory status` and the dashboard show resubmitted jobs waiting for the
+drain, and `dropped` as an end state alongside `merged`.
+
 ## Constraints
 
 - Shell scripts stay bash + `jq` + `gh`, matching `factory/bin/*`.
@@ -318,6 +432,9 @@ sandboxed readers from the picture.
 - A job whose base moved after approval gets re-reviewed before landing, not
   just re-tested.
 - Local land mode for repos without GitHub is needed.
+- Parked jobs are worked through with `/factory review`, which ends each with a
+  recorded decision; the job then goes back to the autopilot drain, never run
+  by the review session.
 
 ## Claude's calls (check these)
 
@@ -332,6 +449,18 @@ sandboxed readers from the picture.
 - No Claude plan quota for now (status line can't reach headless runs).
 - Autopilot claims with a distinct Beads actor so adopt can tell its claims
   from the user's.
+- A `briefer` role on Opus writes `human-brief-<k>.md` so the review session
+  never reads raw job files.
+- Resubmitted jobs run before new beads; claimed with a `.resume-claim` dir.
+- Owner reworks/respecs don't consume the autopilot's limits.
+- `/factory approve` and `/factory rework` resubmit rather than run the job.
+- The briefer also writes `human-<k>.md` from the owner's answers.
+- APPROVE offered only for `escalated` / `merge-blocked`.
+- Owner decisions are hard limits on later roles; an owner APPROVE isn't
+  re-litigated after a base move, only the base merge is reviewed.
+- `/factory review` also clears import-time `needs-human` beads inline.
+- Drain exits when idle by default; `--watch` keeps it polling; review offers
+  to start one.
 - `--jobs` defaults to 1; a Beads stress test gates part 3.
 
 ## Left to the builder
