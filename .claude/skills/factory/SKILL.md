@@ -824,7 +824,7 @@ the job folder; don't read more of the job than the step below needs.
        go to **Plan**.
      - **DROP**: take the reason from the file's `## Reason` section. With a
        `pr` whose `gh pr view <pr> --json state -q .state` is `OPEN`,
-       `gh pr close <pr> --comment "Dropped: <reason>"`. Close every open task
+       `gh pr close <pr> --delete-branch --comment "Dropped: <reason>"`. Close every open task
        under the bead with `--reason "Superseded: dropped"`. Then
        `git worktree remove --force <worktree>` (if it still exists),
        `git branch -D factory/<job-id>` (either may already be gone),

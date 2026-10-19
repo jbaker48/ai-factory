@@ -106,7 +106,7 @@ test_review_fixes() {
   case $t in *'counting on from'*) _fail "no 'counting on from' prose left" ;; *) _pass ;; esac
   assert_contains "$t" '--remove-label resubmitted --remove-label needs-human' "resume removes both labels"
   assert_contains "$t" 'Superseded: dropped' "drop closes open tasks"
-  assert_contains "$t" 'is `OPEN`, `gh pr close' "drop closes only an open PR"
+  assert_contains "$t" 'is `OPEN`, `gh pr close <pr> --delete-branch' "drop closes only an open PR, deleting its branch"
   assert_contains "$t" "select(.title == \$t)" "out-of-scope beads deduped by title"
   for c in approve rework; do
     s=$(section "$f" "/factory $c")
