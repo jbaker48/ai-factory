@@ -164,5 +164,5 @@ Tell the user, in a few lines:
 - any command in `AGENTS.md` that didn't pass in step 5;
 - how to start: `/factory <feature>` for one job; `/factory import <prd>` first
   in a repo with existing beads; `factory/bin/autopilot` to drain the queue
-  from a shell; `cd factory && python3 -m http.server` for the dashboard at
-  `http://localhost:8000/dashboard.html`.
+  from a shell; `factory/bin/dashboard` for the dashboard at
+  `http://127.0.0.1:4100/`.

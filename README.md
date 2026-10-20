@@ -295,9 +295,10 @@ factory/
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
   bin/job-set                    updates a job.json field with jq, quietly
+  bin/dashboard                  serves dashboard.html and the job files, read-only
   bin/autopilot                  drains the queue, one headless session per job
   bin/retro-due, retro-prep, retro-publish   decide, set up and publish a retro
-  dashboard.html                 the visual board
+  dashboard.html                 the visual board, served by bin/dashboard
   jobs/                          one folder per job (runtime state)
   imports/                       one folder per PRD import (runtime state)
   autopilot-runs/                headless session output from bin/autopilot
@@ -332,12 +333,14 @@ the decisions. By hand:
 ## Dashboard
 
 ```bash
-cd factory && python3 -m http.server
+factory/bin/dashboard            # or --port <n>; needs only node
 ```
 
-Open <http://localhost:8000/dashboard.html>. Jobs move across eight stages as
-cards. Each card shows its bead, a strip of task dots that fill in as Beads
-tasks close, and review chips per round. Column headers show the models from
-`models.json`. Autopilot jobs are flagged, and jobs that need you stand out.
-Click a card to read the spec, plan, task reports, reviews and autopilot
-decisions.
+Open <http://127.0.0.1:4100/>. The server is read-only and listens on this
+machine only; the page polls it every two seconds. Jobs that need you come
+first, with their situation and the commands to copy. Running jobs sit on one
+stage track (Spec, Plan, Build, Review, Approve) whose legend shows each
+stage's models from `models.json`; task dots fill in under Build as Beads
+tasks close, and review chips per round sit under Review. Merged and dropped
+jobs are listed below. Click a job to read the spec, plan, task reports,
+reviews and autopilot decisions. Light and dark follow your OS, with a toggle.

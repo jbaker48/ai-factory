@@ -4,376 +4,358 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Software Factory</title>
+<!--
+  Design notes (one line per decision):
+  - Read as an ops board for the one person running the factory: calm, ENERGY 1 / RHYTHM 2 / MOTION 1.
+  - Warm paper neutrals, because the page stays open all day beside a terminal and pure white glares.
+  - One accent (vermilion) means "needs you" and nothing else, so the eye goes there first.
+  - Green and amber only carry review verdicts; they are status, not decoration.
+  - System UI type, because this is a local tool that should read like the OS around it; mono only for ids, branches and commands you copy.
+  - The stage track (Spec to Approve) is the motif: the legend shows each stage's model and every job sits on the same track.
+  - No animation: the page polls every 2s, and movement on every poll would be noise.
+  - Light and dark follow the OS, with a toggle, because there is no brand reason to force either.
+-->
 <style>
   :root {
-    --bg: #14151b;
-    --panel: #1a1c24;
-    --card: #20222c;
-    --card-hover: #252835;
-    --line: #2b2e3b;
-    --text: #e4e5ea;
-    --muted: #868ba0;
-    --faint: #5b6075;
-    --active: #8be9fd;
-    --pass: #50fa7b;
-    --changes: #ffb86c;
-    --human: #ff79c6;
-    --merged: #bd93f9;
-    --auto: #f1fa8c;
+    --bg: #f4f2ec; --surface: #fbfaf7; --sunk: #e9e6de; --line: #d8d3c8;
+    --ink: #1f1e1b; --ink-2: #4f4c45; --ink-3: #686459;
+    --accent: #a63a0c; --pass: #2c6435; --warn: #7f5200;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171614; --surface: #201f1c; --sunk: #121110; --line: #36342f;
+      --ink: #ecebe5; --ink-2: #bbb7ad; --ink-3: #9a968c;
+      --accent: #f0895a; --pass: #86c48d; --warn: #e2b45c;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171614; --surface: #201f1c; --sunk: #121110; --line: #36342f;
+    --ink: #ecebe5; --ink-2: #bbb7ad; --ink-3: #9a968c;
+    --accent: #f0895a; --pass: #86c48d; --warn: #e2b45c;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body {
-    background: var(--bg);
-    color: var(--text);
-    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
-    -webkit-font-smoothing: antialiased;
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums;
   }
   button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .muted { color: var(--ink-2); }
+  .faint { color: var(--ink-3); }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
 
   /* Header */
-  header {
-    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
-    flex-wrap: wrap; padding: 28px 32px 8px;
+  header { padding-top: 28px; padding-bottom: 20px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  #status { color: var(--ink-2); }
+  #status.error { color: var(--accent); }
+  .theme {
+    margin-left: auto; background: none; border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; color: var(--ink-2); font-size: 13px;
   }
-  h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
-  .status { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .status .dot {
-    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-    background: var(--pass); margin-right: 6px; vertical-align: 1px;
-  }
-  .status.error { color: var(--human); }
-  .status.error .dot { background: var(--human); }
+  .theme:hover { color: var(--ink); border-color: var(--ink-3); }
   .banner {
-    margin: 12px 32px 0; padding: 10px 14px; border: 1px solid var(--human);
-    border-radius: 8px; color: var(--human); font-family: var(--mono); font-size: 12px;
+    margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid var(--accent);
+    background: var(--surface); color: var(--ink);
   }
 
-  /* Board */
-  .board {
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; row-gap: 28px;
-    padding: 20px 32px 40px; align-items: start;
-  }
-  .col { min-width: 0; }
-  .col-head {
-    display: flex; align-items: center; gap: 8px; padding: 0 2px 10px;
-    border-bottom: 1px solid var(--line); margin-bottom: 12px; position: relative;
-  }
-  .col-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
-  .col-head .who { font-size: 11px; color: var(--faint); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .col-head .count {
-    margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted);
-  }
-  .col:not(.noarrow) .col-head::after {
-    content: "›"; position: absolute; right: -10px; top: -2px; color: var(--faint); font-size: 16px;
-  }
-  @media (max-width: 1899px) { .col-head::after { display: none; } }
-  .col.human .col-head { border-bottom-color: color-mix(in srgb, var(--human) 55%, transparent); }
-  .col.human h2 { color: var(--human); }
-  .col.merged-col h2 { color: var(--merged); }
-  .col.dropped-col h2 { color: var(--faint); }
-  .col.resub-col h2 { color: var(--changes); }
-  .col.auto-col h2 { color: var(--auto); }
-  .empty { color: var(--faint); font-size: 12px; padding: 4px 2px; }
+  /* Quota */
+  .meters { display: flex; flex-wrap: wrap; gap: 6px 28px; color: var(--ink-2); padding-bottom: 24px; }
+  .meter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .meter > span:first-child { white-space: nowrap; }
+  .bar { width: 120px; height: 6px; border-radius: 3px; background: var(--sunk); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--ink-2); }
+  .bar i.hot { background: var(--warn); }
+  .bar i.full { background: var(--accent); }
 
-  /* Cards */
-  .card {
-    display: block; width: 100%; text-align: left; cursor: pointer;
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-    padding: 12px 12px 10px; margin-bottom: 10px;
-    transition: background .15s, border-color .15s, transform .15s;
+  /* Sections */
+  section { padding-bottom: 36px; }
+  h2 { margin: 0 0 12px; font-size: 15px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; }
+  h2 .count { font-weight: 400; color: var(--ink-3); }
+  .empty { color: var(--ink-2); padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+  .empty p { margin: 0 0 4px; }
+
+  /* Needs you: the focal point */
+  #needs h2 { color: var(--accent); }
+  .need {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 32px;
+    background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    border-radius: 8px; padding: 16px 18px; margin-bottom: 12px;
   }
-  .card:hover { background: var(--card-hover); transform: translateY(-1px); }
-  .card:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
-  .card.live { border-color: color-mix(in srgb, var(--active) 35%, var(--line)); }
-  .card.human {
-    border-color: var(--human);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--human) 40%, transparent),
-                0 8px 24px -12px color-mix(in srgb, var(--human) 60%, transparent);
+  .need .feature { font-size: 16px; font-weight: 600; margin: 2px 0 4px; }
+  .need .why { margin: 0 0 12px; }
+  .open-job {
+    background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+    text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line);
   }
-  .card.merged, .card.dropped { opacity: .72; }
-  .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-  .num { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .card-top .num { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pulse {
-    width: 7px; height: 7px; border-radius: 50%; background: var(--active);
-    animation: pulse 1.6s ease-in-out infinite;
+  .open-job:hover { text-decoration-color: currentColor; }
+  .cmds { display: grid; gap: 6px; align-content: start; }
+  .cmd { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .cmd code { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+  .copy {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+    font-size: 12px; padding: 3px 10px; min-width: 64px; color: var(--ink-2);
   }
-  .flag {
-    margin-left: auto; font-size: 10px; font-weight: 600; letter-spacing: .06em;
-    text-transform: uppercase; color: var(--human); white-space: nowrap;
+  .copy:hover { color: var(--ink); border-color: var(--ink-3); }
+
+  /* The stage track, shared by the legend and every row */
+  .grid { display: grid; grid-template-columns: minmax(0, 2.4fr) repeat(5, minmax(0, 1fr)); gap: 0 14px; }
+  .legend { padding: 0 18px 8px; color: var(--ink-2); }
+  .legend .stage { font-weight: 600; color: var(--ink); }
+  .legend .model { display: block; font-family: var(--mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seg { height: 6px; border-radius: 3px; border: 1px solid var(--line); }
+  .seg.done { background: var(--ink-3); border-color: var(--ink-3); }
+  .seg.now { background: var(--ink); border-color: var(--ink); }
+  .seg.stop { background: var(--accent); border-color: var(--accent); }
+  .track-m { display: none; gap: 4px; }
+  .track-m .seg { flex: 1; }
+  .need .track-m { display: flex; max-width: 360px; }
+
+  .row {
+    width: 100%; text-align: left; cursor: pointer; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin-bottom: 8px;
   }
-  .feature { font-size: 13px; line-height: 1.4; margin: 0 0 6px; }
-  .branch {
-    font-family: var(--mono); font-size: 11px; color: var(--faint);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .rounds { margin-top: 10px; display: grid; gap: 5px; }
-  .round { display: flex; align-items: center; gap: 4px; }
-  .round .r { font-family: var(--mono); font-size: 10px; color: var(--faint); width: 20px; }
+  .row:hover { border-color: var(--ink-3); }
+  .row .feature { font-weight: 600; margin: 0 0 2px; }
+  .row .meta { color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .label { margin-top: 6px; color: var(--ink-2); font-size: 13px; }
+  .row .label .auto { color: var(--accent); }
+  .cell { padding-top: 7px; min-width: 0; }
+  .cell .under { margin-top: 8px; }
+  /* Review chips borrow the Approve column, which has nothing under it. */
+  .cell .under.wide { width: calc(200% + 14px); }
+
+  .tasks { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+  .dot { width: 12px; height: 6px; border-radius: 2px; border: 1px solid var(--ink-3); }
+  .dot.in_progress { background: var(--ink); border-color: var(--ink); }
+  .dot.closed { background: var(--ink-3); border-color: var(--ink-3); }
+  .dot.blocked { background: var(--accent); border-color: var(--accent); }
+  .dot.fix { width: 6px; border-radius: 50%; }
+  .tasks .n { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-left: 4px; }
+
+  .rounds { display: grid; gap: 4px; }
+  .round { display: flex; gap: 3px; align-items: center; }
+  .round .r { font-family: var(--mono); font-size: 10px; color: var(--ink-3); width: 20px; flex: none; }
   .chip {
-    flex: 1; text-align: center; font-family: var(--mono); font-size: 10px;
-    padding: 2px 0; border-radius: 4px; border: 1px dashed var(--faint); color: var(--faint);
+    flex: 1; min-width: 0; text-align: center; font-family: var(--mono); font-size: 10px;
+    padding: 1px 0; border-radius: 3px; border: 1px solid var(--line); color: var(--ink-3);
   }
-  .chip.wait { animation: breathe 1.6s ease-in-out infinite; }
-  .chip.PASS {
-    border: 1px solid transparent; color: var(--pass);
-    background: color-mix(in srgb, var(--pass) 14%, transparent);
-  }
-  .chip.CHANGES {
-    border: 1px solid transparent; color: var(--changes);
-    background: color-mix(in srgb, var(--changes) 16%, transparent);
-  }
-  .chip.bad { border: 1px solid var(--human); color: var(--human); }
-  .flag.auto { color: var(--auto); }
-  .bead { color: var(--muted); }
-  .tasks { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 3px; }
-  .task-dot {
-    width: 14px; height: 6px; border-radius: 2px; border: 1px dashed var(--faint);
-  }
-  .task-dot.in_progress { border: 0; background: var(--active); animation: breathe 1.6s ease-in-out infinite; }
-  .task-dot.closed { border: 0; background: color-mix(in srgb, var(--pass) 70%, transparent); }
-  .task-dot.blocked { border: 0; background: var(--human); }
-  .task-dot.fix { border-radius: 50%; width: 6px; }
-  .tasks .tcount { font-family: var(--mono); font-size: 10px; color: var(--faint); margin-left: 4px; line-height: 6px; }
-  .hint {
-    margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line);
-    font-family: var(--mono); font-size: 10.5px; color: var(--muted); line-height: 1.6;
-    overflow-wrap: anywhere;
-  }
+  .chip.PASS { color: var(--pass); border-color: color-mix(in srgb, var(--pass) 45%, transparent); }
+  .chip.CHANGES { color: var(--warn); border-color: var(--warn); font-weight: 600; }
+  .chip.bad { color: var(--accent); border-color: var(--accent); }
+  .usage { margin-top: 8px; color: var(--ink-3); font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+  .usage .flag { color: var(--accent); font-weight: 600; }
 
-  /* Spend and quota */
-  .spend { margin: 8px 32px 0; }
-  .meters { display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: center; font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .meter { display: flex; align-items: center; gap: 10px; }
-  .meter .bar { width: 140px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
-  .meter .bar i { display: block; height: 100%; background: var(--active); }
-  .meter .bar i.hot { background: var(--changes); }
-  .meter .bar i.full { background: var(--human); }
-  .spend details { margin-top: 10px; }
-  .spend summary { cursor: pointer; font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .spend summary:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
-  .spend table { border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; margin: 8px 0 4px; }
-  .spend th, .spend td { padding: 3px 14px 3px 0; text-align: right; white-space: nowrap; }
+  /* Finished */
+  .done-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .done-row {
+    display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; grid-template-areas: "result feature meta";
+    gap: 4px 16px; align-items: baseline;
+    width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line);
+    padding: 10px 4px; cursor: pointer;
+  }
+  .done-row:hover { background: var(--surface); }
+  .result { grid-area: result; font-size: 13px; color: var(--ink-2); }
+  .done-row .when { grid-area: meta; }
+  .result.merged { color: var(--pass); }
+  .done-row .feature { grid-area: feature; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .done-row .feature .mono { color: var(--ink-3); margin-right: 8px; }
+  .more { margin-top: 10px; background: none; border: 0; padding: 6px 0; cursor: pointer; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
+
+  /* Spend */
+  details summary { cursor: pointer; color: var(--ink-2); padding: 4px 0; }
+  .tables { display: flex; flex-wrap: wrap; gap: 8px 40px; overflow-x: auto; }
+  table.spend { border-collapse: collapse; font-family: var(--mono); font-size: 12px; margin: 10px 0 4px; }
+  .spend th, .spend td { padding: 4px 14px 4px 0; text-align: right; white-space: nowrap; }
   .spend th:first-child, .spend td:first-child { text-align: left; }
-  .spend th { color: var(--faint); font-weight: 400; }
-  .spend .sub { color: var(--faint); font-size: 11px; font-family: var(--mono); margin: 6px 0; }
-  .usage { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; color: var(--muted); line-height: 1.6; }
-  .usage .split { color: var(--faint); overflow-wrap: anywhere; }
-  .usage .runaway { color: var(--human); font-weight: 600; }
+  .spend th { color: var(--ink-3); font-weight: 400; border-bottom: 1px solid var(--line); }
+  .note { color: var(--ink-3); font-size: 13px; margin: 6px 0 0; }
 
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
-  @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-  @media (prefers-reduced-motion: reduce) { .pulse, .chip.wait, .task-dot { animation: none; } }
+  footer { padding-bottom: 40px; color: var(--ink-3); }
+  footer .mono { display: inline-block; margin-right: 18px; }
 
   /* Drawer */
-  .scrim {
-    position: fixed; inset: 0; background: rgba(5, 6, 10, .55);
-    opacity: 0; pointer-events: none; transition: opacity .2s;
+  dialog.drawer {
+    margin: 0 0 0 auto; height: 100vh; max-height: 100vh; width: min(940px, 100vw); max-width: 100vw;
+    padding: 0; border: 0; border-left: 1px solid var(--line); background: var(--surface); color: var(--ink);
   }
-  .drawer {
-    position: fixed; top: 0; right: 0; bottom: 0; width: min(920px, 100vw);
-    background: var(--panel); border-left: 1px solid var(--line);
-    display: grid; grid-template-rows: auto 1fr; transform: translateX(100%);
-    transition: transform .25s ease;
-  }
-  .open .scrim { opacity: 1; pointer-events: auto; }
-  .open .drawer { transform: none; }
+  dialog.drawer[open] { display: grid; grid-template-rows: auto 1fr; }
+  dialog.drawer::backdrop { background: rgb(20 18 15 / .45); }
   .d-head { padding: 20px 24px 16px; border-bottom: 1px solid var(--line); position: relative; }
-  .d-head .num { font-size: 12px; }
-  .retro-links { font-size: 11px; margin-top: 4px; }
-  .retro-links a { color: var(--active); margin-right: 12px; }
-  .d-head h3 { margin: 4px 40px 6px 0; font-size: 16px; font-weight: 600; line-height: 1.35; }
+  .d-head h3 { margin: 4px 56px 6px 0; font-size: 17px; font-weight: 650; line-height: 1.35; }
+  .links a { color: var(--ink); margin-right: 14px; font-size: 13px; }
   .close {
-    position: absolute; top: 16px; right: 16px; width: 32px; height: 32px;
-    border-radius: 8px; border: 1px solid var(--line); background: none; cursor: pointer;
-    color: var(--muted); font-size: 18px; line-height: 1;
+    position: absolute; top: 14px; right: 16px; width: 40px; height: 40px; border-radius: 8px;
+    border: 1px solid var(--line); background: none; cursor: pointer; color: var(--ink-2); font-size: 20px; line-height: 1;
   }
-  .close:hover { color: var(--text); border-color: var(--muted); }
-  .d-body { display: grid; grid-template-columns: 200px 1fr; min-height: 0; }
-  .files { border-right: 1px solid var(--line); padding: 14px 10px; overflow-y: auto; }
-  .files .group {
-    font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--faint); margin: 12px 8px 4px;
-  }
+  .close:hover { color: var(--ink); border-color: var(--ink-3); }
+  .d-body { display: grid; grid-template-columns: 210px 1fr; min-height: 0; }
+  .files { border-right: 1px solid var(--line); padding: 14px 10px; overflow-y: auto; background: var(--bg); }
+  .files .group { font-size: 12px; color: var(--ink-3); margin: 14px 8px 4px; }
   .files .group:first-child { margin-top: 0; }
   .file {
-    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-    background: none; border: 0; border-radius: 6px; padding: 5px 8px; cursor: pointer;
-    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none;
+    border: 0; border-radius: 6px; padding: 6px 8px; cursor: pointer; font-family: var(--mono); font-size: 12px; color: var(--ink-2);
   }
-  .file:hover { background: var(--card); color: var(--text); }
-  .file.on { background: var(--card-hover); color: var(--text); }
+  .file:hover { background: var(--sunk); color: var(--ink); }
+  .file.on { background: var(--surface); color: var(--ink); box-shadow: inset 2px 0 0 var(--ink); }
   .file .rn { display: none; }
-  .file .v { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
-  .v.good { background: var(--pass); } .v.warn { background: var(--changes); } .v.stop { background: var(--human); }
+  .v { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--ink-3); flex: none; }
+  .v.good { background: var(--pass); border-color: var(--pass); }
+  .v.warn { background: var(--warn); border-color: var(--warn); }
+  .v.stop { background: var(--accent); border-color: var(--accent); }
   .doc { overflow-y: auto; padding: 22px 28px 60px; min-width: 0; }
 
   /* Rendered markdown */
   .md { max-width: 680px; line-height: 1.65; }
-  .md h1, .md h2, .md h3, .md h4 { line-height: 1.3; margin: 1.6em 0 .5em; }
-  .md h1 { font-size: 20px; } .md h2 { font-size: 15px; } .md h3 { font-size: 14px; color: var(--muted); }
+  .md h1, .md h2, .md h3, .md h4 { line-height: 1.3; margin: 1.6em 0 .5em; display: block; }
+  .md h1 { font-size: 20px; } .md h2 { font-size: 16px; } .md h3, .md h4 { font-size: 14px; color: var(--ink-2); }
   .md > :first-child { margin-top: 0; }
   .md p, .md ul, .md ol, .md blockquote, .md pre, .md table { margin: 0 0 .9em; }
   .md ul, .md ol { padding-left: 1.3em; }
   .md li { margin: .2em 0; }
   .md li.task { list-style: none; margin-left: -1.3em; }
-  .md li.task::before { content: "☐"; margin-right: .5em; color: var(--faint); }
+  .md li.task::before { content: "☐"; margin-right: .5em; color: var(--ink-3); }
   .md li.task.done::before { content: "☑"; color: var(--pass); }
-  .md code {
-    font-family: var(--mono); font-size: 12px; background: var(--card);
-    padding: 1px 5px; border-radius: 4px;
-  }
-  .md pre {
-    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
-    padding: 12px 14px; overflow-x: auto;
-  }
+  .md code { font-family: var(--mono); font-size: 12px; background: var(--sunk); padding: 1px 5px; border-radius: 4px; }
+  .md pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; }
   .md pre code { background: none; padding: 0; }
-  .md blockquote { border-left: 2px solid var(--line); padding-left: 12px; color: var(--muted); }
-  .md a { color: var(--active); }
+  .md blockquote { border-left: 2px solid var(--line); padding-left: 12px; color: var(--ink-2); }
+  .md a { color: var(--ink); }
   .md table { border-collapse: collapse; font-size: 13px; display: block; overflow-x: auto; }
   .md th, .md td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; }
-  .verdict {
-    display: inline-block; font-family: var(--mono); font-size: 12px; font-weight: 600;
-    padding: 4px 10px; border-radius: 6px; margin-bottom: 14px;
-  }
-  .verdict + * { margin-top: .4em; }
-  .verdict.good { color: var(--pass); background: color-mix(in srgb, var(--pass) 14%, transparent); }
-  .verdict.warn { color: var(--changes); background: color-mix(in srgb, var(--changes) 16%, transparent); }
-  .verdict.stop { color: var(--human); background: color-mix(in srgb, var(--human) 16%, transparent); }
-  .note { color: var(--faint); font-size: 13px; }
+  .verdict { display: inline-block; font-family: var(--mono); font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px; margin-bottom: 14px; border: 1px solid; }
+  .verdict.good { color: var(--pass); }
+  .verdict.warn { color: var(--warn); }
+  .verdict.stop { color: var(--accent); }
 
-  footer {
-    padding: 0 32px 32px; font-family: var(--mono); font-size: 11px; color: var(--faint);
-    display: flex; gap: 20px; flex-wrap: wrap;
-  }
-
-  @media (min-width: 1900px) {
-    .board { grid-template-columns: repeat(10, minmax(0, 1fr)); }
-  }
-  @media (max-width: 1400px) {
-    .board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .col-head::after { display: none; }
-  }
-  @media (max-width: 1000px) {
-    .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .col-head::after { display: none; }
-  }
-  @media (max-width: 640px) {
-    header { padding: 20px 16px 4px; }
-    .banner { margin: 12px 16px 0; }
-    .spend { margin: 8px 16px 0; }
-    .spend details { overflow-x: auto; }
-    .board { grid-template-columns: 1fr; padding: 16px 16px 32px; }
-    footer { padding: 0 16px 24px; }
+  @media (max-width: 860px) {
+    .wrap { padding: 0 16px; }
+    .legend { display: none; }
+    .row .grid { display: block; }
+    .cell { display: none; }
+    .cell.has-under { display: block; padding-top: 10px; }
+    .cell > .seg { display: none; }
+    .cell .under { margin-top: 0; }
+    .track-m { display: flex; margin-top: 10px; }
+    .need { grid-template-columns: 1fr; }
+    .copy { min-height: 44px; min-width: 76px; }
+    .theme { min-height: 44px; }
+    .done-row { grid-template-columns: 1fr auto; grid-template-areas: "result meta" "feature feature"; padding: 12px 4px; }
+    .done-row .feature { white-space: normal; }
+    .cell .under.wide { width: auto; }
     .d-head { padding: 16px; }
     .d-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    .files {
-      border-right: 0; border-bottom: 1px solid var(--line); display: flex; gap: 4px;
-      overflow-x: auto; padding: 8px;
-    }
+    .files { border-right: 0; border-bottom: 1px solid var(--line); display: flex; gap: 4px; overflow-x: auto; padding: 8px; }
     .files .group { display: none; }
-    .file { width: auto; white-space: nowrap; }
+    .file { width: auto; white-space: nowrap; min-height: 44px; }
     .file .rn { display: inline; white-space: pre; }
     .doc { padding: 18px 16px 48px; }
+    .close { width: 44px; height: 44px; }
   }
 </style>
 </head>
 <body>
-<header>
+<header class="wrap">
   <h1>Software factory</h1>
-  <div class="status" id="status">connecting…</div>
+  <span id="status" class="mono">Connecting to the dashboard server…</span>
+  <button class="theme" id="theme" type="button">Theme: auto</button>
 </header>
-<div id="banner"></div>
-<section class="spend" id="spend"></section>
-<main class="board" id="board"></main>
-<footer>
-  <span>/factory &lt;feature&gt;</span>
-  <span>/factory add &lt;feature&gt;</span>
-  <span>/factory next</span>
-  <span>/factory autopilot [n]</span>
-  <span>/factory review [&lt;job-id&gt;]</span>
-  <span>/factory approve &lt;job-id&gt;</span>
-  <span>/factory rework &lt;job-id&gt; &lt;note&gt;</span>
+<div class="wrap" id="banner"></div>
+<div class="wrap" id="meters"></div>
+<main class="wrap" id="main"><p class="muted">Reading factory/jobs…</p></main>
+<footer class="wrap">
+  <p>Commands, from Claude Code:</p>
+  <span class="mono">/factory &lt;feature&gt;</span>
+  <span class="mono">/factory add &lt;feature&gt;</span>
+  <span class="mono">/factory next</span>
+  <span class="mono">/factory autopilot [n]</span>
+  <span class="mono">/factory review [&lt;job-id&gt;]</span>
+  <span class="mono">/factory approve &lt;job-id&gt;</span>
+  <span class="mono">/factory rework &lt;job-id&gt; &lt;note&gt;</span>
 </footer>
+<div id="live" class="mono" aria-live="polite" style="position:absolute;left:-9999px"></div>
 
-<div id="overlay">
-  <div class="scrim" data-close></div>
-  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="d-title">
-    <div class="d-head">
-      <div class="num" id="d-num"></div>
-      <h3 id="d-title"></h3>
-      <div class="branch" id="d-branch"></div>
-      <div class="retro-links" id="d-retro"></div>
-      <button class="close" data-close aria-label="Close">×</button>
-    </div>
-    <div class="d-body">
-      <nav class="files" id="d-files"></nav>
-      <article class="doc"><div class="md" id="d-doc"></div></article>
-    </div>
-  </aside>
-</div>
+<dialog class="drawer" id="drawer" aria-labelledby="d-title">
+  <div class="d-head">
+    <div class="mono muted" id="d-num"></div>
+    <h3 id="d-title"></h3>
+    <div class="mono faint" id="d-branch"></div>
+    <div class="links" id="d-links"></div>
+    <button class="close" id="d-close" type="button" aria-label="Close">×</button>
+  </div>
+  <div class="d-body">
+    <nav class="files" id="d-files" aria-label="Job files"></nav>
+    <article class="doc"><div class="md" id="d-doc"></div></article>
+  </div>
+</dialog>
 
 <script>
 const POLL_MS = 2000
-// `roles` are factory/models.json keys; the column shows their models.
-const STAGES = [
+// `roles` are factory/models.json keys; the legend shows their models.
+const TRACK = [
   { key: 'spec', label: 'Spec', roles: ['spec-writer'] },
   { key: 'plan', label: 'Plan', roles: ['planner'] },
   { key: 'build', label: 'Build', roles: ['builder', 'builder-escalation'] },
   { key: 'review', label: 'Review', roles: ['reviewer-security', 'reviewer-code', 'reviewer-ux', 'reviewer-ui', 'reviewer-adversarial'] },
   { key: 'approve', label: 'Approve', roles: ['approver'] },
-  { key: 'autopilot', label: 'Autopilot', roles: ['autopilot'], cls: 'auto-col' },
-  { key: 'merged', label: 'Merged', who: 'main', cls: 'merged-col noarrow' },
-  { key: 'dropped', label: 'Dropped', who: 'abandoned', cls: 'dropped-col noarrow' },
-  { key: 'resubmitted', label: 'Resubmitted', who: 'sent back', cls: 'resub-col noarrow' },
-  { key: 'needs-human', label: 'Needs human', who: 'review · approve · rework', cls: 'human noarrow' },
 ]
-const LIVE = new Set(['spec', 'plan', 'build', 'review', 'approve', 'autopilot'])
+const STAGES = ['spec', 'plan', 'build', 'review', 'approve', 'autopilot', 'merged', 'needs-human', 'resubmitted', 'dropped']
 const REVIEWERS = [['security', 'sec'], ['code', 'code'], ['ux', 'ux'], ['ui', 'ui'], ['adversarial', 'adv']]
-
-let models = {}
-const shortModel = (m) => String(m).replace(/^gpt-[\d.]+-/, '')
-function who(stage) {
-  if (stage.who) return stage.who
-  const names = [...new Set(stage.roles.map((r) => models[r]?.model).filter(Boolean).map(shortModel))]
-  return names.join(' · ') || stage.roles[0]
+// Where on the track each situation stopped the job, and what it means.
+const SITUATIONS = {
+  'plan-blocked': ['plan', 'The planner could not plan the spec as written.'],
+  'build-blocked': ['build', 'A builder reported BLOCKED, even after escalating to a bigger model.'],
+  'rounds-exhausted': ['review', 'Review rounds ran out with changes still outstanding.'],
+  'escalated': ['approve', 'Every review passed, but the approver sent it to you.'],
+  'merge-blocked': ['approve', 'Approved, but the merge failed or conflicts with the base.'],
 }
 
 const $ = (id) => document.getElementById(id)
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
-let jobs = []
-let land = 'pr'
-let lastRender = ''
-let lastSpend = ''
-const roundCache = new Map() // "<job>/<n>" -> verdicts of a finished round
+let data = null
+let failed = false
+let showAllDone = false
 let openJobId = null
 let openPath = null
 let openText = null
+const painted = {}
 
-async function fetchText(url) {
-  const res = await fetch(url, { cache: 'no-store' })
-  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
-  return res.text()
+// Only touch the DOM when a section's html changed, so focus and scroll stay put.
+function paint(id, html) {
+  if (painted[id] === html) return
+  painted[id] = html
+  $(id).innerHTML = html
 }
+
+// ---- Theme ---------------------------------------------------------------
+
+const THEMES = ['auto', 'light', 'dark']
+function storeGet(k) { try { return localStorage.getItem(k) } catch { return null } }
+function storeSet(k, v) { try { localStorage.setItem(k, v) } catch { /* private mode */ } }
+function applyTheme(t) {
+  if (t === 'auto') delete document.documentElement.dataset.theme
+  else document.documentElement.dataset.theme = t
+  $('theme').textContent = `Theme: ${t}`
+}
+let theme = THEMES.includes(storeGet('factory-theme')) ? storeGet('factory-theme') : 'auto'
+applyTheme(theme)
+$('theme').addEventListener('click', () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]
+  storeSet('factory-theme', theme)
+  applyTheme(theme)
+})
 
 // ---- Usage ---------------------------------------------------------------
-
-// usage.jsonl: one JSON object per line; lines that don't parse are skipped.
-function parseUsage(text) {
-  const out = []
-  for (const line of String(text).split('\n')) {
-    if (!line.trim()) continue
-    try {
-      const r = JSON.parse(line)
-      if (r && typeof r === 'object' && !Array.isArray(r)) out.push(r)
-    } catch { /* skip */ }
-  }
-  return out
-}
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0)
 const tokens = (r) => num(r.input) + num(r.output) // input already includes cached
@@ -383,62 +365,52 @@ const median = (xs) => {
   const m = s.length
   return m % 2 ? s[(m - 1) / 2] : (s[m / 2 - 1] + s[m / 2]) / 2
 }
-
 function fmtTok(n) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
   if (n >= 1e3) return `${Math.round(n / 1e3)}k`
   return String(Math.round(n))
 }
 
-// Token total per stage for one job's records.
 function stageTotals(records) {
   const by = {}
-  for (const r of records) {
-    const k = r.stage || '?'
-    by[k] = (by[k] || 0) + tokens(r)
-  }
+  for (const r of records) by[r.stage || '?'] = (by[r.stage || '?'] || 0) + tokens(r)
   return by
 }
 
 // Same rule as factory/bin/usage-summary: a stage total at least 2x the median
 // of that stage over merged or dropped jobs, when at least 3 such jobs have it.
-function runawayFlags(jobList) {
-  const withUsage = jobList.filter((j) => j.usage && j.usage.length)
+function runawayFlags(jobs) {
   const buckets = {}
-  for (const j of withUsage) {
+  for (const j of jobs) {
     if (j.stage !== 'merged' && j.stage !== 'dropped') continue
     for (const [k, v] of Object.entries(stageTotals(j.usage))) (buckets[k] ||= []).push(v)
   }
   const flags = {}
-  for (const j of withUsage) {
-    const f = []
-    for (const [k, v] of Object.entries(stageTotals(j.usage)).sort()) {
+  for (const j of jobs) {
+    flags[j.id] = Object.entries(stageTotals(j.usage)).sort().flatMap(([k, v]) => {
       const b = buckets[k]
-      if (!b || b.length < 3) continue
+      if (!b || b.length < 3) return []
       const med = median(b)
-      if (med > 0 && v >= 2 * med) f.push({ stage: k, ratio: v / med })
-    }
-    flags[j.id] = f
+      return med > 0 && v >= 2 * med ? [{ stage: k, ratio: v / med }] : []
+    })
   }
   return flags
 }
 
 // Newest record (by ts) per quota window; each carries {quota, ts}.
-function newestQuotas(jobList) {
-  const all = jobList.flatMap((j) => (j.usage || []).filter((r) => r.quota && typeof r.quota === 'object'))
+function newestQuotas(jobs) {
+  const all = jobs.flatMap((j) => j.usage.filter((r) => r.quota && typeof r.quota === 'object'))
   all.sort((a, b) => String(a.ts).localeCompare(String(b.ts)))
   const byWindow = new Map()
   for (const r of all) byWindow.set(r.quota.window || 'quota', { quota: r.quota, ts: r.ts })
   return [...byWindow.values()]
 }
 
-// Totals and per-job averages grouped by role or model.
-function groupSpend(jobList, keyOf) {
+function groupSpend(jobs, keyOf) {
   const g = {}
-  for (const j of jobList) {
-    for (const r of j.usage || []) {
-      const k = keyOf(r) || '?'
-      const e = (g[k] ||= { tokens: 0, runs: 0, jobs: new Set() })
+  for (const j of jobs) {
+    for (const r of j.usage) {
+      const e = (g[keyOf(r) || '?'] ||= { tokens: 0, runs: 0, jobs: new Set() })
       e.tokens += tokens(r)
       e.runs++
       e.jobs.add(j.id)
@@ -449,51 +421,34 @@ function groupSpend(jobList, keyOf) {
 
 function quotaMeter({ quota: q, ts }) {
   const pct = typeof q.after === 'number' ? Math.round(q.after) : null
-  const reset = typeof q.resets_at === 'number' ? new Date(q.resets_at * 1000).toLocaleString() : '?'
+  const reset = typeof q.resets_at === 'number' ? new Date(q.resets_at * 1000).toLocaleString() : 'unknown'
   const cls = pct === null ? '' : pct >= 90 ? 'full' : pct >= 70 ? 'hot' : ''
   return `<span class="meter"><span>Codex ${esc(q.window || 'quota')}</span>
-    <span class="bar" role="img" aria-label="${pct ?? '?'} percent used"><i class="${cls}" style="width:${Math.min(100, pct ?? 0)}%"></i></span>
-    <span>${pct === null ? '?' : pct}% used · resets ${esc(reset)} · as of ${esc(ts ?? '?')}</span></span>`
+    <span class="bar" role="img" aria-label="${pct ?? 'unknown'} percent used"><i class="${cls}" style="width:${Math.min(100, pct ?? 0)}%"></i></span>
+    <span class="mono">${pct === null ? '?' : pct}% used, resets ${esc(reset)}</span></span>`
 }
 
-function groupTable(title, rows) {
+function spendTable(title, rows) {
   if (!rows.length) return ''
-  return `<table><tr><th>${title}</th><th>tokens</th><th>runs</th><th>jobs</th><th>avg / job</th></tr>${rows.map((r) =>
+  return `<table class="spend"><tr><th>${title}</th><th>tokens</th><th>runs</th><th>jobs</th><th>per job</th></tr>${rows.map((r) =>
     `<tr><td>${esc(r.key)}</td><td>${fmtTok(r.tokens)}</td><td>${r.runs}</td><td>${r.jobs}</td><td>${fmtTok(r.tokens / r.jobs)}</td></tr>`).join('')}</table>`
-}
-
-function renderSpend() {
-  const withUsage = jobs.filter((j) => j.usage && j.usage.length)
-  const total = sum(withUsage.map((j) => sum(j.usage.map(tokens))))
-  const detail = withUsage.length
-    ? `<details ${$('spend').querySelector('details')?.open ? 'open' : ''}>
-        <summary>Spend: ${fmtTok(total)} tokens over ${withUsage.length} job${withUsage.length === 1 ? '' : 's'}</summary>
-        ${groupTable('role', groupSpend(withUsage, (r) => r.role))}
-        ${groupTable('model', groupSpend(withUsage, (r) => r.model))}
-        <div class="sub">Tokens are input + output. Spend is information only; nothing is stopped on it.</div>
-      </details>`
-    : ''
-  const html = `<div class="meters">${newestQuotas(withUsage).map(quotaMeter).join('') || '<span class="meter">Codex quota: no data</span>'}<span>Claude: tokens only</span></div>${detail}`
-  if (html !== lastSpend) { lastSpend = html; $('spend').innerHTML = html }
 }
 
 function usageLine(job, flags) {
   const u = job.usage
-  if (!u || !u.length) return ''
+  if (!u.length) return ''
   const inp = sum(u.map((r) => num(r.input)))
-  const out = sum(u.map((r) => num(r.output)))
   const cached = sum(u.map((r) => num(r.cached)))
-  const split = Object.entries(stageTotals(u)).sort().map(([k, v]) => `${esc(k)} ${fmtTok(v)}`).join(' · ')
-  const fl = (flags[job.id] || []).map((f) => `<span class="runaway">FLAG ${esc(f.stage)} ${f.ratio.toFixed(1)}× median</span>`).join(' ')
-  return `<div class="usage">${fmtTok(inp)} in (${fmtTok(cached)} cached, ${inp > 0 ? Math.round(cached / inp * 100) : 0}%) · ${fmtTok(out)} out · ${u.length} run${u.length === 1 ? '' : 's'}
-    <div class="split">${split}</div>${fl ? `<div>${fl}</div>` : ''}</div>`
+  const out = sum(u.map((r) => num(r.output)))
+  const fl = (flags[job.id] || []).map((f) => `<span class="flag">${esc(f.stage)} at ${f.ratio.toFixed(1)}× the median</span>`).join(' ')
+  return `<div class="usage">${fmtTok(inp)} in (${inp > 0 ? Math.round(cached / inp * 100) : 0}% cached), ${fmtTok(out)} out, ${u.length} run${u.length === 1 ? '' : 's'}${fl ? `<br>${fl}` : ''}</div>`
 }
 
 // Drawer view of usage.jsonl, as markdown.
 function usageMarkdown(records) {
-  const cell = (v) => (v === null || v === undefined ? '—' : String(v)).replace(/\|/g, '/')
+  const cell = (v) => (v === null || v === undefined ? '' : String(v)).replace(/\|/g, '/')
   const delta = (q) => (q && typeof q.after === 'number' && typeof q.before === 'number'
-    ? `${q.after - q.before >= 0 ? '+' : ''}${+(q.after - q.before).toFixed(2)}%` : '—')
+    ? `${q.after - q.before >= 0 ? '+' : ''}${+(q.after - q.before).toFixed(2)}%` : '')
   const rows = records.map((r) => `| ${cell(r.stage)} | ${cell(r.role)} | ${cell(r.model)} | ${cell(r.round)} | ${fmtTok(tokens(r))} | ${cell(r.duration_s)}s | ${cell(r.exit)} | ${delta(r.quota)} |`)
   return `# Usage\n\n${records.length} runs, ${fmtTok(sum(records.map(tokens)))} tokens (input + output).\n\n` +
     `| stage | role | model | round | tokens | time | exit | quota change |\n|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n\n` +
@@ -502,45 +457,41 @@ function usageMarkdown(records) {
 
 // ---- Board ---------------------------------------------------------------
 
-function verdictOf(text) {
-  const m = text.split('\n')[0].trim().match(/^VERDICT:\s*(PASS|CHANGES)$/)
-  return m ? m[1] : 'invalid'
+const shortModel = (m) => String(m).replace(/^gpt-[\d.]+-/, '')
+function modelsFor(stage) {
+  return [...new Set(stage.roles.map((r) => data.models[r]?.model).filter(Boolean).map(shortModel))].join(', ')
 }
 
-// Earlier rounds aren't on the board; their verdicts come from the review files.
-async function pastRounds(job) {
-  const rounds = []
-  for (let n = 1; n < job.round; n++) {
-    const key = `${job.id}/${n}`
-    if (!roundCache.has(key)) {
-      const verdicts = {}
-      await Promise.all(REVIEWERS.map(async ([k]) => {
-        try {
-          verdicts[k] = verdictOf(await fetchText(`jobs/${job.id}/round-${n}/review-${k}.md`))
-        } catch {
-          verdicts[k] = 'missing'
-        }
-      }))
-      if (Object.values(verdicts).every((v) => v === 'PASS' || v === 'CHANGES')) {
-        roundCache.set(key, verdicts)
-      } else {
-        rounds.push(verdicts)
-        continue
-      }
-    }
-    rounds.push(roundCache.get(key))
-  }
-  return rounds
+// Where the job sits on the track: index of the current stage, and whether it stopped there.
+function position(job) {
+  const i = TRACK.findIndex((s) => s.key === job.stage)
+  if (i >= 0) return { at: i, stop: false }
+  const sit = SITUATIONS[job.situation]
+  if (sit) return { at: TRACK.findIndex((s) => s.key === sit[0]), stop: true }
+  return { at: -1, stop: false }
 }
 
-function chips(n, verdicts, waiting) {
+function segClass(i, pos) {
+  if (pos.at < 0) return 'seg'
+  if (i < pos.at) return 'seg done'
+  if (i === pos.at) return pos.stop ? 'seg stop' : 'seg now'
+  return 'seg'
+}
+
+function chips(n, verdicts) {
   const cells = REVIEWERS.map(([k, short]) => {
-    const v = verdicts[k]
-    const cls = v === 'PASS' || v === 'CHANGES' ? v : v === 'pending' ? (waiting ? 'wait' : '') : 'bad'
+    const v = verdicts?.[k] ?? 'pending'
+    const cls = v === 'PASS' || v === 'CHANGES' ? v : v === 'pending' ? '' : 'bad'
     const label = v === 'missing' || v === 'invalid' ? `${short}?` : short
     return `<span class="chip ${cls}" title="${k}: ${esc(v)}">${label}</span>`
   }).join('')
   return `<div class="round"><span class="r">R${n}</span>${cells}</div>`
+}
+
+function rounds(job) {
+  const rows = (job.past || []).map((v, i) => chips(i + 1, v))
+  if (job.round > 0) rows.push(chips(job.round, job.reviews))
+  return rows.length ? `<div class="rounds">${rows.join('')}</div>` : ''
 }
 
 function taskDots(tasks) {
@@ -549,127 +500,142 @@ function taskDots(tasks) {
   const dots = tasks.map((t) => {
     const fix = /^(Fix |Rework |Autopilot rework)/.test(t.title) ? 'fix' : ''
     const tip = `${t.id}: ${t.title} (${t.status}${t.model ? ', ' + t.model : ''})`
-    return `<span class="task-dot ${esc(t.status)} ${fix}" title="${esc(tip)}"></span>`
+    return `<span class="dot ${esc(t.status)} ${fix}" title="${esc(tip)}"></span>`
   }).join('')
-  return `<div class="tasks">${dots}<span class="tcount">${done}/${tasks.length}</span></div>`
+  return `<div class="tasks">${dots}<span class="n">${done}/${tasks.length}</span></div>`
 }
 
-function card(job, past, flags) {
-  const live = LIVE.has(job.stage)
-  const human = job.stage === 'needs-human'
-  const rows = past.map((v, i) => chips(i + 1, v, false))
-  if (job.round > 0) rows.push(chips(job.round, job.reviews, job.stage === 'review'))
-  const [num, ...slug] = job.id.split('-')
-  const flag = human ? '<span class="flag">your call</span>'
-    : job.autopilot ? '<span class="flag auto">autopilot</span>' : ''
-  return `
-    <button class="card ${live ? 'live' : ''} ${human ? 'human' : ''} ${job.stage === 'merged' ? 'merged' : ''} ${job.stage === 'dropped' ? 'dropped' : ''}"
-            data-job="${esc(job.id)}">
-      <div class="card-top">
-        ${live ? '<span class="pulse" aria-label="running"></span>' : ''}
-        <span class="num">${esc(num)} · ${esc(slug.join('-'))}</span>
-        ${flag}
-      </div>
-      <p class="feature">${esc(job.feature)}</p>
-      <div class="branch">${job.bead ? `<span class="bead">${esc(job.bead)}</span> · ` : ''}${esc(job.branch)}${job.retro_pr || job.retro_factory_pr ? ' · <span class="bead">retro</span>' : ''}</div>
-      ${taskDots(job.tasks)}
-      ${usageLine(job, flags)}
-      ${rows.length ? `<div class="rounds">${rows.join('')}</div>` : ''}
-      ${human ? `<div class="hint">/factory review ${esc(job.id)}<br>/factory approve ${esc(job.id)}<br>/factory rework ${esc(job.id)} …<br>/factory autopilot ${esc(job.id)}</div>` : ''}
-    </button>`
+function stageLabel(job) {
+  if (job.stage === 'autopilot') return `<span class="auto">Autopilot is deciding.</span> ${esc(SITUATIONS[job.situation]?.[1] || '')}`
+  if (job.stage === 'resubmitted') return 'Resubmitted with your decision; waiting for the queue to resume it.'
+  const s = TRACK.find((t) => t.key === job.stage)
+  const who = s ? modelsFor(s) : ''
+  return `${esc(s?.label || job.stage)}${who ? ` <span class="faint">on ${esc(who)}</span>` : ''}${job.autopilot ? ' <span class="auto">· autopilot job</span>' : ''}`
 }
 
-async function render() {
-  const problems = []
-  const byStage = Object.fromEntries(STAGES.map((s) => [s.key, []]))
-  const pasts = await Promise.all(jobs.map(pastRounds))
-  const flags = runawayFlags(jobs)
-  renderSpend()
-  jobs.forEach((job, i) => {
-    if (!byStage[job.stage]) problems.push(`Job ${job.id} has unknown stage "${job.stage}"`)
-    else byStage[job.stage].push(card(job, pasts[i], flags))
-  })
-  // Newest first within a column.
-  const html = STAGES.map((s) => `
-    <section class="col ${s.cls || ''}">
-      <div class="col-head">
-        <h2>${s.label}</h2><span class="who" title="${esc(who(s))}">${esc(who(s))}</span>
-        <span class="count">${byStage[s.key].length || ''}</span>
+// The current stage's detail sits under its own column of the track.
+function underFor(job, key) {
+  if (key === 'build') return taskDots(job.tasks)
+  if (key === 'review') return rounds(job)
+  return ''
+}
+
+function runningRow(job, flags) {
+  const pos = position(job)
+  const cells = TRACK.map((s, i) => {
+    const under = underFor(job, s.key)
+    return `<div class="cell ${under ? 'has-under' : ''}"><div class="${segClass(i, pos)}" title="${s.label}"></div>${under ? `<div class="under ${s.key === 'review' ? 'wide' : ''}">${under}</div>` : ''}</div>`
+  }).join('')
+  const mobile = TRACK.map((s, i) => `<div class="${segClass(i, pos)}"></div>`).join('')
+  return `<button class="row" type="button" data-job="${esc(job.id)}">
+    <div class="grid">
+      <div>
+        <p class="feature">${esc(job.feature)}</p>
+        <div class="meta mono">${esc(job.id)}${job.bead ? ` · ${esc(job.bead)}` : ''}</div>
+        <div class="label">${stageLabel(job)}</div>
+        <div class="track-m" aria-hidden="true">${mobile}</div>
+        ${usageLine(job, flags)}
       </div>
-      ${byStage[s.key].reverse().join('') || '<div class="empty">—</div>'}
-    </section>`).join('')
-  const banner = problems.map((p) => `<div class="banner">${esc(p)}</div>`).join('')
-  if (html + banner !== lastRender) {
-    lastRender = html + banner
-    $('board').innerHTML = html
-    $('banner').innerHTML = banner
+      ${cells}
+    </div>
+  </button>`
+}
+
+function needCard(job) {
+  const sit = SITUATIONS[job.situation]
+  const pos = position(job)
+  const track = TRACK.map((s, i) => `<div class="${segClass(i, pos)}" title="${s.label}"></div>`).join('')
+  const cmds = [`/factory review ${job.id}`, `/factory approve ${job.id}`, `/factory rework ${job.id} <note>`, `/factory autopilot ${job.id}`]
+  return `<article class="need">
+    <div>
+      <div class="mono faint">${esc(job.id)}${job.bead ? ` · ${esc(job.bead)}` : ''}</div>
+      <p class="feature"><button class="open-job" type="button" data-job="${esc(job.id)}">${esc(job.feature)}</button></p>
+      <p class="why muted">${esc(sit ? sit[1] : 'Waiting for your decision.')}</p>
+      <div class="track-m" aria-hidden="true">${track}</div>
+    </div>
+    <div class="cmds" aria-label="Commands for ${esc(job.id)}">
+      ${cmds.map((c) => `<div class="cmd"><code>${esc(c)}</code><button class="copy" type="button" data-copy="${esc(c)}">Copy</button></div>`).join('')}
+    </div>
+  </article>`
+}
+
+function doneRow(job) {
+  const rounds = job.round ? `${job.round} round${job.round === 1 ? '' : 's'}` : ''
+  const tok = job.usage.length ? `${fmtTok(sum(job.usage.map(tokens)))} tokens` : ''
+  const when = job.updated ? new Date(job.updated).toLocaleDateString() : ''
+  return `<li><button class="done-row" type="button" data-job="${esc(job.id)}">
+    <span class="result ${job.stage}">${job.stage === 'merged' ? 'Merged' : 'Dropped'}</span>
+    <span class="when mono faint">${[rounds, tok, when].filter(Boolean).map(esc).join(' · ')}</span>
+    <span class="feature"><span class="mono">${esc(job.id)}</span>${esc(job.feature)}</span>
+  </button></li>`
+}
+
+function render() {
+  const jobs = data.jobs
+  const newest = (a, b) => String(b.updated || '').localeCompare(String(a.updated || ''))
+  const problems = [...data.problems]
+  for (const j of jobs) if (!STAGES.includes(j.stage)) problems.push(`Job ${j.id} has unknown stage "${j.stage}"`)
+  const banner = (failed ? ['Lost the dashboard server. Is factory/bin/dashboard still running? Showing what was last loaded.'] : []).concat(problems)
+  paint('banner', banner.map((p) => `<div class="banner">${esc(p)}</div>`).join(''))
+
+  const withUsage = jobs.filter((j) => j.usage.length)
+  const quotas = newestQuotas(withUsage)
+  paint('meters', `<div class="meters">${quotas.map(quotaMeter).join('') || '<span>Codex quota: no data yet</span>'}<span>Claude: tokens only</span></div>`)
+
+  if (!jobs.length) {
+    paint('main', `<div class="empty"><p>No jobs yet.</p><p class="faint">Start one from Claude Code with <span class="mono">/factory &lt;feature&gt;</span>; it shows up here within a couple of seconds.</p></div>`)
+    return
   }
+  const flags = runawayFlags(jobs)
+  const needs = jobs.filter((j) => j.stage === 'needs-human').sort(newest)
+  const running = jobs.filter((j) => !['needs-human', 'merged', 'dropped'].includes(j.stage) && STAGES.includes(j.stage)).sort(newest)
+  const done = jobs.filter((j) => j.stage === 'merged' || j.stage === 'dropped').sort(newest)
+  const shown = showAllDone ? done : done.slice(0, 10)
+  const total = sum(withUsage.map((j) => sum(j.usage.map(tokens))))
+  const spendOpen = document.querySelector('#main details')?.open ? 'open' : ''
+
+  const legend = `<div class="grid legend"><div>Job</div>${TRACK.map((s) =>
+    `<div><span class="stage">${s.label}</span><span class="model" title="${esc(modelsFor(s))}">${esc(modelsFor(s) || s.roles[0])}</span></div>`).join('')}</div>`
+
+  paint('main', [
+    needs.length ? `<section id="needs" aria-labelledby="h-needs"><h2 id="h-needs">Needs you <span class="count">${needs.length}</span></h2>${needs.map(needCard).join('')}</section>` : '',
+    `<section aria-labelledby="h-run"><h2 id="h-run">In progress <span class="count">${running.length}</span></h2>${legend}${
+      running.map((j) => runningRow(j, flags)).join('') || '<div class="empty">Nothing running. <span class="mono">/factory next</span> picks up the next ready bead.</div>'}</section>`,
+    done.length ? `<section aria-labelledby="h-done"><h2 id="h-done">Finished <span class="count">${done.length}</span></h2><ul class="done-list">${shown.map(doneRow).join('')}</ul>${
+      done.length > 10 ? `<button class="more" type="button" data-more>${showAllDone ? 'Show the 10 newest' : `Show all ${done.length}`}</button>` : ''}</section>` : '',
+    withUsage.length ? `<section><details ${spendOpen}><summary>Spend: ${fmtTok(total)} tokens over ${withUsage.length} job${withUsage.length === 1 ? '' : 's'}</summary>
+      <div class="tables">${spendTable('role', groupSpend(withUsage, (r) => r.role))}${spendTable('model', groupSpend(withUsage, (r) => r.model))}</div>
+      <p class="note">Tokens are input + output. Spend is information only; nothing is stopped on it.</p></details></section>` : '',
+  ].join(''))
 }
 
 async function poll() {
-  const status = $('status')
   try {
-    models = JSON.parse(await fetchText('models.json'))
-    land = await loadLand()
-    jobs = await loadJobs()
-    await render()
-    if (openJobId) await refreshDrawer()
-    status.className = 'status'
-    status.innerHTML = `<span class="dot"></span>land: ${esc(land)} · jobs/ · ${new Date().toLocaleTimeString()}`
+    const res = await fetch('/api/state', { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    data = await res.json()
+    failed = false
+    $('status').className = 'mono'
+    $('status').textContent = `land: ${data.land} · ${data.jobs.length} job${data.jobs.length === 1 ? '' : 's'} · updated ${new Date().toLocaleTimeString()}`
   } catch (err) {
-    status.className = 'status error'
-    status.innerHTML = `<span class="dot"></span>${esc(err.message)}`
+    failed = true
+    $('status').className = 'mono error'
+    $('status').textContent = `Can't reach the server (${err.message})`
+    if (!data) {
+      paint('main', `<div class="empty"><p>Can't reach the dashboard server.</p><p class="faint">Start it with <span class="mono">factory/bin/dashboard</span> and reload this page.</p></div>`)
+      return
+    }
   }
-}
-
-// settings.json is optional; without it (404) the land mode is "pr".
-async function loadLand() {
-  try {
-    const s = JSON.parse(await fetchText('settings.json'))
-    return s.land === 'local' ? 'local' : 'pr'
-  } catch {
-    return 'pr'
-  }
-}
-
-// jobs/<id>/usage.jsonl is optional too; missing means no usage.
-async function loadUsage(id) {
-  try {
-    return parseUsage(await fetchText(`jobs/${id}/usage.jsonl`))
-  } catch (err) {
-    // Only a missing file means no usage; on any other error keep what we had.
-    if (/HTTP 404/.test(err.message)) return []
-    return jobs.find((j) => j.id === id)?.usage || []
-  }
-}
-
-// Each orchestrator session writes only its own jobs/<id>/job.json.
-async function loadJobs() {
-  const doc = new DOMParser().parseFromString(await fetchText('jobs/'), 'text/html')
-  const ids = [...doc.querySelectorAll('a')]
-    .map((a) => decodeURIComponent(a.getAttribute('href')))
-    .filter((h) => h.endsWith('/'))
-    .map((h) => h.slice(0, -1))
-    .sort()
-  return Promise.all(ids.map(async (id) => ({
-    ...JSON.parse(await fetchText(`jobs/${id}/job.json`)),
-    usage: await loadUsage(id),
-  })))
+  render()
+  if (openJobId) refreshDrawer().catch(() => {})
 }
 
 // ---- Drawer --------------------------------------------------------------
 
-// python -m http.server serves an HTML index for directories; read its links.
-async function listFiles(dir) {
-  const doc = new DOMParser().parseFromString(await fetchText(dir), 'text/html')
-  const hrefs = [...doc.querySelectorAll('a')].map((a) => decodeURIComponent(a.getAttribute('href')))
-  const out = []
-  for (const h of hrefs) {
-    if (h.startsWith('.')) continue // .runs/ holds raw Codex logs
-    if (h.endsWith('/')) out.push(...(await listFiles(dir + h)).map((f) => h + f))
-    else if (h.endsWith('.md') || h === 'plan.json') out.push(h)
-  }
-  return out
+async function api(url) {
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
+  return res
 }
 
 function fileRank(path) {
@@ -678,14 +644,7 @@ function fileRank(path) {
   if (path.startsWith('build/')) return [3, 0, path]
   const round = path.match(/^round-(\d+)\/review-(\w+)\.md$/)
   if (round) return [2, Number(round[1]) * 10 + REVIEWERS.findIndex(([k]) => k === round[2]), path]
-  return [1, 0, path] // rework-<k>.md, autopilot-<k>.md and anything else
-}
-
-function sortFiles(files) {
-  return files.sort((a, b) => {
-    const [x, y] = [fileRank(a), fileRank(b)]
-    return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2])
-  })
+  return [1, 0, path] // rework-<k>.md, autopilot-<k>.md, human-<k>.md and anything else
 }
 
 function tone(first) {
@@ -700,47 +659,32 @@ function planText(json) {
   let plan
   try { plan = JSON.parse(json) } catch { return 'STATUS: BLOCKED\n\nplan.json is not valid JSON.' }
   const tasks = (plan.tasks || []).map((t) =>
-    `${t.key}. **${t.title}**${t.final ? ' (final)' : ''}: ${t.description} Covers ${(t.covers || []).join(', ') || '—'}.` +
+    `${t.key}. **${t.title}**${t.final ? ' (final)' : ''}: ${t.description} Covers ${(t.covers || []).join(', ') || 'nothing listed'}.` +
     (t.depends_on?.length ? ` After ${t.depends_on.join(', ')}.` : ''))
   return `STATUS: ${plan.status}\n\n# Plan\n\n${tasks.map((t) => `- ${t}`).join('\n')}` +
     (plan.blocked ? `\n\n## Blocked\n\n${plan.blocked}` : '')
 }
 
-async function fetchDoc(url) {
-  const text = await fetchText(url)
-  if (url.endsWith('usage.jsonl')) return usageMarkdown(parseUsage(text))
-  return url.endsWith('plan.json') ? planText(text) : text
-}
-
-const firstLines = new Map()
-
 async function refreshDrawer() {
-  const job = jobs.find((j) => j.id === openJobId)
+  const job = data?.jobs.find((j) => j.id === openJobId)
   if (!job) return
   $('d-num').textContent = `${job.id} · ${job.stage}${job.round ? ` · round ${job.round}` : ''}${job.autopilot ? ' · autopilot' : ''}`
   $('d-title').textContent = job.feature
-  $('d-branch').textContent = `${job.bead ? job.bead + ' · ' : ''}${job.branch}`
-  $('d-retro').innerHTML = [['retro PR', job.retro_pr], ['factory retro PR', job.retro_factory_pr]]
+  $('d-branch').textContent = `${job.bead ? job.bead + ' · ' : ''}${job.branch || ''}`
+  paint('d-links', [['Pull request', job.pr], ['Retro PR', job.retro_pr], ['Factory retro PR', job.retro_factory_pr]]
     .filter(([, u]) => /^https?:\/\//.test(u || ''))
-    .map(([label, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${label}</a>`).join('')
+    .map(([label, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${label}</a>`).join(''))
 
-  const base = `jobs/${job.id}/`
-  const files = sortFiles(await listFiles(base))
-  if (job.usage && job.usage.length) files.push('usage.jsonl') // listFiles only lists .md and plan.json
-  sortFiles(files)
-  if (!openPath || !files.includes(openPath)) openPath = files[0] || null
-
-  let text = null
-  if (openPath) {
-    text = await fetchDoc(base + openPath)
-    firstLines.set(base + openPath, text.split('\n')[0].trim())
-  }
-  await Promise.all(files.filter((f) => !firstLines.has(base + f)).map(async (f) => {
-    firstLines.set(base + f, (await fetchDoc(base + f)).split('\n')[0].trim())
-  }))
+  const q = `job=${encodeURIComponent(job.id)}`
+  const files = (await (await api(`/api/files?${q}`)).json())
+    .sort((a, b) => {
+      const [x, y] = [fileRank(a.path), fileRank(b.path)]
+      return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2])
+    })
+  if (!openPath || !files.some((f) => f.path === openPath)) openPath = files[0]?.path || null
 
   let group = null
-  $('d-files').innerHTML = files.map((f) => {
+  paint('d-files', files.map(({ path: f, first }) => {
     const g = f.includes('/') ? f.split('/')[0].replace('round-', 'Round ').replace('build', 'Tasks') : 'Job'
     const head = g !== group ? `<div class="group">${esc(g)}</div>` : ''
     group = g
@@ -748,47 +692,68 @@ async function refreshDrawer() {
     const name = round
       ? `<span class="rn">R${round[1]} </span>${esc(f.split('/')[1].replace(/^review-|\.md$/g, ''))}`
       : f.startsWith('build/') ? esc(f.slice(6).replace(/\.md$/, '')) : esc(f)
-    const t = tone(firstLines.get(base + f) || '')
-    return `${head}<button class="file ${f === openPath ? 'on' : ''}" data-file="${esc(f)}">
-      <span class="v ${t || ''}"></span>${name}</button>`
-  }).join('') || '<div class="empty">No files yet.</div>'
+    return `${head}<button class="file ${f === openPath ? 'on' : ''}" type="button" data-file="${esc(f)}" ${f === openPath ? 'aria-current="true"' : ''}>
+      <span class="v ${tone(first) || ''}"></span>${name}</button>`
+  }).join('') || '<p class="note">No files yet.</p>')
 
+  let text = null
+  if (openPath) {
+    const raw = await (await api(`/api/file?${q}&path=${encodeURIComponent(openPath)}`)).text()
+    text = openPath === 'usage.jsonl' ? usageMarkdown(raw.split('\n').flatMap((l) => { try { return [JSON.parse(l)] } catch { return [] } }))
+      : openPath === 'plan.json' ? planText(raw) : raw
+  }
   if (text !== openText) {
     openText = text
     $('d-doc').innerHTML = text === null ? '<p class="note">The spec-writer hasn’t written anything yet.</p>' : markdown(text)
   }
 }
 
-async function openDrawer(id) {
+let opener = null
+async function openDrawer(id, from) {
   openJobId = id
   openPath = null
   openText = undefined
-  document.body.classList.add('open')
-  try {
-    await refreshDrawer()
-  } catch (err) {
-    $('d-doc').innerHTML = `<p class="note">${esc(err.message)}</p>`
-  }
+  painted['d-files'] = painted['d-links'] = undefined
+  opener = from
+  $('d-doc').innerHTML = '<p class="note">Loading…</p>'
+  if (!$('drawer').open) $('drawer').showModal()
+  $('d-close').focus()
+  try { await refreshDrawer() } catch (err) { $('d-doc').innerHTML = `<p class="note">${esc(err.message)}</p>` }
 }
 
-function closeDrawer() {
+$('drawer').addEventListener('close', () => {
   openJobId = null
-  document.body.classList.remove('open')
-}
+  const id = opener?.dataset.job
+  const again = id && document.querySelector(`[data-job="${CSS.escape(id)}"]`)
+  ;(again || opener)?.focus()
+})
+$('d-close').addEventListener('click', () => $('drawer').close())
+$('drawer').addEventListener('click', (e) => { if (e.target === $('drawer')) $('drawer').close() })
 
-document.addEventListener('click', (e) => {
-  const cardEl = e.target.closest('[data-job]')
-  if (cardEl) return openDrawer(cardEl.dataset.job)
+document.addEventListener('click', async (e) => {
+  const copyEl = e.target.closest('[data-copy]')
+  if (copyEl) {
+    try {
+      await navigator.clipboard.writeText(copyEl.dataset.copy)
+      copyEl.textContent = 'Copied'
+      $('live').textContent = `Copied ${copyEl.dataset.copy}`
+    } catch {
+      copyEl.textContent = 'Select it'
+    }
+    setTimeout(() => { copyEl.textContent = 'Copy' }, 1500)
+    return
+  }
+  if (e.target.closest('[data-more]')) { showAllDone = !showAllDone; render(); return }
+  const jobEl = e.target.closest('[data-job]')
+  if (jobEl) return openDrawer(jobEl.dataset.job, jobEl)
   const fileEl = e.target.closest('[data-file]')
   if (fileEl) {
     openPath = fileEl.dataset.file
     openText = undefined
     $('d-doc').parentElement.scrollTop = 0
-    return refreshDrawer()
+    try { await refreshDrawer() } catch (err) { $('d-doc').innerHTML = `<p class="note">${esc(err.message)}</p>` }
   }
-  if (e.target.closest('[data-close]')) closeDrawer()
 })
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer() })
 
 // ---- Markdown (just enough for the factory's files) ---------------------
 
@@ -798,7 +763,7 @@ function inline(s) {
   s = s
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
-    .replace(/\[([^\]]+)\]\(((?:https?:\/\/|\.{0,2}\/|#)[^)\s]*)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/\[([^\]]+)\]\(((?:https?:\/\/|#)[^)\s]*)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`)
 }
 
