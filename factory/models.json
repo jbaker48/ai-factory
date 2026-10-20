@@ -11,5 +11,6 @@
   "approver":           { "provider": "openai",    "model": "gpt-6-astra", "effort": "high" },
   "autopilot":          { "provider": "openai",    "model": "gpt-6-astra", "effort": "xhigh" },
   "importer":           { "provider": "anthropic", "model": "opus" },
-  "briefer":            { "provider": "anthropic", "model": "opus" }
+  "briefer":            { "provider": "anthropic", "model": "opus" },
+  "retro":              { "provider": "anthropic", "model": "sonnet" }
 }

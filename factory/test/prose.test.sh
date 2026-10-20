@@ -159,5 +159,18 @@ test_import_conflict_queues_only_free_beads() {
   assert_contains "$s" 'if the bead is `in_progress` or assigned to someone else, only `bd update <bead> --remove-label needs-human`' "import conflicts are queued only when nobody has the bead"
 }
 
+test_retro_role() {
+  local t n
+  t=$(tr '\n' ' ' <"$ROOT/factory/agents/retro.md" 2>/dev/null | tr -s ' ')
+  for n in 'RETRO: <n> fixes' 'RETRO: nothing to change' \
+    '## Cost' '## What each extra attempt was for' '## Fixes' '## Repeats' '## Drafted beads' \
+    '`spec`, `plan`, `build`, `review-signal`, `review-batching`, `review-coverage`, `environment`, `flaky`, `external-knowledge`, `owner-scope`' \
+    '## Lessons from factory jobs' 'retro-rejected.md' 'retro-factory-prs.json' 'retro-stale.txt' 'retro-comment-' \
+    'never commit'; do
+    assert_contains "$t" "$n" "retro role mentions $n"
+  done
+  assert_eq "sonnet" "$(jq -r '.retro.model // empty' "$ROOT/factory/models.json")" "models.json has retro on sonnet"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish
