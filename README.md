@@ -294,11 +294,15 @@ factory/
   bin/models                     shows or switches the models.json preset
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
+  bin/prompt-record              records a Claude role's prompt
   bin/job-set                    updates a job.json field with jq, quietly
   bin/dashboard                  serves dashboard.html and the job files, read-only
   bin/autopilot                  drains the queue, one headless session per job
   bin/retro-due, retro-prep, retro-publish   decide, set up and publish a retro
   dashboard.html                 the visual board, served by bin/dashboard
+  dashboard/runs.js              reads run prompt and usage data
+  dashboard/git.js               reads job task commits and diffs
+  dashboard/detail.js            renders job detail data
   jobs/                          one folder per job (runtime state)
   imports/                       one folder per PRD import (runtime state)
   autopilot-runs/                headless session output from bin/autopilot

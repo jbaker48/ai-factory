@@ -156,6 +156,24 @@ test_snapshot_before_every_role() {
   case $(tr '\n' ' ' <"$f" | tr -s ' ') in *'Agents only read Beads (`bd --readonly`)'*) _fail "stale bd --readonly wording" ;; *) _pass ;; esac
 }
 
+test_prompt_record_and_merge_bookmark() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" update_line delete_line
+  assert_contains "$(section "$f" 'Running a role')" 'factory/bin/prompt-record <job folder> <key>' "anthropic roles record their prompt"
+  update_line=$(grep -nF 'git update-ref refs/factory/jobs/<job-id> factory/<job-id>' "$f" | head -n 1 | cut -d: -f1)
+  delete_line=$(grep -nF 'git branch -D factory/<job-id>' "$f" | head -n 1 | cut -d: -f1)
+  assert_contains "$(section "$f" 'Files')" 'Codex and Claude prompts, Codex logs' ".runs lists Claude prompts"
+  assert_contains "$(section "$f" 'Files')" 'refs/factory/jobs/<job-id>' "Files lists local job bookmarks"
+  if [ -n "$update_line" ] && [ -n "$delete_line" ] && [ "$update_line" -lt "$delete_line" ]; then
+    _pass
+  else
+    _fail "Merge bookmarks the job branch before deleting it" "update-ref line: $update_line" "branch delete line: $delete_line"
+  fi
+  assert_contains "$(cat "$ROOT/README.md")" 'bin/prompt-record' "README lists prompt-record"
+  for module in runs git detail; do
+    assert_contains "$(cat "$ROOT/README.md")" "dashboard/$module.js" "README lists dashboard/$module.js"
+  done
+}
+
 test_dashboard_hints_review() {
   assert_contains "$(cat "$ROOT/factory/dashboard.html")" '`/factory review ${job.id}`' "needs-human card offers /factory review"
 }

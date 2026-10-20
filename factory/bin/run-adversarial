@@ -33,6 +33,10 @@ log="$job/.runs/$(date +%Y%m%d-%H%M%S)-reviewer-adversarial"
 focus="Challenge this branch against its spec below. Look for ways it breaks: unmet or weakly verified acceptance criteria, edge cases, regressions, and anything the spec's Out of scope forbids.
 
 $(cat "$job/spec.md")"
+printf '%s\n' "$focus" >"$log.prompt.md" || {
+  echo "run-adversarial: could not write $log.prompt.md" >&2
+  exit 1
+}
 
 # No MCP-off override here (unlike run-codex): the companion takes no codex
 # config flags and starts its own app-server, so there is nowhere to pass

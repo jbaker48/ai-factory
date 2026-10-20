@@ -120,9 +120,12 @@ roles read `<job folder>/beads.md` for task state, and a model swap in
 `models.json` must not leave one reading a stale or missing snapshot (skip it
 for the importer, which has no job).
 
-- **anthropic**: spawn the `factory-agent` subagent with `model` set to the
-  entry's `model` and the prompt `Role: factory/agents/<agent>.md. <paths> <task>`.
-  After each `factory-agent` returns, run
+- **anthropic**: before spawning, run
+  `factory/bin/prompt-record <job folder> <key> "<the prompt>"` with the exact
+  prompt line you will send (skip it for the importer, which has no job). Then
+  spawn the `factory-agent` subagent with `model` set to the entry's `model`
+  and the prompt `Role: factory/agents/<agent>.md. <paths> <task>`. After each
+  `factory-agent` returns, run
   `factory/bin/usage-record claude <job folder> <key>` (skip it for the
   importer, which has no job). It records the subagent's tokens in
   `<job folder>/usage.jsonl` and prints nothing.
@@ -214,7 +217,8 @@ state that never lands in a commit.
 <repo>/factory/jobs/<job-id>/round-<N>/review-{security,code,ux,ui,adversarial}.md
 <repo>/factory/jobs/<job-id>/decision.md
 <repo>/factory/jobs/<job-id>/autopilot-<k>.md
-<repo>/factory/jobs/<job-id>/.runs/            Codex prompts and logs, from run-codex
+<repo>/factory/jobs/<job-id>/.runs/            Codex and Claude prompts, Codex logs
+<repo>/.git/refs/factory/jobs/<job-id>         local bookmark for a merged job branch
 <repo>/factory/jobs/<job-id>/.resume-claim/    a drain worker holds this resubmitted job
 <repo>/factory/jobs/<job-id>/retro.md         the retro: cost, causes, fixes
 <repo>/factory/jobs/<job-id>/retro-pr-{repo,factory}.md  the retro PR bodies
@@ -463,9 +467,11 @@ When it exits:
 - **0**: the job merged. Clean up and close:
   ```bash
   git worktree remove <worktree>
+  git update-ref refs/factory/jobs/<job-id> factory/<job-id>
   git branch -D factory/<job-id>
   bd close <bead> --reason "Merged <pr>"    # local: "Merged factory/<job-id> into main"
   ```
+  This is a local bookmark, never pushed, so the dashboard can show task diffs after merge.
   If removing the worktree fails, the job is still merged: tell the user what
   `git worktree remove` printed. Remove the `needs-human` label if the bead
   has it, and set `stage: "merged"` and `situation: null`. Then run
