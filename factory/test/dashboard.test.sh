@@ -10,8 +10,12 @@ cp -R "$FACTORY_SRC" "$F"
 rm -rf "$F/jobs" "$F/settings.json"
 J="$F/jobs/001-a"
 DETAIL="$F/jobs/005-e"
+FILES_ONLY="$F/jobs/007-g"
+NO_ROUNDS="$F/jobs/008-h"
+TIE="$F/jobs/009-i"
 mkdir -p "$J/round-1" "$J/.runs" "$F/jobs/002-b" "$F/jobs/003-c/.runs" "$F/jobs/004-d/.runs" \
-  "$DETAIL/build" "$DETAIL/round-1" "$DETAIL/round-2" "$DETAIL/.runs" "$F/jobs/006-f/.runs"
+  "$DETAIL/build" "$DETAIL/round-1" "$DETAIL/round-2" "$DETAIL/.runs" "$F/jobs/006-f/.runs" \
+  "$FILES_ONLY" "$NO_ROUNDS/.runs" "$TIE/.runs"
 echo '{"id":"001-a","feature":"A","stage":"review","round":2,"reviews":{}}' >"$J/job.json"
 printf 'VERDICT: CHANGES\n' >"$J/round-1/review-code.md"
 printf 'VERDICT: PASS\n' >"$J/round-1/review-security.md"
@@ -47,14 +51,14 @@ echo '{"id":"005-e","feature":"Detail fixture","stage":"review","tasks":[{"id":"
 cat >"$DETAIL/spec.md" <<'EOF'
 # Detail fixture
 
-## Acceptance criteria
+## aCcEpTaNcE cRiTeRiA   
 
 1. First criterion
 2. Second criterion
    - sub
 3. Third criterion
 
-## Out of scope
+## oUt Of ScOpE   
 
 - Leave the unrelated service alone.
 
@@ -67,11 +71,13 @@ cat >"$DETAIL/plan.json" <<'EOF'
 EOF
 printf '{"ts":"2026-10-20T09:00:30","role":"spec-writer","input":10,"cached":2,"output":4,"reasoning":1,"model":"claude-spec","log":"logs/spec-writer.jsonl"}\n{"ts":"2026-10-20T09:05:30","role":"planner","input":20,"cached":5,"output":6,"reasoning":2,"model":"claude-planner","log":"logs/planner.jsonl"}\n' >"$DETAIL/usage.jsonl"
 for stem in 20261020-090000-spec-writer 20261020-090500-planner 20261020-093000-builder \
-  20261020-100000-reviewer-security 20261020-101500-approver 20261020-103000-autopilot \
-  20261020-110000-reviewer-security 20261020-111500-approver; do
+  20261020-094500-autopilot 20261020-100000-reviewer-adversarial 20261020-100000-reviewer-security \
+  20261020-101500-approver 20261020-103000-autopilot \
+  20261020-110000-reviewer-adversarial 20261020-110000-reviewer-security 20261020-111500-approver; do
   printf '{}\n' >"$DETAIL/.runs/$stem.json"
 done
 printf 'Build task t.1.\n' >"$DETAIL/.runs/20261020-093000-builder.prompt.md"
+printf 'No round in this prompt.\n' >"$DETAIL/.runs/20261020-094500-autopilot.prompt.md"
 printf 'Review round 1.\n' >"$DETAIL/.runs/20261020-100000-reviewer-security.prompt.md"
 printf 'Final round: 1.\n' >"$DETAIL/.runs/20261020-101500-approver.prompt.md"
 printf 'Decision file: autopilot-1.md.\n' >"$DETAIL/.runs/20261020-103000-autopilot.prompt.md"
@@ -85,7 +91,24 @@ printf 'Final approval.\n' >"$DETAIL/decision.md"
 printf 'Round 1 approval.\n' >"$DETAIL/decision-round1.md"
 printf 'Rework note.\n' >"$DETAIL/rework-1.md"
 touch -t 202610201045 "$DETAIL/rework-1.md"
+printf 'A note before round one.\n' >"$DETAIL/human-brief-before.md"
+touch -t 202610200945 "$DETAIL/human-brief-before.md"
+printf 'A note after the last round.\n' >"$DETAIL/human-brief-after.md"
+touch -t 202610201130 "$DETAIL/human-brief-after.md"
 echo '{"id":"006-f","feature":"No spec fixture","stage":"build"}' >"$F/jobs/006-f/job.json"
+echo '{"id":"007-g","feature":"Files only","stage":"build"}' >"$FILES_ONLY/job.json"
+printf '# Existing spec\n' >"$FILES_ONLY/spec.md"
+echo '{"status":"READY","tasks":[]}' >"$FILES_ONLY/plan.json"
+echo '{"id":"008-h","feature":"No review rounds","stage":"build"}' >"$NO_ROUNDS/job.json"
+printf '{}\n' >"$NO_ROUNDS/.runs/20261020-120000-autopilot.json"
+printf 'Decision file: autopilot-1.md.\n' >"$NO_ROUNDS/.runs/20261020-120000-autopilot.prompt.md"
+printf 'An unanchored note.\n' >"$NO_ROUNDS/human-1.md"
+echo '{"id":"009-i","feature":"Round inheritance tie","stage":"review"}' >"$TIE/job.json"
+for stem in 20261020-100000-reviewer-security 20261020-103000-reviewer-adversarial 20261020-110000-reviewer-security; do
+  printf '{}\n' >"$TIE/.runs/$stem.json"
+done
+printf 'Review round 1.\n' >"$TIE/.runs/20261020-100000-reviewer-security.prompt.md"
+printf 'Review round 2.\n' >"$TIE/.runs/20261020-110000-reviewer-security.prompt.md"
 echo '{"land":"local"}' >"$F/settings.json"
 echo '{bad' >"$F/jobs/002-b/job.json"
 printf '# Other\n' >"$F/jobs/002-b/spec.md"
@@ -107,7 +130,7 @@ test_page() {
 test_state() {
   local s; s=$(get /api/state)
   assert_eq local "$(jq -r .land <<<"$s")" "land from settings.json"
-  assert_eq 5 "$(jq '.jobs | length' <<<"$s")" "skips the job with bad json and includes detail fixtures"
+  assert_eq 8 "$(jq '.jobs | length' <<<"$s")" "skips the job with bad json and includes detail fixtures"
   assert_eq '["jobs/002-b/job.json is not valid JSON"]' "$(jq -c .problems <<<"$s")" "reports bad json"
   assert_eq 1 "$(jq '.jobs[0].usage | length' <<<"$s")" "skips usage lines that don't parse"
   assert_eq "CHANGES PASS missing" "$(jq -r '.jobs[0].past[0] | [.code, .security, .ux] | join(" ")' <<<"$s")" "past round verdicts"
@@ -183,12 +206,27 @@ test_detail() {
   assert_eq "t.1 t.2" "$(jq -r '[.plan.tasks[].id] | join(" ")' <<<"$d")" "plan tasks map to job task ids"
   assert_eq "closed" "$(jq -r '.criteria[0].tasks[0].status' <<<"$d")" "criterion task status comes from job.json"
   assert_eq "- Leave the unrelated service alone." "$(jq -r '.out_of_scope' <<<"$d")" "out of scope body stops at the next section"
-  assert_eq "spec plan build round between round approve" "$(jq -r '[.timeline[].kind] | join(" ")' <<<"$d")" "groups in story order"
+  assert_eq "spec plan build between round between round approve" "$(jq -r '[.timeline[].kind] | join(" ")' <<<"$d")" "groups in story order"
   assert_eq "spec.md plan.json build/t.1.md" "$(jq -r '[.timeline[0].runs[0].output, .timeline[1].runs[0].output, .timeline[2].runs[0].output] | join(" ")' <<<"$d")" "spec, plan and build output paths"
   assert_eq "null" "$(jq -c '.timeline[2].runs[0].tokens' <<<"$d")" "run without token source stays unrecorded"
-  assert_eq "autopilot-1.md rework-1.md" "$(jq -r '.timeline[4] | [.runs[0].output, .notes[0].path] | join(" ")' <<<"$d")" "between round 1 and 2"
-  assert_eq "round-1/review-security.md decision-round1.md" "$(jq -r '[.timeline[3].runs[].output] | join(" ")' <<<"$d")" "reviewer and round approval output paths"
-  assert_eq "decision.md" "$(jq -r '.timeline[6].output' <<<"$d")" "final approver output"
+  assert_eq "autopilot-1.md rework-1.md" "$(jq -r '.timeline[5] | [.runs[0].output, .notes[0].path] | join(" ")' <<<"$d")" "between round 1 and 2"
+  assert_eq "round-1/review-security.md decision-round1.md" "$(jq -r '[.timeline[4].runs[].output | select(. != null)] | join(" ")' <<<"$d")" "reviewer and round approval output paths"
+  assert_eq "decision.md" "$(jq -r '.timeline[7].output' <<<"$d")" "final approver output"
+  assert_eq "reviewer-adversarial:1 reviewer-security:1" \
+    "$(jq -r '[.timeline[4].runs[] | select(.stage == "review") | "\(.key):\(.round)"] | join(" ")' <<<"$d")" \
+    "same-stamp round-one adversarial run inherits round one"
+  assert_eq "reviewer-adversarial:2 reviewer-security:2" \
+    "$(jq -r '[.timeline[6].runs[] | "\(.key):\(.round)"] | join(" ")' <<<"$d")" \
+    "same-stamp round-two adversarial run inherits round two"
+  assert_eq "20261020-094500-autopilot human-brief-before.md" \
+    "$(jq -r '.timeline[3] | [.runs[0].id, .notes[0].path] | join(" ")' <<<"$d")" \
+    "pre-round run and unmatched note stay before round one"
+  assert_eq "spec plan build between round between round approve" \
+    "$(jq -r '[.timeline[].kind] | join(" ")' <<<"$d")" \
+    "a trailing unmatched note joins a between group without adding one after the last round"
+  assert_eq "rework-1.md human-brief-after.md" \
+    "$(jq -r '[.timeline[5].notes[].path] | join(" ")' <<<"$d")" \
+    "trailing note joins the nearest existing between group"
 }
 
 test_detail_no_spec() {
@@ -196,6 +234,26 @@ test_detail_no_spec() {
   local d; d=$(get '/api/detail?job=006-f')
   assert_eq "null No spec yet." "$(jq -r '"\(.criteria) \(.criteria_note)"' <<<"$d")" "missing spec said plainly"
   assert_eq "[]" "$(jq -c .timeline <<<"$d")" "no runs, empty timeline"
+}
+
+test_detail_files_without_runs() {
+  local d; d=$(get '/api/detail?job=007-g')
+  assert_eq "spec plan" "$(jq -r '[.timeline[].kind] | join(" ")' <<<"$d")" "existing spec and plan appear without run records"
+  assert_eq "spec.md plan.json" "$(jq -r '[.timeline[].output] | join(" ")' <<<"$d")" "file-only stage groups identify their output"
+  assert_eq "0 0" "$(jq -r '[.timeline[].runs | length] | join(" ")' <<<"$d")" "file-only stage groups have empty run lists"
+}
+
+test_detail_unanchored_run_and_note() {
+  local d; d=$(get '/api/detail?job=008-h')
+  assert_eq "other" "$(jq -r '[.timeline[].kind] | join(" ")' <<<"$d")" "roundless run and note get an other group"
+  assert_eq "20261020-120000-autopilot" "$(jq -r '.timeline[0].runs[0].id' <<<"$d")" "roundless autopilot is retained"
+  assert_eq "human-1.md" "$(jq -r '.timeline[0].notes[0].path' <<<"$d")" "unmatched note is retained"
+}
+
+test_round_inheritance_tie() {
+  local r; r=$(get '/api/runs?job=009-i')
+  assert_eq 2 "$(jq -r '.[] | select(.key == "reviewer-adversarial") | .round' <<<"$r")" \
+    "equidistant parsed review rounds resolve to the later round"
 }
 
 test_detail_no_criteria_section() {

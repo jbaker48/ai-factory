@@ -21,11 +21,11 @@ function readFile(dir, rel) {
 
 function section(text, title) {
   const lines = text.split(/\r?\n/)
-  const start = lines.findIndex((line) => line === `## ${title}`)
+  const start = lines.findIndex((line) => new RegExp(`^##[ \\t]+${title}[ \\t]*$`, 'i').test(line))
   if (start < 0) return null
   let end = lines.length
   for (let i = start + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) {
+    if (/^##[ \t]+/.test(lines[i])) {
       end = i
       break
     }
@@ -151,8 +151,18 @@ function timeline(dir, job, usage) {
     groups.push({ kind, runs: selected })
   }
 
-  add('spec', (run) => run.stage === 'spec')
-  add('plan', (run) => run.stage === 'plan')
+  const addFileStage = (kind, stage, output) => {
+    const selected = runs.filter((run) => run.stage === stage)
+    const hasOutput = existsFile(dir, output)
+    if (!selected.length && !hasOutput) return
+    for (const run of selected) assigned.add(run.id)
+    const group = { kind, runs: selected }
+    if (hasOutput) group.output = output
+    groups.push(group)
+  }
+
+  addFileStage('spec', 'spec', 'spec.md')
+  addFileStage('plan', 'plan', 'plan.json')
   const firstReview = runs.findIndex((run) => run.stage === 'review')
   add('build', (run) => run.stage === 'build' && (firstReview < 0 || runs.indexOf(run) < firstReview))
 
@@ -167,49 +177,106 @@ function timeline(dir, job, usage) {
   const notes = noteFiles(dir)
   const assignedNotes = new Set()
   const betweenGroups = []
-  for (let index = 0; index < rounds.length; index++) {
-    const round = rounds[index]
+  const roundInfo = rounds.map((round) => {
     const members = roundRuns.get(round)
-    const shown = members.filter((run) => !(lastApprover && run.id === lastApprover.id))
-    for (const run of shown) assigned.add(run.id)
-    if (shown.length) groups.push({ kind: 'round', round, runs: shown })
-
     const times = members.map((run) => stampMs(run.stamp)).filter((time) => time !== null)
-    const start = times.length ? Math.max(...times) : null
-    const nextMembers = index + 1 < rounds.length ? roundRuns.get(rounds[index + 1]) : []
-    const nextTimes = nextMembers.map((run) => stampMs(run.stamp)).filter((time) => time !== null)
-    const end = nextTimes.length ? Math.min(...nextTimes) : Infinity
-    const betweenRuns = runs.filter((run) => {
-      if (assigned.has(run.id) || rounds.some((number) => roundRuns.get(number).some((item) => item.id === run.id))) return false
-      const time = stampMs(run.stamp)
-      return start !== null && time !== null && time > start && time < end
+    return { round, members, start: times.length ? Math.min(...times) : null, end: times.length ? Math.max(...times) : null }
+  })
+  const gaps = []
+  if (roundInfo.length && roundInfo[0].start !== null) {
+    gaps.push({ after: 0, lower: null, upper: roundInfo[0].start, runs: [], notes: [] })
+  }
+  for (let index = 0; index < roundInfo.length; index++) {
+    const current = roundInfo[index]
+    if (current.end === null) continue
+    const next = roundInfo[index + 1]
+    gaps.push({
+      after: current.round,
+      lower: current.end,
+      upper: next && next.start !== null ? next.start : Infinity,
+      runs: [],
+      notes: [],
     })
-    const betweenNotes = notes.filter((note) => !assignedNotes.has(note.path) && start !== null && note.mtime > start && note.mtime < end)
-    for (const note of betweenNotes) assignedNotes.add(note.path)
-    if (betweenRuns.length || betweenNotes.length) {
-      for (const run of betweenRuns) assigned.add(run.id)
-      const group = { kind: 'between', after: round, runs: betweenRuns, notes: betweenNotes.map(({ path: notePath }) => ({ path: notePath })) }
-      groups.push(group)
-      betweenGroups.push(group)
+  }
+
+  const distanceToGap = (time, gap) => {
+    if (gap.lower !== null && time < gap.lower) return gap.lower - time
+    if (gap.upper !== Infinity && time > gap.upper) return time - gap.upper
+    return 0
+  }
+  const matchingGap = (time, gap) => {
+    if (gap.lower === null) return time < gap.upper
+    return time > gap.lower && time < gap.upper
+  }
+  const nearestGap = (time) => gaps.reduce((nearest, gap, index) => {
+    const distance = distanceToGap(time, gap)
+    if (!nearest || distance < nearest.distance || (distance === nearest.distance && index > nearest.index)) {
+      return { gap, index, distance }
+    }
+    return nearest
+  }, null)?.gap || null
+
+  const roundMemberIds = new Set(rounds.flatMap((round) => roundRuns.get(round).map((run) => run.id)))
+  for (const run of runs) {
+    if (assigned.has(run.id) || roundMemberIds.has(run.id) || (lastApprover && run.id === lastApprover.id)) continue
+    const time = stampMs(run.stamp)
+    if (time === null || !gaps.length) continue
+    const gap = gaps.find((candidate) => matchingGap(time, candidate)) || nearestGap(time)
+    if (gap) gap.runs.push(run)
+  }
+  for (const note of notes) {
+    const gap = gaps.find((candidate) => candidate.after !== 0 && candidate.upper !== Infinity && matchingGap(note.mtime, candidate))
+    if (gap) {
+      gap.notes.push(note)
+      assignedNotes.add(note.path)
     }
   }
 
-  const unmatchedNotes = notes.filter((note) => !assignedNotes.has(note.path))
-  if (unmatchedNotes.length && betweenGroups.length) {
-    betweenGroups.at(-1).notes.push(...unmatchedNotes.map(({ path: notePath }) => ({ path: notePath })))
-    for (const note of unmatchedNotes) assignedNotes.add(note.path)
-  } else if (unmatchedNotes.length && rounds.length) {
-    const lastRound = rounds.at(-1)
-    const members = roundRuns.get(lastRound)
-    const start = Math.max(...members.map((run) => stampMs(run.stamp)).filter((time) => time !== null))
-    const afterNotes = unmatchedNotes.filter((note) => note.mtime > start)
-    if (afterNotes.length) {
-      const group = { kind: 'between', after: lastRound, runs: [], notes: afterNotes.map(({ path: notePath }) => ({ path: notePath })) }
-      const at = groups.findIndex((item) => item.kind === 'round' && item.round === lastRound)
-      groups.splice(at + 1, 0, group)
-      betweenGroups.push(group)
-      for (const note of afterNotes) assignedNotes.add(note.path)
+  const emitGap = (gap) => {
+    if (!gap || (!gap.runs.length && !gap.notes.length)) return
+    for (const run of gap.runs) assigned.add(run.id)
+    const group = {
+      kind: 'between',
+      after: gap.after,
+      runs: gap.runs,
+      notes: gap.notes.map(({ path: notePath }) => ({ path: notePath })),
     }
+    groups.push(group)
+    betweenGroups.push({ group, gap })
+    for (const note of gap.notes) assignedNotes.add(note.path)
+  }
+
+  let gapIndex = 0
+  for (let index = 0; index < roundInfo.length; index++) {
+    if (index === 0 && gaps[0] && gaps[0].after === 0) emitGap(gaps[gapIndex++])
+    const { round, members } = roundInfo[index]
+    const shown = members.filter((run) => !(lastApprover && run.id === lastApprover.id))
+    for (const run of shown) assigned.add(run.id)
+    if (shown.length) groups.push({ kind: 'round', round, runs: shown })
+    const gap = gaps[gapIndex]
+    if (gap && gap.after === round) emitGap(gaps[gapIndex++])
+  }
+
+  const unmatchedNotes = notes.filter((note) => !assignedNotes.has(note.path))
+  for (const note of unmatchedNotes) {
+    if (!betweenGroups.length) break
+    const nearest = betweenGroups.reduce((current, candidate, index) => {
+      const distance = distanceToGap(note.mtime, candidate.gap)
+      if (!current || distance < current.distance || (distance === current.distance && index > current.index)) {
+        return { ...candidate, index, distance }
+      }
+      return current
+    }, null)
+    nearest.group.notes.push({ path: note.path })
+    assignedNotes.add(note.path)
+  }
+
+  const otherRuns = runs.filter((run) => !assigned.has(run.id) && !(lastApprover && run.id === lastApprover.id))
+  const otherNotes = notes.filter((note) => !assignedNotes.has(note.path))
+  if (otherRuns.length || otherNotes.length) {
+    for (const run of otherRuns) assigned.add(run.id)
+    for (const note of otherNotes) assignedNotes.add(note.path)
+    groups.push({ kind: 'other', runs: otherRuns, notes: otherNotes.map(({ path: notePath }) => ({ path: notePath })) })
   }
 
   if (lastApprover) {

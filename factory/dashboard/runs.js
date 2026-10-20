@@ -30,6 +30,16 @@ function dateStamp(date) {
   return `${pad(date.getFullYear(), 4)}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
 }
 
+function stampTime(stamp) {
+  const match = typeof stamp === 'string' && stamp.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+  if (!match) return null
+  const [, year, month, day, hour, minute, second] = match.map(Number)
+  const date = new Date(year, month - 1, day, hour, minute, second)
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day ||
+      date.getHours() !== hour || date.getMinutes() !== minute || date.getSeconds() !== second) return null
+  return date.getTime()
+}
+
 function stampFromTs(ts) {
   if (typeof ts !== 'string' && typeof ts !== 'number') return null
   return dateStamp(new Date(ts))
@@ -195,11 +205,23 @@ function listRuns(dir, job, usage) {
   }
 
   const ordered = [...runs.values()].sort((a, b) => a.stamp.localeCompare(b.stamp) || a.key.localeCompare(b.key))
-  let priorReviewRound = null
+  const parsedReviewRuns = ordered
+    .map((run, index) => ({ run, index, time: stampTime(run.stamp) }))
+    .filter(({ run, time }) => run.stage === 'review' && Number.isInteger(run.round) && run.round > 0 && time !== null)
   for (const run of ordered) {
-    if (run.stage !== 'review') continue
-    if (run.round == null && priorReviewRound != null) run.round = priorReviewRound
-    if (run.round != null) priorReviewRound = run.round
+    if (run.stage !== 'review' || run.round != null) continue
+    const time = stampTime(run.stamp)
+    if (time === null) continue
+    let nearest = null
+    for (const candidate of parsedReviewRuns) {
+      const distance = Math.abs(candidate.time - time)
+      if (!nearest || distance < nearest.distance ||
+          (distance === nearest.distance && candidate.time > nearest.candidate.time) ||
+          (distance === nearest.distance && candidate.time === nearest.candidate.time && candidate.index > nearest.candidate.index)) {
+        nearest = { candidate, distance }
+      }
+    }
+    if (nearest) run.round = nearest.candidate.run.round
   }
   return ordered
 }
