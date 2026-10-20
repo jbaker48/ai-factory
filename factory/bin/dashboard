@@ -4,16 +4,19 @@
 //   factory/bin/dashboard [--port <n>]       default port 4100
 //
 // Open http://127.0.0.1:<port>/. The page polls GET /api/state (models,
-// land mode and every job with its usage and past review verdicts) and reads
-// a job's files through GET /api/files?job=<id> and
-// GET /api/file?job=<id>&path=<path>. Everything is read-only, and only
-// .md files, plan.json and usage.jsonl inside factory/jobs/<id>/ are served
-// (no dot folders: .runs/ holds raw Codex logs). Listens on 127.0.0.1 only.
+// land mode and every job with its usage and past review verdicts), gets
+// agent runs through GET /api/runs?job=<id>, and reads a job's files through
+// GET /api/files?job=<id> and GET /api/file?job=<id>&path=<path>. Everything
+// is read-only. Only .md files, plan.json and usage.jsonl inside
+// factory/jobs/<id>/ are listed; /api/file also serves .runs/<stem>.prompt.md
+// and .runs/<stem>.last.md, while raw Codex logs stay private. Listens on
+// 127.0.0.1 only.
 // Exit: 1 if the port is taken, 2 usage.
 'use strict'
 const http = require('http')
 const fs = require('fs')
 const path = require('path')
+const { STEM, listRuns, derivedUsage } = require('../dashboard/runs')
 
 const factory = path.resolve(__dirname, '..')
 const jobsDir = path.join(factory, 'jobs')
@@ -80,7 +83,15 @@ function state() {
     if (!fs.existsSync(path.join(dir, 'job.json'))) continue
     const job = readJSON(path.join(dir, 'job.json'), null)
     if (!job || typeof job !== 'object') { problems.push(`jobs/${id}/job.json is not valid JSON`); continue }
-    jobs.push({ ...job, id: job.id || id, usage: readUsage(dir), past: pastRounds(dir, job.round) })
+    const hasUsage = fs.existsSync(path.join(dir, 'usage.jsonl'))
+    const item = {
+      ...job,
+      id: job.id || id,
+      usage: hasUsage ? readUsage(dir) : derivedUsage(dir, job),
+      past: pastRounds(dir, job.round),
+    }
+    if (!hasUsage) item.usage_derived = true
+    jobs.push(item)
   }
   const settings = readJSON(path.join(factory, 'settings.json'), {})
   return {
@@ -98,8 +109,12 @@ function jobDir(id) {
   return fs.existsSync(path.join(dir, 'job.json')) ? dir : null
 }
 
-const servable = (rel) => !rel.split('/').some((s) => s.startsWith('.')) &&
-  (rel.endsWith('.md') || rel === 'plan.json' || rel === 'usage.jsonl')
+const servable = (rel) => {
+  const runFile = rel.match(/^\.runs\/(.+)\.(prompt|last)\.md$/)
+  if (runFile) return STEM.test(runFile[1])
+  return !rel.split('/').some((s) => s.startsWith('.')) &&
+    (rel.endsWith('.md') || rel === 'plan.json' || rel === 'usage.jsonl')
+}
 
 function listFiles(dir, prefix = '') {
   const out = []
@@ -136,6 +151,13 @@ const server = http.createServer((req, res) => {
       return send(res, 200, 'text/html; charset=utf-8', read(path.join(factory, 'dashboard.html')))
     }
     if (url.pathname === '/api/state') return json(res, 200, state())
+    if (url.pathname === '/api/runs') {
+      const id = url.searchParams.get('job')
+      const dir = jobDir(id)
+      if (!dir) return json(res, 404, { error: 'no such job' })
+      const job = readJSON(path.join(dir, 'job.json'), {})
+      return json(res, 200, listRuns(dir, job, readUsage(dir)))
+    }
     if (url.pathname === '/api/files' || url.pathname === '/api/file') {
       const dir = jobDir(url.searchParams.get('job'))
       if (!dir) return json(res, 404, { error: 'no such job' })

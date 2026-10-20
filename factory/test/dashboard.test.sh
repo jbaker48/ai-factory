@@ -9,14 +9,23 @@ mkdir -p "$TEST_TMP/f"
 cp -R "$FACTORY_SRC" "$F"
 rm -rf "$F/jobs" "$F/settings.json"
 J="$F/jobs/001-a"
-mkdir -p "$J/round-1" "$J/.runs" "$F/jobs/002-b"
+mkdir -p "$J/round-1" "$J/.runs" "$F/jobs/002-b" "$F/jobs/003-c/.runs"
 echo '{"id":"001-a","feature":"A","stage":"review","round":2,"reviews":{}}' >"$J/job.json"
 printf 'VERDICT: CHANGES\n' >"$J/round-1/review-code.md"
 printf 'VERDICT: PASS\n' >"$J/round-1/review-security.md"
 printf '# Spec\n' >"$J/spec.md"
 echo '{"status":"READY","tasks":[]}' >"$J/plan.json"
 printf '{"stage":"build","input":10,"output":2}\nnot json\n' >"$J/usage.jsonl"
+printf 'prompt\n\nJob folder: x. Build task t.1.\n' >"$J/.runs/20261019-173747-builder.prompt.md"
+printf '# Build output\n' >"$J/.runs/20261019-173747-builder.last.md"
+printf '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":10,"reasoning_output_tokens":4}}\n{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":40,"output_tokens":5,"reasoning_output_tokens":2}}\n{truncated\n' >"$J/.runs/20261019-173747-builder.jsonl"
+echo raw >"$J/.runs/20261019-173747-builder.stderr"
+printf 'review\n\n… Review round 1.\n' >"$J/.runs/20261019-175425-reviewer-security.prompt.md"
+printf '{"run":true}\n' >"$J/.runs/20261019-175427-reviewer-adversarial.json"
+printf 'builder prompt\n' >"$J/.runs/20261019-180000-builder.prompt.md"
 echo raw >"$J/.runs/log.md"
+echo '{"id":"003-c","feature":"C","stage":"build"}' >"$F/jobs/003-c/job.json"
+printf '{"type":"turn.completed","usage":{"input_tokens":7,"cached_input_tokens":3,"output_tokens":2,"reasoning_output_tokens":1}}\n' >"$F/jobs/003-c/.runs/20261019-190000-builder.jsonl"
 echo '{"land":"local"}' >"$F/settings.json"
 echo '{bad' >"$F/jobs/002-b/job.json"
 printf '# Other\n' >"$F/jobs/002-b/spec.md"
@@ -38,7 +47,7 @@ test_page() {
 test_state() {
   local s; s=$(get /api/state)
   assert_eq local "$(jq -r .land <<<"$s")" "land from settings.json"
-  assert_eq 1 "$(jq '.jobs | length' <<<"$s")" "skips the job with bad json"
+  assert_eq 2 "$(jq '.jobs | length' <<<"$s")" "skips the job with bad json"
   assert_eq '["jobs/002-b/job.json is not valid JSON"]' "$(jq -c .problems <<<"$s")" "reports bad json"
   assert_eq 1 "$(jq '.jobs[0].usage | length' <<<"$s")" "skips usage lines that don't parse"
   assert_eq "CHANGES PASS missing" "$(jq -r '.jobs[0].past[0] | [.code, .security, .ux] | join(" ")' <<<"$s")" "past round verdicts"
@@ -61,6 +70,31 @@ test_refuses() {
   assert_eq 404 "$(code "$u/api/file?job=001-a&path=link.md")" "no symlink out"
   assert_eq 404 "$(code "$u/api/files?job=..")" "no odd job ids"
   assert_eq 405 "$(code -X POST "$u/api/state")" "read-only"
+}
+
+test_runs() {
+  local r; r=$(get '/api/runs?job=001-a')
+  assert_eq 404 "$(code "http://127.0.0.1:$PORT/api/runs?job=missing")" "runs rejects a bad job id"
+  assert_eq "20261019-173747-builder 20261019-175425-reviewer-security 20261019-175427-reviewer-adversarial 20261019-180000-builder" \
+    "$(jq -r '[.[].id] | join(" ")' <<<"$r")" "runs in stamp order, died run included"
+  assert_eq "t.1 build" "$(jq -r '.[0] | "\(.task) \(.stage)"' <<<"$r")" "task parsed from prompt"
+  assert_eq "1 1" "$(jq -r '[.[1].round, .[2].round] | join(" ")' <<<"$r")" "review round parsed and inherited"
+  assert_eq "150 derived" "$(jq -r '.[0] | "\(.tokens.input) \(.tokens_from)"' <<<"$r")" "tokens derived from turn.completed"
+  assert_eq "null null" "$(jq -r '.[3] | "\(.tokens) \(.last)"' <<<"$r")" "died run has no tokens or output"
+}
+
+test_runs_served() {
+  local u="http://127.0.0.1:$PORT/api/file?job=001-a&path=.runs/20261019-173747-builder"
+  assert_eq 200 "$(code "$u.prompt.md")" "serves .prompt.md"
+  assert_eq 200 "$(code "$u.last.md")" "serves .last.md"
+  assert_eq 404 "$(code "$u.jsonl")" "refuses .jsonl"
+  assert_eq 404 "$(code "$u.stderr")" "refuses .stderr"
+  assert_eq 404 "$(code "http://127.0.0.1:$PORT/api/file?job=001-a&path=.runs/../job.json")" "no traversal through .runs"
+}
+
+test_derived_usage() {
+  local s; s=$(get /api/state)
+  assert_eq "true true" "$(jq -r '.jobs[] | select(.id == "003-c") | "\(.usage_derived) \(.usage[0].derived)"' <<<"$s")" "usage derived without usage.jsonl"
 }
 
 test_usage_and_port() {
