@@ -6,19 +6,23 @@
 # <repo> is two levels above this script, <name> its basename, <id> job.json's
 # .id. Creates the repo worktree at <repo>/../<name>-factory/retro-<id> on
 # factory/retro-<id>[-<k>]: with land "pr", the branch of this job's open
-# factory-retro PR, else the first unused name, from <base>; with land "local"
-# (no gh calls), the first one not yet merged into main. When the
-# factory_source setting names an ai-factory checkout <src>, does the same
-# there (always PR rules, from origin/main) on retro/<name>-<id>[-<k>] at
-# <src>/../<srcname>-factory/retro-<name>-<id>, writes every factory-retro PR
-# of <src> to <job>/retro-factory-prs.json and any installed-vs-source drift
-# to <job>/retro-stale.txt. Without it, copies the installed factory files
-# into a scratch git repo at <job>/.retro-factory. Bodies of this job's closed
-# (unmerged) retro PRs go to <job>/retro-rejected.md. Any worktree already at
-# either path is replaced. Records retro_worktree, retro_factory_worktree,
-# retro_factory_kind, retro_pr and retro_factory_pr in job.json.
+# factory-retro PR, else the first name with no PR that is unused (from
+# <base>) or has commits beyond <base> (a publish that failed; kept, local
+# commits included); with land "local" (no gh calls), the first one not yet
+# merged into main. When the factory_source setting names an ai-factory
+# checkout <src>, does the same there (always PR rules, from origin/main) on
+# retro/<name>-<id>[-<k>] at <src>/../<srcname>-factory/retro-<name>-<id>,
+# writes every factory-retro PR of <src> to <job>/retro-factory-prs.json and
+# any drift between the installed files and <src>'s origin/main to
+# <job>/retro-stale.txt. Without it, copies the installed factory files into
+# a scratch git repo at <job>/.retro-factory. Bodies of this job's closed
+# (unmerged) retro PRs go to <job>/retro-rejected.md. Removes any old
+# <job>/retro.md. Any worktree already at either path is replaced. Records
+# retro_worktree, retro_factory_worktree, retro_factory_kind, retro_pr and
+# retro_factory_pr in job.json.
 #
-# stdout: "repo <path>" then "factory <path> source|installed".
+# stdout: "repo <path>", "factory <path> source|installed", then "base <ref>"
+# (<base>, for the role prompt's Base).
 # Exit: 0 ok, 1 environment failure (git or gh failed, or factory_source isn't
 # a git repo), 2 usage error or unreadable job.json.
 set -uo pipefail
@@ -58,14 +62,25 @@ mine() {
     '[.[] | select(.headRefName | (. == $p) or (startswith($p + "-") and (.[($p | length) + 1:] | test("^[0-9]+$"))))]'
 }
 
+# ahead <git-dir> <ref> <commit>: true when <commit> has commits beyond <ref>;
+# exits 1 when git fails.
+ahead() {
+  local out
+  out=$(git -C "$1" rev-list "$2..$3") || exit 1
+  [ -n "$out" ]
+}
+
 # pick_branch <git-dir> <prefix> <base-ref> <prs-json|->: prints
-# "<branch> <open-pr-url|->". <prs-json> is this job's PRs (PR rules); "-"
-# means local rules: the first <prefix>[-<k>] that doesn't exist yet or isn't
-# merged into <base-ref>.
+# "<branch> <open-pr-url|-> <start-ref>". <prs-json> is this job's PRs (PR
+# rules): the branch of its open PR; else the first <prefix>[-<k>] with no PR
+# that is unused, or that has commits beyond <base-ref> (ours, from a publish
+# that failed: started from the local branch when origin lacks some of its
+# commits, else from origin's). "-" means local rules: the first
+# <prefix>[-<k>] that doesn't exist yet or isn't merged into <base-ref>.
 pick_branch() {
-  local dir=$1 prefix=$2 ref=$3 json=$4 open k=1 b
+  local dir=$1 prefix=$2 ref=$3 json=$4 open k=1 b loc rem s
   if [ "$json" != - ]; then
-    open=$(printf '%s' "$json" | jq -r 'first(.[] | select(.state == "OPEN") | "\(.headRefName) \(.url)") // empty')
+    open=$(printf '%s' "$json" | jq -r 'first(.[] | select(.state == "OPEN") | "\(.headRefName) \(.url) origin/\(.headRefName)") // empty')
     [ -n "$open" ] && { echo "$open"; return; }
   fi
   while :; do
@@ -73,13 +88,24 @@ pick_branch() {
     [ "$k" -gt 1 ] && b="$prefix-$k"
     k=$((k + 1))
     if [ "$json" = - ]; then
-      git -C "$dir" rev-parse -q --verify "refs/heads/$b" >/dev/null || { echo "$b -"; return; }
-      git -C "$dir" merge-base --is-ancestor "$b" "$ref" || { echo "$b -"; return; }
-    else
-      git -C "$dir" rev-parse -q --verify "refs/heads/$b" >/dev/null && continue
-      git -C "$dir" rev-parse -q --verify "refs/remotes/origin/$b" >/dev/null && continue
-      printf '%s' "$json" | jq -e --arg b "$b" 'any(.[]; .headRefName == $b)' >/dev/null && continue
-      echo "$b -"
+      git -C "$dir" rev-parse -q --verify "refs/heads/$b" >/dev/null || { echo "$b - $ref"; return; }
+      git -C "$dir" merge-base --is-ancestor "$b" "$ref" || { echo "$b - $b"; return; }
+      continue
+    fi
+    printf '%s' "$json" | jq -e --arg b "$b" 'any(.[]; .headRefName == $b)' >/dev/null && continue
+    loc=no rem=no
+    git -C "$dir" rev-parse -q --verify "refs/heads/$b" >/dev/null && loc=yes
+    git -C "$dir" rev-parse -q --verify "refs/remotes/origin/$b" >/dev/null && rem=yes
+    if [ "$loc" = no ] && [ "$rem" = no ]; then
+      echo "$b - $ref"
+      return
+    fi
+    s="origin/$b"
+    if [ "$loc" = yes ] && { [ "$rem" = no ] || ahead "$dir" "origin/$b" "$b"; }; then
+      s=$b
+    fi
+    if ahead "$dir" "$ref" "$s"; then
+      echo "$b - $s"
       return
     fi
   done
@@ -103,25 +129,27 @@ add_worktree() {
 # branch, adds the worktree and sets pr_url ("" when there's no open PR).
 setup_worktree() {
   local dir=$1 path=$2 prefix=$3 ref=$4 json=$5 branch url start
-  read -r branch url < <(pick_branch "$dir" "$prefix" "$ref" "$json")
-  [ -n "$branch" ] || exit 1
+  read -r branch url start < <(pick_branch "$dir" "$prefix" "$ref" "$json")
+  [ -n "$branch" ] && [ -n "$start" ] || exit 1
+  pr_url=''
   if [ "$url" != - ]; then
     git -C "$dir" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" || exit 1
-    start="origin/$branch" pr_url=$url
-  elif git -C "$dir" rev-parse -q --verify "refs/heads/$branch" >/dev/null && [ "$json" = - ]; then
-    start=$branch pr_url=''
-  else
-    start=$ref pr_url=''
+    pr_url=$url
   fi
   add_worktree "$dir" "$path" "$branch" "$start"
 }
 
+snap=''
 rejected=$(mktemp) || exit 1
-trap 'rm -f "$rejected"' EXIT
+trap 'rm -f "$rejected"; [ -z "$snap" ] || rm -rf "$snap"' EXIT
 # reject <prs-json>: appends the bodies of the CLOSED PRs to $rejected.
 reject() {
   printf '%s' "$1" | jq -r '.[] | select(.state == "CLOSED") | "## \(.url)\n\n\(.body)\n"' >>"$rejected"
 }
+
+# A retro.md left from an earlier run would let /factory retro mistake a
+# role that was cut off for a publish that was.
+rm -f "$job/retro.md" || exit 1
 
 # Repo worktree.
 parent=$(cd "$repo/.." && pwd)
@@ -152,7 +180,20 @@ if [ -n "$src" ]; then
   factory_wt="$(cd "$src/.." && pwd)/$(basename "$src")-factory/retro-$name-$id"
   setup_worktree "$src" "$factory_wt" "retro/$name-$id" origin/main "$src_prs"
   factory_pr=$pr_url kind=source
-  stale=$(for p in "${installed_paths[@]}"; do diff -rq "$repo/$p" "$factory_wt/$p" 2>&1; done)
+  # Against a snapshot of origin/main: the worktree may be on an open PR's
+  # branch, whose own edits aren't drift.
+  snap=$(mktemp -d) || exit 1
+  present=()
+  for p in "${installed_paths[@]}"; do
+    git -C "$src" cat-file -e "origin/main:$p" 2>/dev/null && present+=("$p")
+  done
+  if [ ${#present[@]} -gt 0 ]; then
+    git -C "$src" archive origin/main -- "${present[@]}" | tar -x -C "$snap" || exit 1
+  fi
+  stale=$(for p in "${installed_paths[@]}"; do
+    [ -e "$repo/$p" ] || [ -e "$snap/$p" ] || continue
+    diff -rq "$repo/$p" "$snap/$p" 2>&1
+  done | sed "s|$snap/|origin/main:|g")
   if [ -n "$stale" ]; then
     printf '%s\n' "$stale" >"$job/retro-stale.txt" || exit 1
   else
@@ -189,3 +230,4 @@ fi
 
 echo "repo $repo_wt"
 echo "factory $factory_wt $kind"
+echo "base $base"

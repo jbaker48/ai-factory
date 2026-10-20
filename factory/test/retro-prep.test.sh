@@ -44,14 +44,15 @@ P() { "$R/factory/bin/retro-prep" "$JOB"; }
 wt() { printf '%s\n' "$OUT" | awk -v k="$1" '$1 == k {print $2}'; }
 j() { jq -r "$1" "$JOB/job.json"; }
 
-# push_branch <repo> <branch>: pushes <branch> with one extra commit via a clone.
+# push_branch <repo> <branch> [file]: pushes <branch> with one extra commit
+# (appending to [file], default extra.txt) via a clone.
 push_branch() {
   local c
   c=$(mktemp -d "$TEST_TMP/clone.XXXXXX")
   {
     git clone -q "$(git -C "$1" remote get-url origin)" "$c" &&
       git -C "$c" checkout -q -b "$2" &&
-      echo extra >"$c/extra.txt" &&
+      echo extra >>"$c/${3:-extra.txt}" &&
       git -C "$c" add -A &&
       git -C "$c" commit -q -m extra &&
       git -C "$c" push -q origin "$2"
@@ -66,6 +67,7 @@ test_new_branch_from_base() {
   assert_contains "$(printf '%s\n' "$OUT" | sed -n 1p)" "repo " "new: first line is repo"
   assert_contains "$(wt repo)" "/work-factory/retro-001-a" "new: repo worktree path"
   assert_eq "factory $JOB/.retro-factory installed" "$(printf '%s\n' "$OUT" | sed -n 2p)" "new: factory line installed"
+  assert_eq "base origin/main" "$(printf '%s\n' "$OUT" | sed -n 3p)" "new: third line is the base"
   assert_eq factory/retro-001-a "$(git -C "$(wt repo)" branch --show-current)" "new: branch name"
   assert_eq "$(git -C "$R" rev-parse origin/main)" "$(git -C "$(wt repo)" rev-parse HEAD)" "new: at origin/main"
   assert_eq null "$(j .retro_pr)" "new: retro_pr null"
@@ -133,6 +135,7 @@ test_local_mode() {
   OUT=$(P)
   assert_eq factory/retro-001-a-2 "$(git -C "$(wt repo)" branch --show-current)" "local: merged branch skipped"
   assert_eq "$(git -C "$R" rev-parse main)" "$(git -C "$(wt repo)" rev-parse HEAD)" "local: new branch from main"
+  assert_eq "base main" "$(printf '%s\n' "$OUT" | sed -n 3p)" "local: base line is main"
 }
 
 test_factory_source() {
@@ -159,6 +162,97 @@ test_stale_install() {
   OUT=$(P); rc=$?
   assert_eq 0 "$rc" "stale: exit 0"
   assert_contains "$(cat "$JOB/retro-stale.txt" 2>/dev/null)" "job-set" "stale: names job-set"
+}
+
+# match_src: gives $R the files $SRC has beyond factory/, so nothing drifts.
+match_src() {
+  mkdir -p "$R/.claude/skills/factory"
+  cp "$SRC/.claude/skills/factory/SKILL.md" "$R/.claude/skills/factory/SKILL.md"
+}
+
+test_no_drift_removes_stale() {
+  setup; mksrc; match_src
+  printf '{"factory_source":"%s"}' "$SRC" >"$R/factory/settings.json"
+  echo old >"$JOB/retro-stale.txt"
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "no drift: exit 0"
+  assert_eq no "$([ -e "$JOB/retro-stale.txt" ] && echo yes || echo no)" "no drift: retro-stale.txt removed"
+}
+
+test_open_source_pr_reused() {
+  setup; mksrc; match_src
+  printf '{"factory_source":"%s"}' "$SRC" >"$R/factory/settings.json"
+  head=$(push_branch "$SRC" retro/work-001-a factory/bin/job-set)
+  SRC_PRS="[$(pr OPEN retro/work-001-a)]"
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "source pr: exit 0"
+  assert_eq "$URL" "$(j .retro_factory_pr)" "source pr: retro_factory_pr is the url"
+  assert_eq "$head" "$(git -C "$(wt factory)" rev-parse HEAD)" "source pr: worktree on origin/<branch>"
+  assert_eq no "$([ -e "$JOB/retro-stale.txt" ] && echo yes || echo no)" "source pr: the PR's own edits are not drift"
+  OUT=$(P)
+  assert_eq no "$([ -e "$JOB/retro-stale.txt" ] && echo yes || echo no)" "source pr: re-run still no drift"
+}
+
+# commit_on <dir> <branch> <file>: commits a change to <file> on a new local
+# <branch> (from HEAD) without checking it out; prints the commit.
+commit_on() {
+  local w="$TEST_TMP/co.$RANDOM"
+  git -C "$1" worktree add -q -b "$2" "$w" 2>/dev/null
+  echo lesson >>"$w/$3" && git -C "$w" add -A && git -C "$w" commit -q -m lesson
+  git -C "$w" rev-parse HEAD
+  git -C "$1" worktree remove --force "$w"
+}
+
+test_unpublished_branch_reused() {
+  setup
+  head=$(commit_on "$R" factory/retro-001-a AGENTS.md)
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "unpublished: exit 0"
+  assert_eq factory/retro-001-a "$(git -C "$(wt repo)" branch --show-current)" "unpublished: local branch with no PR reused"
+  assert_eq "$head" "$(git -C "$(wt repo)" rev-parse HEAD)" "unpublished: its commits kept"
+  assert_eq null "$(j .retro_pr)" "unpublished: retro_pr null"
+}
+
+test_pushed_branch_without_pr_reused() {
+  setup
+  head=$(push_branch "$R" factory/retro-001-a)
+  git -C "$R" fetch -q origin
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "pushed: exit 0"
+  assert_eq factory/retro-001-a "$(git -C "$(wt repo)" branch --show-current)" "pushed: origin branch with no PR reused"
+  assert_eq "$head" "$(git -C "$(wt repo)" rev-parse HEAD)" "pushed: at origin/<branch>"
+}
+
+test_local_ahead_of_origin_kept() {
+  setup
+  push_branch "$R" factory/retro-001-a >/dev/null
+  git -C "$R" fetch -q origin
+  w="$TEST_TMP/ahead"
+  git -C "$R" worktree add -q -b factory/retro-001-a "$w" origin/factory/retro-001-a 2>/dev/null
+  echo more >>"$w/AGENTS.md" && git -C "$w" add -A && git -C "$w" commit -q -m more
+  head=$(git -C "$w" rev-parse HEAD)
+  git -C "$R" worktree remove --force "$w"
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "ahead: exit 0"
+  assert_eq factory/retro-001-a "$(git -C "$(wt repo)" branch --show-current)" "ahead: branch reused"
+  assert_eq "$head" "$(git -C "$(wt repo)" rev-parse HEAD)" "ahead: unpushed local commit kept"
+}
+
+test_unpublished_source_branch_reused() {
+  setup; mksrc
+  printf '{"factory_source":"%s"}' "$SRC" >"$R/factory/settings.json"
+  head=$(commit_on "$SRC" retro/work-001-a factory/agents/x.md)
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "unpublished source: exit 0"
+  assert_eq retro/work-001-a "$(git -C "$(wt factory)" branch --show-current)" "unpublished source: branch reused"
+  assert_eq "$head" "$(git -C "$(wt factory)" rev-parse HEAD)" "unpublished source: its commits kept"
+}
+
+test_old_retro_md_removed() {
+  setup
+  printf 'RETRO: nothing to change\n' >"$JOB/retro.md"
+  P >/dev/null
+  assert_eq no "$([ -e "$JOB/retro.md" ] && echo yes || echo no)" "old retro.md removed, so a cut-off role can't pass for a cut-off publish"
 }
 
 test_stale_worktree_replaced() {
