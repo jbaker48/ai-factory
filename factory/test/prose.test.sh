@@ -173,9 +173,21 @@ test_retro_role() {
     '## Cost' '## What each extra attempt was for' '## Fixes' '## Repeats' '## Drafted beads' \
     '`spec`, `plan`, `build`, `review-signal`, `review-batching`, `review-coverage`, `environment`, `flaky`, `external-knowledge`, `owner-scope`' \
     '## Lessons from factory jobs' 'retro-rejected.md' 'retro-factory-prs.json' 'retro-stale.txt' 'retro-comment-' \
-    'never commit'; do
+    'never commit' \
+    '1. Before anything else, `AGENTS.md` (or `CLAUDE.md`) in the retro worktree' \
+    'Whole, never cut short with `head`, `tail`, `-c` or a line limit: `job.json`, `spec.md`, `plan.json`, `build.md`, and every `decision*.md`, `autopilot-*.md`, `human-*.md`, `human-brief-*.md` and `rework-*.md`' \
+    'with every cause that applies (one or more)' \
+    'Each distinct cause you found gets an entry in `## Fixes`, or a `- No fix for <cause>: <why>.` line' \
+    'That includes every `environment` attempt' \
+    'An `external-knowledge` fact that would bite again in this repo is a `repo` lesson' \
+    'For each review lens, count the rounds where it had nothing to review or found nothing' \
+    'A lens idle on most rounds is `review-coverage`' \
+    'leaving out `role: "retro"` rows' \
+    'Each entry starts `<k>. kind: repo.`, `<k>. kind: factory.` or `<k>. kind: work.` exactly'; do
     assert_contains "$t" "$n" "retro role mentions $n"
   done
+  case $t in *'Facts that only matter to this job stay out'*) _fail "retro role drops the old job-only facts rule" ;; *) _pass ;; esac
+  case $t in *SQS* | *CDK* | *garmin*) _fail "retro role is not tuned to one job" ;; *) _pass ;; esac
   assert_eq "sonnet" "$(jq -r '.retro.model // empty' "$ROOT/factory/models.json")" "models.json has retro on sonnet"
 }
 
