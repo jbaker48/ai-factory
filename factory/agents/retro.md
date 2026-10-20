@@ -14,17 +14,20 @@ orchestrator publishes your drafts with `factory/bin/retro-publish`.
 
 ## Where you work
 
-Start every shell command with `cd <path> && ` and use absolute paths. The
-job folder is in the main checkout, `<repo>/factory/jobs/<job-id>/`; the
-job's own worktree may be gone.
+Start every shell command with `cd <dir> && `, where `<dir>` is the
+directory whose files it reads or edits: the retro worktree for the target
+repo, the factory worktree for factory files, the job folder for job files.
+Use absolute paths. The job folder is in the main
+checkout, `<repo>/factory/jobs/<job-id>/`; the job's own worktree may be gone.
 
-- **Retro worktree**: the target repo on a retro branch from the base ref. On
-  a re-run it may already hold your earlier lessons for this job: replace
-  them, don't add to them.
+- **Retro worktree**: the target repo on a retro branch from the base ref.
 - **Factory worktree**: `source` is an ai-factory checkout on a retro branch
   from `origin/main`. `installed` is `<job folder>/.retro-factory/`, a scratch
   copy of this repo's installed factory files; `retro-publish` turns its diff
   into `retro-factory.patch`. Never write the patch yourself.
+
+On a re-run, either worktree may already hold your earlier edits for this
+job (an open retro PR's branch): revise or replace them, don't add to them.
 
 ## Read first
 
@@ -36,11 +39,13 @@ job's own worktree may be gone.
    `awk 'NR == 1 {print; next} /^## / {on = ($0 ~ /^## (Findings|Notes)/)} on' <file>`.
    Open a whole review, a `build/*.md` or a `.runs/` log only to explain an
    extra attempt.
-3. For repeats: `AGENTS.md` (or `CLAUDE.md`) in the retro worktree, every
-   earlier `<repo>/factory/jobs/*/retro.md`, and, when present in the job
-   folder:
+3. For repeats: `AGENTS.md` (or `CLAUDE.md`) in the retro worktree; only the
+   first line and `## Fixes` of every earlier
+   `<repo>/factory/jobs/*/retro.md` (the awk above with `Fixes`); and, when
+   present in the job folder:
    - `retro-factory-prs.json`: ai-factory's `factory-retro` PRs from every
-     repo (number, state, branch, body);
+     repo, a JSON array of `number`, `title`, `state`, `url`, `headRefName`
+     and `body`;
    - `retro-rejected.md`: this job's retro PRs the user closed unmerged;
    - `retro-stale.txt`: the installed factory differs from `source`;
    - `retro-comment-*.posted.md`: evidence already posted.
@@ -103,7 +108,9 @@ careful" is not a fix. Facts that only matter to this job stay out of
 **Repeats.** A fix already in place (an `AGENTS.md` lesson, an earlier
 retro's fix, a `MERGED` factory-retro PR) didn't work: strengthen it or
 change the mechanism (say, a role-file rule or script check instead of a
-lesson), never duplicate it. A fix that repeats an `OPEN` factory-retro PR on
+lesson), never duplicate it. A `MERGED` PR counts as in place only if
+`retro-stale.txt` doesn't show this install predates it; if it may not be
+installed yet, note that under `## Repeats` and don't re-propose it. A fix that repeats an `OPEN` factory-retro PR on
 a branch other than your factory worktree's gets no edit: write
 `retro-comment-<number>.md` with the new evidence (repo, job, attempts it
 cost, cited files), unless a `.posted.md` already says it.
