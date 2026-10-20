@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Runs one factory role on an OpenAI model through `codex exec`.
 #
-#   factory/bin/run-codex <key> <job-folder> <worktree> <prompt>
+#   factory/bin/run-codex <key> <job-folder> <worktree> <prompt> [<extra-dir>...]
 #
 # <key> is an entry in factory/models.json. Its "agent" field names the role
 # file in factory/agents/ (default: the key itself), so builder-escalation runs
 # builder.md on a bigger model. The agent works in <worktree> and may also write
-# to <job-folder>. The sandbox keeps .git read-only, so agents never commit; the
+# to <job-folder> and each <extra-dir> (the retro's factory worktree). The sandbox keeps .git read-only, so agents never commit; the
 # orchestrator does. Everything is logged to <job-folder>/.runs/. Prints one
 # line, plus the stderr tail when codex fails:
 #   <key>: <model> (<effort>) exit <rc>, ended <event>. Last message: <path>
@@ -20,14 +20,23 @@
 # Needs python3 (3.11+, for tomllib) to read config.toml; without it, or with a
 # malformed config.toml, the servers stay on and one warning goes to stderr.
 # Usage is appended to <job-folder>/usage.jsonl by usage-record.
+#
+# An entry with "browser": true (reviewer-ux, reviewer-ui) gets a browser
+# started outside the sandbox, where Chrome can't launch: an agent-browser
+# session <job-id>-<key minus "reviewer-">, with AGENT_BROWSER_SOCKET_DIR set
+# so the agent's agent-browser calls reach it. It is closed after the run.
+# Browser roles need "network": true to reach the daemon and the dev server.
 # Exit codes: codex's own, or 2 for usage and config errors.
 set -uo pipefail
 
-if [ $# -ne 4 ]; then
-  echo "usage: run-codex <key> <job-folder> <worktree> <prompt>" >&2
+if [ $# -lt 4 ]; then
+  echo "usage: run-codex <key> <job-folder> <worktree> <prompt> [<extra-dir>...]" >&2
   exit 2
 fi
 key=$1 job=$2 worktree=$3 prompt=$4
+shift 4
+add_dirs=()
+for d in "$@"; do add_dirs+=(--add-dir "$d"); done
 factory=$(cd "$(dirname "$0")/.." && pwd)
 cfg="$factory/models.json"
 
@@ -40,25 +49,10 @@ fi
 model=$(jq -r '.model' <<<"$entry")
 effort=$(jq -r '.effort // "medium"' <<<"$entry")
 network=$(jq -r '.network // false' <<<"$entry")
+browser=$(jq -r '.browser // false' <<<"$entry")
 agent=$(jq -r --arg k "$key" '.agent // $k' <<<"$entry")
 role="$factory/agents/$agent.md"
 [ -f "$role" ] || { echo "run-codex: missing $role" >&2; exit 2; }
-
-# No role uses the user's MCP servers, so turn off every server in config.toml:
-# each one is started for every run, logs a stderr error whenever its auth
-# expires, and puts tools such as mail or home automation within the agent's
-# reach. Plugin-provided servers are not there and cannot be switched off this
-# way; names that are not bare TOML keys are skipped.
-mcp_off=()
-while IFS= read -r name; do
-  [ -n "$name" ] && mcp_off+=(-c "mcp_servers.$name.enabled=false")
-done < <(python3 - <<'PY'
-import os, re, tomllib
-path = os.path.join(os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"), "config.toml")
-servers = tomllib.load(open(path, "rb")).get("mcp_servers", {}) if os.path.exists(path) else {}
-print("\n".join(k for k in servers if re.fullmatch(r"[A-Za-z0-9_-]+", k)))
-PY
-)
 
 mkdir -p "$job/.runs"
 log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key"
@@ -85,6 +79,17 @@ else
   echo "run-codex: could not read $cfgtoml; MCP servers left on" >&2
 fi
 
+session=
+if [ "$browser" = true ]; then
+  # A short path: the socket path must stay under 104 bytes.
+  AGENT_BROWSER_SOCKET_DIR=$(mktemp -d /tmp/fab.XXXXXX) || exit 2
+  export AGENT_BROWSER_SOCKET_DIR
+  session="$(basename "$job")-${key#reviewer-}"
+  agent-browser --session "$session" open about:blank >"$log.browser" 2>&1 || {
+    echo "run-codex: could not start agent-browser session $session. See $log.browser" >&2
+    rm -rf "$AGENT_BROWSER_SOCKET_DIR"; exit 2; }
+fi
+
 rc=0
 codex exec \
   -m "$model" \
@@ -94,9 +99,15 @@ codex exec \
   -s workspace-write \
   -C "$worktree" \
   --add-dir "$job" \
+  ${add_dirs[@]+"${add_dirs[@]}"} \
   --json \
   -o "$log.last.md" \
   - <"$log.prompt.md" >"$log.jsonl" 2>"$log.stderr" || rc=$?
+
+if [ -n "$session" ]; then
+  agent-browser --session "$session" close >>"$log.browser" 2>&1 || true
+  rm -rf "$AGENT_BROWSER_SOCKET_DIR"
+fi
 
 # Record token and quota usage; this never changes the run's outcome.
 "$factory/bin/usage-record" codex "$job" "$log" "$key" "$rc" >&2 || true

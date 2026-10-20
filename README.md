@@ -7,8 +7,7 @@ and agents write a spec, break it into Beads tasks, build them one at a time on
 their own branch, review the result from five angles, and either merge it to
 `main` or hand it to you, or to the autopilot.
 
-Based on [zazencodes' software factory](https://github.com/zazencodes/zazencodes-season-3/tree/main/src/software-factory-claude-code),
-with three additions:
+Three ideas shape it:
 
 1. **Beads for the work, the spec for the truth.** As in
    [Prism](https://github.com/baldaworks/prism), each job is a Beads `feature`
@@ -38,7 +37,35 @@ feature ─► spec-writer ─► planner ─► Beads tasks ─► builder, one
 ## Model routing
 
 `factory/models.json` maps every role to a provider, a model and, for OpenAI
-models, a reasoning effort. Edit it to move any role to any model.
+models, a reasoning effort. Edit it to move any role to any model, or pick
+a preset from `factory/presets/` to match the subscriptions you have:
+
+```bash
+factory/bin/models          # print the active preset: mixed, claude, openai or custom
+factory/bin/models mixed    # Claude and OpenAI (Codex) models, the default
+factory/bin/models claude   # Claude models only
+factory/bin/models openai   # OpenAI models only, through the Codex CLI
+```
+
+- **`claude`** runs every role as a Claude subagent: Sonnet builds and
+  reviews, Opus takes the spec, plan, escalation, security, adversarial,
+  approver and autopilot roles. It needs neither the Codex CLI nor the Codex
+  plugin.
+- **`openai`** runs every role through `codex exec`: Luna builds, Sol writes
+  the spec and plan and takes the escalation and adversarial review, Astra
+  reviews and decides. It needs no Claude subagents and no Codex plugin. Chrome
+  can't start inside the Codex sandbox, so for the UX and UI reviewers
+  (`"browser": true`) `run-codex` starts their agent-browser session outside
+  it and the reviewer drives that.
+- In both, the adversarial reviewer runs from
+  `factory/agents/reviewer-adversarial.md` instead of the Codex plugin.
+
+The orchestrator is still a Claude Code session (`/factory` and
+`factory/bin/autopilot`), whatever the preset, so `openai` moves the role work
+to your ChatGPT plan but still needs Claude Code to drive it. A `models.json`
+you've edited by hand counts as `custom`, and switching away from it needs
+`--force`. The switch applies from the next role the orchestrator runs. The
+table below is the `mixed` preset.
 
 | Role                 | Model          | Why                                                        |
 | -------------------- | -------------- | ---------------------------------------------------------- |
@@ -48,7 +75,7 @@ models, a reasoning effort. Edit it to move any role to any model.
 | `builder-escalation` | gpt-6.1-sol    | A task's second try after BLOCKED, and last-round fixes     |
 | `reviewer-security`  | gpt-6-astra    | Heavy reasoning where a miss is expensive                   |
 | `reviewer-code`      | sonnet         | A Claude model reviews OpenAI-written code                  |
-| `reviewer-ux`        | sonnet         | Drives the browser; runs as a Claude subagent outside the Codex sandbox |
+| `reviewer-ux`        | sonnet         | Drives the browser, which a Claude subagent can start itself |
 | `reviewer-ui`        | sonnet         | Same                                                        |
 | `reviewer-adversarial` | gpt-6.1-sol* | The Codex plugin's `adversarial-review`: tries to break the branch against its spec |
 | `approver`           | gpt-6-astra    | The big decision: merge without a human?                    |
@@ -248,12 +275,15 @@ the retros help.
   agents/factory-agent.md        runs any role on a Claude model
 factory/
   models.json                    role → provider, model, effort
+  presets/                       mixed.json, claude.json, openai.json: models.json presets
   autopilot-policy.md            what the autopilot may decide alone
   AGENTS.template.md             starting point for your repo's AGENTS.md
   agents/                        one instruction file per role, for any provider
     spec-writer.md  planner.md  builder.md
     reviewer-security.md  reviewer-code.md  reviewer-ux.md  reviewer-ui.md
+    reviewer-adversarial.md      (claude and openai presets)
     approver.md  autopilot.md  importer.md  briefer.md  retro.md
+  bin/models                     shows or switches the models.json preset
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
   bin/job-set                    updates a job.json field with jq, quietly
@@ -273,7 +303,8 @@ the decisions. By hand:
 
 1. Install `bd` (Beads), the Codex CLI (logged in, with access to the models in
    `models.json`), the Codex plugin for Claude Code (for the adversarial
-   reviewer), `node` and `jq`. Install
+   reviewer), `node` and `jq`. With `factory/bin/models claude` you can skip
+   the Codex CLI and plugin; with `factory/bin/models openai`, the plugin. Install
    [`agent-browser`](https://github.com/vercel-labs/agent-browser) if your
    project has pages to look at.
 2. Copy `.claude/` and `factory/` into your repo root.

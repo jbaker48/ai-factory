@@ -22,10 +22,10 @@ test_agents_rule() {
   assert_contains "$t" "In local land mode the factory's Merge step is the only thing that commits to main." "AGENTS template local-mode exception"
 }
 
-test_codex_roles_skip_bd() {
+test_roles_skip_bd() {
   local hits
-  hits=$(cd "$ROOT" && grep -l 'bd --readonly' factory/agents/{approver,autopilot,reviewer-security,builder}.md)
-  assert_eq "" "$hits" "Codex roles read beads.md, not bd"
+  hits=$(cd "$ROOT" && grep -lE 'bd --readonly|`bd (show|children|list)' factory/agents/*.md)
+  assert_eq "" "$hits" "every role can run on Codex, so none calls bd"
 }
 
 test_dashboard_reads_usage() {

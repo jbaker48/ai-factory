@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Shows or switches the model preset in factory/models.json.
+#
+#   factory/bin/models                  print the active preset: its name, or "custom"
+#   factory/bin/models <preset>         copy factory/presets/<preset>.json to models.json
+#   factory/bin/models <preset> --force the same, even over a custom models.json
+#
+# Presets: mixed (Claude and OpenAI models, the default), claude (Claude
+# models only; no Codex CLI or Codex plugin needed) and openai (OpenAI models
+# only, through the Codex CLI; no Claude subagents, so roles use no Claude
+# quota, though the orchestrator session is still Claude Code). A models.json that matches
+# no preset is "custom", and switching away from it needs --force so hand edits
+# aren't lost. Takes effect from the next role the orchestrator runs.
+# Exit: 0 ok, 1 refused or unknown preset, 2 usage.
+set -uo pipefail
+
+factory=$(cd "$(dirname "$0")/.." && pwd)
+models=$factory/models.json presets=$factory/presets
+
+active() { # prints the preset models.json matches, or custom
+  local p
+  for p in "$presets"/*.json; do
+    if [ "$(jq -cS . "$p")" = "$(jq -cS . "$models" 2>/dev/null)" ]; then
+      basename "$p" .json; return
+    fi
+  done
+  echo custom
+}
+
+case $# in
+  0) active; exit 0 ;;
+  1) force= ;;
+  2) [ "$2" = --force ] || { echo "usage: models [<preset> [--force]]" >&2; exit 2; }; force=1 ;;
+  *) echo "usage: models [<preset> [--force]]" >&2; exit 2 ;;
+esac
+want=$1
+if [ ! -f "$presets/$want.json" ]; then
+  echo "models: no preset $want; have: $(cd "$presets" && ls -- *.json | sed 's/\.json$//' | tr '\n' ' ')" >&2
+  exit 1
+fi
+now=$(active)
+if [ "$now" = custom ] && [ -f "$models" ] && [ -z "$force" ]; then
+  echo "models: models.json matches no preset; pass --force to replace it with $want" >&2
+  exit 1
+fi
+cp "$presets/$want.json" "$models"
+echo "models: $now -> $want"

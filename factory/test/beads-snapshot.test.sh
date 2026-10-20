@@ -11,6 +11,8 @@ stub_bd() {
 args="$*"
 case $args in
   "--readonly show app-1") echo "BEAD app-1 body" ;;
+  "--readonly show app-1 --json --brief-deps") echo "[{\"id\":\"app-1\",\"dependencies\":[{\"id\":\"app-0\"}]}]" ;;
+  "--readonly show app-0") echo "DEP app-0 full description" ;;
   "--readonly show app-1.2") echo "TASK app-1.2 full description" ;;
   "--readonly show app-1.3") echo "TASK app-1.3 full description" ;;
   "--readonly show app-1.1") echo "TASK app-1.1 SHOULD NOT APPEAR" ;;
@@ -35,6 +37,9 @@ test_writes_sections() {
   f=$(cat "$d/beads.md")
   assert_contains "$f" "## Bead" "has Bead heading"
   assert_contains "$f" "BEAD app-1 body" "has bead show output"
+  assert_contains "$f" "## Dependencies" "has Dependencies heading"
+  assert_contains "$f" "### app-0" "dependency section"
+  assert_contains "$f" "DEP app-0 full description" "dependency description"
   assert_contains "$f" "## Children" "has Children heading"
   assert_contains "$f" "CHILDREN LIST" "has children output"
   assert_contains "$f" "### app-1.2" "open child section"

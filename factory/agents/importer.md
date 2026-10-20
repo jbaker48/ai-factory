@@ -14,11 +14,13 @@ absolute paths.
 ## Read
 
 1. `AGENTS.md` (or `CLAUDE.md`), and the PRD in full.
-2. The existing work, read-only:
-   - `bd --readonly list --json -n 0` (open work) and
-     `bd --readonly list --json -n 0 -s closed` (what is already done);
-   - `bd --readonly show <id>` and `bd --readonly children <id>` for anything
-     that looks related to the PRD.
+2. The existing work: `<import folder>/beads.jsonl`, the orchestrator's
+   export of every bead, open and closed, one JSON object per line with its
+   status, assignee, labels, description, dependencies and comments. Beads
+   itself is not available to you. Query it with `jq`, for example
+   `jq -c 'select(.status != "closed") | {id, title, status, assignee}'`,
+   and read the full record of anything that looks related to the PRD.
+   A child task has a `parent-child` dependency on its parent.
 3. Enough of the code to tell whether a PRD item is already built.
 
 ## Map

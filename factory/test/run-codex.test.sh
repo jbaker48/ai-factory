@@ -69,5 +69,35 @@ test_malformed_config() {
   case $(cat "$TEST_TMP/err") in *Traceback*) _fail "no traceback" ;; *) _pass ;; esac
 }
 
+test_extra_dirs() {
+  setup "$NORMAL"
+  "$R/factory/bin/run-codex" builder "$JOB" "$R" "do it" "$TEST_TMP/extra" >/dev/null
+  assert_contains "$(cat "$STUBS/codex.calls")" "--add-dir $TEST_TMP/extra" "extra dir writable"
+}
+
+test_browser_session() {
+  setup "$NORMAL"
+  # shellcheck disable=SC2016
+  stub agent-browser 'echo "$AGENT_BROWSER_SOCKET_DIR" >>"$STUBS/ab.dirs"'
+  stub codex "echo \"\$AGENT_BROWSER_SOCKET_DIR\" >'$TEST_TMP/codex.dir'; cat '$TEST_TMP/codex.out'"
+  jq '.["reviewer-ux"] = {provider: "openai", model: "m", network: true, browser: true}' \
+    "$R/factory/models.json" >"$TEST_TMP/m" && mv "$TEST_TMP/m" "$R/factory/models.json"
+  "$R/factory/bin/run-codex" reviewer-ux "$JOB" "$R" "review" >/dev/null
+  local calls dir
+  calls=$(cat "$STUBS/agent-browser.calls")
+  assert_contains "$calls" "--session $(basename "$JOB")-ux open about:blank" "opens the session"
+  assert_contains "$calls" "--session $(basename "$JOB")-ux close" "closes the session"
+  dir=$(cat "$TEST_TMP/codex.dir")
+  assert_contains "$dir" "/tmp/fab." "codex sees the socket dir"
+  if [ -e "$dir" ]; then _fail "socket dir removed"; else _pass; fi
+}
+
+test_no_browser_by_default() {
+  setup "$NORMAL"
+  stub agent-browser 'exit 0'; rm -f "$STUBS/agent-browser.calls"
+  RC >/dev/null
+  if [ -e "$STUBS/agent-browser.calls" ]; then _fail "no browser for builder"; else _pass; fi
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

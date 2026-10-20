@@ -1,0 +1,16 @@
+{
+  "spec-writer":        { "provider": "openai", "model": "gpt-6.1-sol", "effort": "high" },
+  "planner":            { "provider": "openai", "model": "gpt-6.1-sol", "effort": "high" },
+  "builder":            { "provider": "openai", "model": "gpt-6-luna",  "effort": "xhigh",  "network": true },
+  "builder-escalation": { "provider": "openai", "model": "gpt-6.1-sol", "effort": "high",   "network": true, "agent": "builder" },
+  "reviewer-security":  { "provider": "openai", "model": "gpt-6-astra", "effort": "medium" },
+  "reviewer-code":      { "provider": "openai", "model": "gpt-6-astra", "effort": "medium" },
+  "reviewer-ux":        { "provider": "openai", "model": "gpt-6-astra", "effort": "medium", "network": true, "browser": true },
+  "reviewer-ui":        { "provider": "openai", "model": "gpt-6-astra", "effort": "medium", "network": true, "browser": true },
+  "reviewer-adversarial": { "provider": "openai", "model": "gpt-6.1-sol", "effort": "high" },
+  "approver":           { "provider": "openai", "model": "gpt-6-astra", "effort": "high" },
+  "autopilot":          { "provider": "openai", "model": "gpt-6-astra", "effort": "xhigh" },
+  "importer":           { "provider": "openai", "model": "gpt-6.1-sol", "effort": "high" },
+  "briefer":            { "provider": "openai", "model": "gpt-6.1-sol", "effort": "high" },
+  "retro":              { "provider": "openai", "model": "gpt-6-astra", "effort": "medium" }
+}
