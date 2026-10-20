@@ -879,7 +879,7 @@ function parseDiff(text) {
 
 function diffFilesHtml(files, truncated = false, emptyMessage = 'No diff output.') {
   const lines = files.flatMap((file) => file.lines).map(({ type, text }) =>
-    `<span class="diff-line ${type}">${escapeHtml(text)}</span>`).join('\n')
+    `<span class="diff-line ${type}">${escapeHtml(text)}</span>`).join('')
   const body = lines || escapeHtml(emptyMessage)
   return `<div class="diff-view">${truncated ? '<p class="diff-truncated">Diff truncated at 2 MB</p>' : ''}<div class="diff-scroll" tabindex="0"><pre>${body}</pre></div></div>`
 }
@@ -1556,6 +1556,13 @@ function toggleDetailSection(button) {
   } else if (kind === 'changes') {
     const run = findTimelineRun(detailTimeline, button.dataset.runId)
     if (content) updateHtml(content, run ? renderChangesContent(run) : '<p class="detail-message">Task commits are no longer available for this job</p>')
+    if (run && content) {
+      for (const fileButton of content.querySelectorAll('[data-toggle-kind="task-file"][aria-expanded="true"]')) {
+        const taskId = String(fileButton.dataset.taskId || '')
+        if (detailTaskDiffCache.has(taskId)) continue
+        loadTaskDiff(detailId, taskId, fileButton.dataset.filePath, fileButton.dataset.detailToggle, detailGeneration, fileButton.dataset.runId)
+      }
+    }
   }
 }
 
