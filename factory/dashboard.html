@@ -383,6 +383,9 @@ function hashJob(hash) {
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v) ? v : 0
 const tokens = (r) => num(r.input) + num(r.output)
+const hasTokenCount = (record) =>
+  typeof record?.input === 'number' && Number.isFinite(record.input) ||
+  typeof record?.output === 'number' && Number.isFinite(record.output)
 const sum = (xs) => xs.reduce((a, b) => a + b, 0)
 const median = (xs) => {
   const s = [...xs].sort((a, b) => a - b)
@@ -432,6 +435,7 @@ function groupSpend(jobs, keyOf) {
   const groups = {}
   for (const job of jobs) {
     for (const record of job.usage || []) {
+      if (!hasTokenCount(record)) continue
       const entry = (groups[keyOf(record) || '?'] ||= { tokens: 0, runs: 0, jobs: new Set() })
       entry.tokens += tokens(record)
       entry.runs++
@@ -456,7 +460,7 @@ function spendTable(title, rows) {
 
 function jobTokens(job) {
   const usage = Array.isArray(job.usage) ? job.usage : []
-  return usage.length ? sum(usage.map(tokens)) : null
+  return usage.some(hasTokenCount) ? sum(usage.map(tokens)) : null
 }
 
 function laneOf(stage) {
@@ -667,8 +671,8 @@ function renderMeters(jobs) {
 }
 
 function renderSpend(jobs) {
-  const withUsage = jobs.filter((job) => (job.usage || []).length)
-  const total = withUsage.length ? sum(withUsage.map((job) => jobTokens(job) || 0)) : null
+  const withUsage = jobs.filter((job) => jobTokens(job) !== null)
+  const total = withUsage.length ? sum(withUsage.map(jobTokens)) : null
   const summary = total === null ? 'tokens not recorded' : `${fmtTok(total)} tokens over ${withUsage.length} job${withUsage.length === 1 ? '' : 's'}`
   const body = withUsage.length
     ? `<div class="tables">${spendTable('role', groupSpend(withUsage, (record) => record.role))}${spendTable('model', groupSpend(withUsage, (record) => record.model))}</div><p class="note">Tokens are input + output. Spend is information only; it does not stop a job.</p>`
@@ -831,9 +835,38 @@ function planTasks(plan) {
 function diffPath(header, prefix) {
   if (!header) return null
   let value = header.slice(4).split('\t', 1)[0]
-  if (value.startsWith('"')) {
-    const quoted = value.match(/^"((?:\\.|[^"])*)"$/)
-    if (quoted) value = quoted[1].replace(/\\([\\"])/g, '$1').replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+  if (value.startsWith('"') && value.endsWith('"')) {
+    const source = value.slice(1, -1)
+    let decoded = ''
+    let octets = []
+    const flushOctets = () => {
+      if (!octets.length) return
+      const escaped = octets.map((byte) => `%${byte.toString(16).padStart(2, '0')}`).join('')
+      try { decoded += decodeURIComponent(escaped) } catch { decoded += octets.map((byte) => String.fromCharCode(byte)).join('') }
+      octets = []
+    }
+    const escapes = { a: '\x07', b: '\b', t: '\t', n: '\n', v: '\x0b', f: '\f', r: '\r', '\\': '\\', '"': '"' }
+    for (let index = 0; index < source.length; index++) {
+      const char = source[index]
+      if (char !== '\\') {
+        flushOctets()
+        decoded += char
+        continue
+      }
+      const next = source[index + 1] || ''
+      if (/^[0-7]$/.test(next)) {
+        let octal = next
+        while (octal.length < 3 && /^[0-7]$/.test(source[index + octal.length + 1] || '')) octal += source[index + octal.length + 1]
+        octets.push(parseInt(octal, 8))
+        index += octal.length
+        continue
+      }
+      flushOctets()
+      decoded += Object.hasOwn(escapes, next) ? escapes[next] : next
+      index++
+    }
+    flushOctets()
+    value = decoded
   }
   if (value === '/dev/null') return null
   return value.startsWith(prefix) ? value.slice(prefix.length) : value
@@ -892,8 +925,9 @@ function usageMarkdown(records) {
   const cell = (value) => (value === null || value === undefined ? '' : String(value)).replace(/\|/g, '/')
   const delta = (quota) => quota && typeof quota.after === 'number' && typeof quota.before === 'number'
     ? `${quota.after - quota.before >= 0 ? '+' : ''}${+(quota.after - quota.before).toFixed(2)}%` : ''
-  const rows = records.map((record) => `| ${cell(record.stage)} | ${cell(record.role)} | ${cell(record.model)} | ${cell(record.round)} | ${fmtTok(tokens(record))} | ${cell(record.duration_s)}s | ${cell(record.exit)} | ${delta(record.quota)} |`)
-  const total = records.length ? `${fmtTok(sum(records.map(tokens)))} tokens` : 'tokens not recorded'
+  const rows = records.map((record) => `| ${cell(record.stage)} | ${cell(record.role)} | ${cell(record.model)} | ${cell(record.round)} | ${hasTokenCount(record) ? fmtTok(tokens(record)) : 'tokens not recorded'} | ${cell(record.duration_s)}s | ${cell(record.exit)} | ${delta(record.quota)} |`)
+  const recorded = records.filter(hasTokenCount)
+  const total = recorded.length ? `${fmtTok(sum(recorded.map(tokens)))} tokens` : 'tokens not recorded'
   return `# Usage\n\n${records.length} runs, ${total} (input + output).\n\n` +
     `| stage | role | model | round | tokens | time | exit | quota change |\n|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n\n` +
     'Quota change is approximate (account-wide meter): it also moves when anything else uses the account.'
@@ -1279,7 +1313,7 @@ function runTime(stamp) {
 }
 
 function runTokenText(run) {
-  if (!run.tokens_from || !run.tokens || typeof run.tokens !== 'object') return 'tokens not recorded'
+  if (!run.tokens_from || !run.tokens || typeof run.tokens !== 'object' || !hasTokenCount(run.tokens)) return 'tokens not recorded'
   return `${fmtTok(tokens(run.tokens))} tokens`
 }
 
@@ -1388,7 +1422,7 @@ function renderTimelineNote(note) {
 function renderTimelineGroup(group, groupIndex) {
   const title = timelineGroupTitle(group)
   if (group.kind === 'fold') {
-    const key = `fold:${groupIndex}:${group.label || ''}`
+    const key = 'fold'
     const open = detailOpenToggles.has(key)
     const nested = Array.isArray(group.groups) ? group.groups.map((item, index) =>
       renderTimelineGroup(item, `${groupIndex}-${index}`)).join('') : ''
@@ -1676,6 +1710,14 @@ async function loadFiles(id, generation) {
   }
 }
 
+function clearStaleDetailCaches() {
+  detailFileCache = new Map([...detailFileCache].filter(([filePath]) => /^\.runs\/[^/]+\.prompt\.md$/.test(filePath)))
+  detailTaskDiffCache.clear()
+  detailTaskDiffRequests = new Map()
+  detailFilesLoaded = false
+  detailFilesRequest = null
+}
+
 async function requestPanelData(id, firstLoad) {
   const generation = ++detailGeneration
   if (firstLoad) {
@@ -1777,6 +1819,7 @@ function syncDetail() {
   const updatedKey = job ? String(job.updated ?? '') : 'missing'
   if (detailUpdated !== updatedKey) {
     const firstLoad = detailUpdated === null
+    if (!firstLoad) clearStaleDetailCaches()
     detailUpdated = updatedKey
     requestPanelData(id, firstLoad)
   }

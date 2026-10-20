@@ -9,10 +9,13 @@ J="$F/jobs/001-a"
 J2="$F/jobs/002-b"
 mkdir -p "$J" "$J2"
 cat >"$J/job.json" <<'EOF'
-{"id":"001-a","stage":"review","bead":"b-1","tasks":[{"id":"b-1.1"},{"id":"b-1.10"}]}
+{"id":"001-a","stage":"review","bead":"b-1","tasks":[{"id":"b-1.1"},{"id":"b-1.10"},{"id":"b-1.2"}]}
 EOF
 echo '{"land":"local"}' >"$F/settings.json"
 
+printf 'before rename\n' >"$REPO/rename-old.txt"
+git -C "$REPO" add rename-old.txt
+git -C "$REPO" commit -q -m 'prepare rename fixture'
 git -C "$REPO" switch -q -c factory/001-a
 printf 'one\ntwo\nthree\n' >"$REPO/a.txt"
 git -C "$REPO" add a.txt
@@ -23,6 +26,10 @@ git -C "$REPO" commit -q -m 'add b (b-1.1)'
 printf 'four\nfive\n' >"$REPO/c.txt"
 git -C "$REPO" add c.txt
 git -C "$REPO" commit -q -m 'add c (b-1.10)'
+git -C "$REPO" mv rename-old.txt renamed-new.txt
+printf 'new file\n' >"$REPO/café.txt"
+git -C "$REPO" add café.txt
+git -C "$REPO" commit -q -m 'rename and add unicode file (b-1.2)'
 
 PORT=$(node -e 's=require("net").createServer().listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
 SRV=
@@ -54,10 +61,54 @@ test_task_commits() {
   assert_eq branch "$(jq -r .source <<<"$c")" "finds the job branch"
   assert_eq "b.txt 3" "$(jq -r '.tasks["b-1.1"].files[0] | "\(.path) \(.added)"' <<<"$c")" "b-1.1 is not matched by (b-1.10)"
   assert_eq "c.txt" "$(jq -r '.tasks["b-1.10"].files[0].path' <<<"$c")" "b-1.10 resolves to its newest commit"
-  assert_eq "branch 3" "$(jq -r '.job | "\(.kind) \(.files | length)"' <<<"$c")" "whole job against main"
+  assert_eq "branch 5" "$(jq -r '.job | "\(.kind) \(.files | length)"' <<<"$c")" "whole job against main"
   assert_contains "$(get '/api/diff?job=001-a&task=b-1.1')" '+++ b/b.txt' "task diff"
   hash=$(jq -r '.tasks["b-1.1"].commit' <<<"$c")
   assert_contains "$(get "/api/diff?job=001-a&commit=$hash")" '+++ b/b.txt' "diff accepts this job's task commit"
+}
+
+test_renamed_and_non_ascii_paths_match_page_diff() {
+  local changes diff parsed paths
+  changes=$(get '/api/changes?job=001-a')
+  diff=$(get '/api/diff?job=001-a&task=b-1.2')
+  paths=$(jq -c '[.tasks["b-1.2"].files[].path] | sort' <<<"$changes")
+  assert_eq '["café.txt","renamed-new.txt"]' "$paths" "/api/changes keeps destination paths and Unicode"
+  parsed=$(printf '%s' "$diff" | node -e '
+const fs = require("fs")
+const vm = require("vm")
+const html = fs.readFileSync(process.argv[1], "utf8")
+const view = html.match(/<script id="view">([\s\S]*?)<\/script>/)[1]
+const context = vm.createContext({})
+vm.runInContext(view, context)
+context.diffText = fs.readFileSync(0, "utf8")
+process.stdout.write(JSON.stringify(vm.runInContext("parseDiff(diffText).map((file) => file.path)", context)))
+' "$FACTORY_SRC/dashboard.html")
+  assert_eq "$paths" "$(jq -c 'sort' <<<"$parsed")" "/api/changes paths match parseDiff of /api/diff"
+}
+
+test_git_diff_disables_textconv() {
+  local marker="$TEST_TMP/textconv-ran"
+  cat >"$TEST_TMP/textconv" <<EOF
+#!/usr/bin/env bash
+touch "$marker"
+cat "\$1"
+EOF
+  chmod +x "$TEST_TMP/textconv"
+  printf '*.txt diff=dashboard-test\n' >"$TEST_TMP/attributes"
+  git -C "$REPO" config diff.dashboard-test.textconv "$TEST_TMP/textconv"
+  git -C "$REPO" config core.attributesFile "$TEST_TMP/attributes"
+  get '/api/changes?job=001-a' >/dev/null
+  get '/api/diff?job=001-a&task=b-1.1' >/dev/null
+  assert_eq false "$([ -e "$marker" ] && echo true || echo false)" "stats and diffs never run configured textconv"
+}
+
+test_host_check() {
+  local url="http://127.0.0.1:$PORT/api/state" body
+  assert_eq 200 "$(code "$url")" "normal loopback Host is accepted"
+  assert_eq 200 "$(code -H "Host: localhost:$PORT" "$url")" "localhost Host is accepted"
+  assert_eq 403 "$(code -H "Host: evil.example:$PORT" "$url")" "untrusted Host is refused"
+  body=$(curl -s -H "Host: evil.example:$PORT" "$url")
+  assert_eq '"bad host"' "$(jq -c .error <<<"$body")" "host refusal explains the error"
 }
 
 test_bookmark_after_branch_deleted() {
@@ -129,6 +180,7 @@ test_refuses() {
   assert_eq 400 "$(code "$u&commit=--output=x")" "no option injection"
   assert_eq 404 "$(code "$u&commit=deadbeef")" "commit not in this job"
   assert_eq 404 "$(code "http://127.0.0.1:$PORT/api/diff?job=../x")" "bad job id"
+  assert_eq 404 "$(code "http://127.0.0.1:$PORT/api/changes?job=001..-a")" "job ids containing two dots are refused"
 }
 
 test_truncated() {
@@ -163,7 +215,8 @@ test_not_a_repo() {
   assert_eq 404 "$(code "http://127.0.0.1:$PORT/api/diff?job=001-a")" "non-repository job has no diff"
 }
 
-for t in test_task_commits test_bookmark_after_branch_deleted test_remote_fallback \
+for t in test_task_commits test_renamed_and_non_ascii_paths_match_page_diff test_git_diff_disables_textconv \
+  test_host_check test_bookmark_after_branch_deleted test_remote_fallback \
   test_merged_landing test_local_merge_landing test_bead_landing_fallback \
   test_refuses test_truncated test_no_commit test_not_a_repo; do
   "$t"

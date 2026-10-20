@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Serves the factory dashboard on this machine only.
+// Serves the factory dashboard on this machine only, accepting Host 127.0.0.1:<port> or localhost:<port>.
 //
 //   factory/bin/dashboard [--port <n>]       default port 4100
 //
@@ -13,7 +13,7 @@
 // plan.json and usage.jsonl inside
 // factory/jobs/<id>/ are listed; /api/file also serves .runs/<stem>.prompt.md
 // and .runs/<stem>.last.md, while raw Codex logs stay private. Listens on
-// 127.0.0.1 only.
+// Binds to 127.0.0.1 only and rejects any other Host header.
 // Exit: 1 if the port is taken, 2 usage.
 'use strict'
 const http = require('http')
@@ -109,7 +109,7 @@ function state() {
 
 // The job's folder, or null for anything that isn't a plain job id.
 function jobDir(id) {
-  if (!id || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) return null
+  if (!id || id.includes('..') || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) return null
   const dir = path.join(jobsDir, id)
   return fs.existsSync(path.join(dir, 'job.json')) ? dir : null
 }
@@ -149,6 +149,9 @@ function send(res, code, type, body) {
 const json = (res, code, body) => send(res, code, 'application/json; charset=utf-8', JSON.stringify(body))
 
 const server = http.createServer(async (req, res) => {
+  if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) {
+    return json(res, 403, { error: 'bad host' })
+  }
   if (req.method !== 'GET') return json(res, 405, { error: 'read-only' })
   const url = new URL(req.url, 'http://localhost')
   try {

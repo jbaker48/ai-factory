@@ -39,6 +39,7 @@ printf '{}\n' >"$F/jobs/004-d/.runs/20261020-120000-builder.json"
 printf '{}\n' >"$F/jobs/004-d/.runs/20261020-130000-reviewer-code.json"
 printf '{}\n' >"$F/jobs/004-d/.runs/20261020-090000-planner.json"
 printf '{}\n' >"$F/jobs/004-d/.runs/20261020-100000-planner.json"
+printf '{}\n' >"$F/jobs/004-d/.runs/20261020-140000-builder.json"
 cat >"$F/jobs/004-d/usage.jsonl" <<'EOF'
 {"ts":"2026-10-20T11:30:00","role":"builder","input":1,"cached":0,"output":1,"reasoning":0,"model":"claude-early","task":"early-task"}
 {"ts":"2026-10-20T11:00:00","role":"builder","log":".runs/20261020-110000-builder","input":22,"cached":2,"output":3,"reasoning":1,"model":"codex-log"}
@@ -46,6 +47,7 @@ cat >"$F/jobs/004-d/usage.jsonl" <<'EOF'
 {"ts":"2026-10-20T08:00:00","role":"reviewer-code","input":5,"cached":0,"output":1,"reasoning":0,"model":"claude-before","task":"early-review","round":2}
 {"ts":"2026-10-20T13:30:00","role":"reviewer-code","input":6,"cached":1,"output":2,"reasoning":1,"model":"claude-fallback","task":"fallback.task","round":9}
 {"ts":"2026-10-20T10:30:00","role":"planner","input":7,"cached":2,"output":3,"reasoning":1,"model":"claude-planner-latest"}
+{"ts":"2026-10-20T14:00:00","role":"builder","log":".runs/20261020-140000-builder","input":null,"cached":null,"output":null,"reasoning":null,"model":"claude-empty"}
 EOF
 echo '{"id":"005-e","feature":"Detail fixture","stage":"review","tasks":[{"id":"t.1","title":"First task","status":"closed"},{"id":"t.2","title":"Second task","status":"open"}]}' >"$DETAIL/job.json"
 cat >"$DETAIL/spec.md" <<'EOF'
@@ -186,6 +188,43 @@ test_usage_attachment() {
   assert_eq "fallback.task 9 claude-fallback usage" \
     "$(jq -r '.[] | select(.id == "20261020-130000-reviewer-code") | "\(.task) \(.round) \(.model) \(.tokens_from)"' <<<"$r")" \
     "task and round fall back to the attached record"
+}
+
+test_empty_usage_record_has_no_token_source() {
+  local r
+  r=$(get '/api/runs?job=004-d')
+  assert_eq 'null null' \
+    "$(jq -r '.[] | select(.id == "20261020-140000-builder") | "\(.tokens) \(.tokens_from)"' <<<"$r")" \
+    "an all-null usage record is not a token source"
+}
+
+test_derived_token_cache_uses_path_mtime_and_size() {
+  local dir="$TEST_TMP/cache-job"
+  mkdir -p "$dir/.runs"
+  printf '{"type":"turn.completed","usage":{"input_tokens":1}}\n' >"$dir/.runs/20261020-140000-builder.jsonl"
+  local actual
+  actual=$(node -e '
+const fs = require("fs")
+const path = require("path")
+const runs = require(process.argv[1])
+const dir = process.argv[2]
+const file = path.join(dir, ".runs", "20261020-140000-builder.jsonl")
+const original = fs.readFileSync
+let reads = 0
+fs.readFileSync = function (target, ...args) {
+  if (target === file) reads++
+  return original.call(this, target, ...args)
+}
+const input = () => runs.listRuns(dir, {}, [])[0]?.tokens?.input ?? null
+const first = input()
+const second = input()
+const stat = fs.statSync(file)
+fs.writeFileSync(file, "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":2}}\n")
+fs.utimesSync(file, stat.atime, new Date(stat.mtimeMs + 2000))
+const third = input()
+process.stdout.write(JSON.stringify([first, second, third, reads]))
+' "$FACTORY_SRC/dashboard/runs.js" "$dir")
+  assert_eq '[1,1,2,2]' "$actual" "derived token totals are reused until file mtime or size changes"
 }
 
 test_runs_served() {

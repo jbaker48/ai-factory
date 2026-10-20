@@ -12,7 +12,7 @@ const METADATA_CAP = 16 * 1024 * 1024
 
 function run(repo, args, maxBuffer = METADATA_CAP) {
   return new Promise((resolve, reject) => {
-    execFile('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer }, (error, stdout, stderr) => {
+    execFile('git', ['-C', repo, '-c', 'core.quotePath=false', ...args], { encoding: 'utf8', maxBuffer }, (error, stdout, stderr) => {
       if (!error) return resolve({ code: 0, stdout, stderr, overflow: false })
       if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
         return resolve({ code: 0, stdout: stdout || error.stdout || '', stderr, overflow: true })
@@ -100,16 +100,27 @@ function parseCount(value) {
 }
 
 function numstat(text) {
-  return text.split('\n').filter(Boolean).map((line) => {
+  const fields = text.split('\0')
+  const files = []
+  for (let index = 0; index < fields.length; index++) {
+    const line = fields[index]
+    if (!line) continue
     const first = line.indexOf('\t')
     const second = line.indexOf('\t', first + 1)
-    if (first < 0 || second < 0) return null
-    return {
-      path: line.slice(second + 1),
+    if (first < 0 || second < 0) continue
+    let filePath = line.slice(second + 1)
+    if (!filePath && fields[index + 2]) {
+      filePath = fields[index + 2]
+      index += 2
+    }
+    if (!filePath) continue
+    files.push({
+      path: filePath,
       added: parseCount(line.slice(0, first)),
       removed: parseCount(line.slice(first + 1, second)),
-    }
-  }).filter(Boolean)
+    })
+  }
+  return files
 }
 
 function totals(files) {
@@ -121,12 +132,12 @@ function totals(files) {
 }
 
 async function showNumstat(repo, commit) {
-  const args = ['show', '--numstat', '--format=', '--no-ext-diff', '--no-color', commit]
+  const args = ['show', '--numstat', '-z', '--format=', '--no-ext-diff', '--no-textconv', '--no-color', commit]
   return numstat(checked(await run(repo, args)))
 }
 
 async function diffNumstat(repo, args) {
-  const full = ['diff', '--numstat', '--no-ext-diff', '--no-color', ...args]
+  const full = ['diff', '--numstat', '-z', '--no-ext-diff', '--no-textconv', '--no-color', ...args]
   return numstat(checked(await run(repo, full)))
 }
 
@@ -206,7 +217,7 @@ async function diff(repo, id, job, selector = {}, base) {
   if (hasTask) {
     const task = found.tasks[selector.task]
     if (!task) return result(404, 'Task commits are no longer available for this job')
-    return diffText(repo, ['show', '--format=', '--no-ext-diff', '--no-color', task.commit])
+    return diffText(repo, ['show', '--format=', '--no-ext-diff', '--no-textconv', '--no-color', task.commit])
   }
 
   if (hasCommit) {
@@ -214,14 +225,14 @@ async function diff(repo, id, job, selector = {}, base) {
     if (found.landing) candidates.push(found.landing.commit)
     const commit = candidates.find((candidate) => candidate.startsWith(selector.commit))
     if (!commit) return result(404, 'Commit is not part of this job')
-    return diffText(repo, ['show', '--format=', '--no-ext-diff', '--no-color', commit])
+    return diffText(repo, ['show', '--format=', '--no-ext-diff', '--no-textconv', '--no-color', commit])
   }
 
   if (job.stage === 'merged' && found.landing) {
-    return diffText(repo, ['diff', '--no-ext-diff', '--no-color', `${found.landing.commit}^1`, found.landing.commit])
+    return diffText(repo, ['diff', '--no-ext-diff', '--no-textconv', '--no-color', `${found.landing.commit}^1`, found.landing.commit])
   }
   if (job.stage !== 'merged' && found.ref && await resolve(repo, found.base)) {
-    return diffText(repo, ['diff', '--no-ext-diff', '--no-color', `${found.base}...${found.ref.ref}`])
+    return diffText(repo, ['diff', '--no-ext-diff', '--no-textconv', '--no-color', `${found.base}...${found.ref.ref}`])
   }
   return result(404, 'No diff for this job yet')
 }

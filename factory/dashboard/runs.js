@@ -11,6 +11,7 @@ const TOKEN_FIELDS = [
   ['output', 'output_tokens'],
   ['reasoning', 'reasoning_output_tokens'],
 ]
+const derivedTokenCache = new Map()
 
 function stageOfKey(key) {
   if (key === 'spec-writer') return 'spec'
@@ -68,9 +69,30 @@ function tokensFromUsage(record) {
   }
 }
 
+function hasTokenSource(record) {
+  return TOKEN_FIELDS.some(([field]) => typeof record[field] === 'number' && Number.isFinite(record[field]))
+}
+
 function derivedTokens(dir, id) {
+  const file = path.resolve(dir, '.runs', `${id}.jsonl`)
+  let stat
+  try {
+    stat = fs.statSync(file)
+    if (!stat.isFile()) throw new Error('not a regular file')
+  } catch {
+    derivedTokenCache.delete(file)
+    return null
+  }
+  const cached = derivedTokenCache.get(file)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.tokens ? { ...cached.tokens } : null
+  }
+
   let text
-  try { text = fs.readFileSync(path.join(dir, '.runs', `${id}.jsonl`), 'utf8') } catch { return null }
+  try { text = fs.readFileSync(file, 'utf8') } catch {
+    derivedTokenCache.delete(file)
+    return null
+  }
   const totals = { input: 0, cached: 0, output: 0, reasoning: 0 }
   let found = false
   for (const line of text.split('\n')) {
@@ -85,7 +107,9 @@ function derivedTokens(dir, id) {
       found = true
     }
   }
-  return found ? totals : null
+  const tokens = found ? totals : null
+  derivedTokenCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, tokens })
+  return tokens ? { ...tokens } : null
 }
 
 function promptDetails(dir, id) {
@@ -179,8 +203,8 @@ function listRuns(dir, job, usage) {
       prompt: null,
       last: null,
       model: record.model ?? null,
-      tokens: tokensFromUsage(record),
-      tokens_from: 'usage',
+      tokens: hasTokenSource(record) ? tokensFromUsage(record) : null,
+      tokens_from: hasTokenSource(record) ? 'usage' : null,
     }
     runs.set(id, run)
   })
@@ -191,8 +215,8 @@ function listRuns(dir, job, usage) {
     run.task = details.task ?? record.task ?? null
     run.round = details.round ?? record.round ?? null
     run.model = record.model ?? null
-    run.tokens = tokensFromUsage(record)
-    run.tokens_from = 'usage'
+    run.tokens = hasTokenSource(record) ? tokensFromUsage(record) : null
+    run.tokens_from = hasTokenSource(record) ? 'usage' : null
   }
 
   for (const run of runs.values()) {
