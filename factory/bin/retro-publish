@@ -9,11 +9,13 @@
 # <id>: <n> lessons"; with land "pr" pushes the branch and, when retro_pr is
 # null, opens a factory-retro PR with retro-pr-repo.md and records its url;
 # with land "local" commits only. Factory worktree, kind "source" (in the
-# factory_source checkout): the same, always as a PR, with
-# retro-pr-factory.md, recorded in retro_factory_pr; then posts each
+# factory_source checkout): the same, always as a PR titled "Retro <name>
+# <id>: <n> fixes" (<name> is <repo>'s basename), with retro-pr-factory.md,
+# recorded in retro_factory_pr; then posts each
 # retro-comment-<number>.md as a comment on PR <number> and renames it to
 # retro-comment-<number>.posted.md. Kind "installed": writes any changes to
-# <job>/retro-factory.patch. A branch whose push or PR failed earlier is
+# <job>/retro-factory.patch (removing any old one first). Both PR bodies are
+# checked before anything is committed. A branch whose push or PR failed earlier is
 # pushed and opened on a re-run. Finally removes both worktrees, deletes a
 # retro branch that has no PR and nothing beyond its base (so the next
 # retro-prep reuses its name), and sets retro_worktree and
@@ -59,6 +61,7 @@ else
   exit 1
 fi
 title="Retro $id: $n lessons"
+factory_title="Retro $(basename "$repo") $id: $n fixes"
 
 # has_wt <path>: true when <path> is set and is a directory.
 has_wt() { [ "$1" != null ] && [ -d "$1" ]; }
@@ -73,11 +76,6 @@ publish_one() {
   local dir=$1 wt=$2 branch=$3 pr=$4 title=$5 body=$6 push=$7 ref=$8
   local dirty changed=no up url
   dirty=$(git -C "$wt" status --porcelain) || exit 1
-  if [ "$push" = yes ] && [ "$pr" = null ] && [ ! -f "$body" ] &&
-    { [ -n "$dirty" ] || [ -n "$(git -C "$wt" rev-list "$ref..HEAD")" ]; }; then
-    echo "retro-publish: missing PR body $body" >&2
-    exit 1
-  fi
   if [ -n "$dirty" ]; then
     git -C "$wt" add -A && git -C "$wt" commit -q -m "$title" || exit 1
     changed=yes
@@ -109,12 +107,33 @@ publish_one() {
   fi
 }
 
+# check_body <worktree> <pr-url|null> <base-ref> <body-file>: exits 1 when a
+# PR will be opened (no PR yet, and changes or commits beyond <base-ref>) but
+# <body-file> is missing.
+check_body() {
+  local wt=$1 pr=$2 ref=$3 body=$4
+  [ "$pr" = null ] && [ ! -f "$body" ] || return 0
+  if [ -n "$(git -C "$wt" status --porcelain)" ] || [ -n "$(git -C "$wt" rev-list "$ref..HEAD")" ]; then
+    echo "retro-publish: missing PR body $body" >&2
+    exit 1
+  fi
+}
+
+push=yes
+[ "$land" = local ] && push=no
+if has_wt "$repo_wt"; then
+  repo_branch=$(git -C "$repo_wt" branch --show-current) && [ -n "$repo_branch" ] || exit 1
+  [ "$push" = yes ] && check_body "$repo_wt" "$repo_pr" "$base" "$job/retro-pr-repo.md"
+fi
+if [ "$kind" = source ] && has_wt "$factory_wt"; then
+  src=$(cd "$src" && pwd) || exit 1
+  factory_branch=$(git -C "$factory_wt" branch --show-current) && [ -n "$factory_branch" ] || exit 1
+  check_body "$factory_wt" "$factory_pr" origin/main "$job/retro-pr-factory.md"
+fi
+
 # Repo worktree.
 repo_part="no repo changes"
 if has_wt "$repo_wt"; then
-  repo_branch=$(git -C "$repo_wt" branch --show-current) && [ -n "$repo_branch" ] || exit 1
-  push=yes
-  [ "$land" = local ] && push=no
   out=$(publish_one "$repo" "$repo_wt" "$repo_branch" "$repo_pr" "$title" \
     "$job/retro-pr-repo.md" "$push" "$base") || exit 1
   if [ -n "$out" ]; then
@@ -130,9 +149,7 @@ fi
 # Factory worktree.
 factory_part="no factory changes"
 if [ "$kind" = source ] && has_wt "$factory_wt"; then
-  src=$(cd "$src" && pwd) || exit 1
-  factory_branch=$(git -C "$factory_wt" branch --show-current) && [ -n "$factory_branch" ] || exit 1
-  out=$(publish_one "$src" "$factory_wt" "$factory_branch" "$factory_pr" "$title" \
+  out=$(publish_one "$src" "$factory_wt" "$factory_branch" "$factory_pr" "$factory_title" \
     "$job/retro-pr-factory.md" yes origin/main) || exit 1
   if [ -n "$out" ]; then
     factory_part=$out
@@ -143,12 +160,13 @@ if [ "$kind" = source ] && has_wt "$factory_wt"; then
     fi
   fi
 elif [ "$kind" = installed ] && has_wt "$factory_wt"; then
+  rm -f "$job/retro-factory.patch" || exit 1
   # -N so new files show up in the diff.
   git -C "$factory_wt" add -A -N || exit 1
   if [ -n "$(git -C "$factory_wt" status --porcelain)" ]; then
     {
       echo "# Against the factory installed in $repo, not ai-factory's main."
-      git -C "$factory_wt" diff
+      git -C "$factory_wt" diff --no-color --no-ext-diff
     } >"$job/retro-factory.patch" || exit 1
     factory_part="patch $job/retro-factory.patch"
   fi

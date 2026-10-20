@@ -163,6 +163,7 @@ test_factory_pr_and_comment() {
   assert_eq 0 "$rc" "source: exit 0"
   assert_contains "$(calls | grep '^pr create')" "--head retro/work-001-a" "source: PR head"
   assert_contains "$(calls | grep '^pr create')" "--body-file $JOB/retro-pr-factory.md" "source: factory body"
+  assert_contains "$(calls | grep '^pr create')" "--title Retro\\ work\\ 001-a:\\ 1\\ fixes" "source: factory title"
   assert_eq 1 "$(calls | grep -c '^pr create')" "source: only the factory PR (land local)"
   assert_eq "$SRC_REAL" "$(sed -n "$(calls | grep -n '^pr create' | cut -d: -f1)p" "$STUBS/gh.dirs")" "source: gh ran in the source"
   assert_contains "$(calls)" "pr comment 12 --body-file $JOB/retro-comment-12.md" "source: comment posted"
@@ -202,6 +203,31 @@ test_missing_body() {
   rm -f "$JOB/retro-pr-repo.md"
   assert_exit 1 "no body: exit 1" -- P
   assert_eq "" "$(calls | grep '^pr create')" "no body: no pr create"
+}
+
+test_missing_factory_body() {
+  R=$(mkrepo)
+  JOB="$R/factory/jobs/001-a"
+  mkdir -p "$JOB" && JOB=$(cd "$JOB" && pwd)
+  echo '{"id":"001-a","stage":"merged"}' >"$JOB/job.json"
+  mksrc; mkstub; prep; role 'RETRO: 2 fixes'; lesson
+  echo 'new rule' >>"$FW/factory/agents/x.md"
+  rm -f "$JOB/retro-pr-factory.md"
+  assert_exit 1 "no factory body: exit 1" -- P
+  assert_eq "" "$(calls)" "no factory body: no gh calls"
+  assert_eq "$(git -C "$R" rev-parse origin/main)" "$(git -C "$RW" rev-parse HEAD)" "no factory body: repo side not committed"
+  assert_contains "$(git -C "$RW" status --porcelain)" "AGENTS.md" "no factory body: repo edit still pending"
+  assert_eq "" "$(remote_head "$R" factory/retro-001-a)" "no factory body: repo side not pushed"
+  assert_eq "$RW" "$(j .retro_worktree)" "no factory body: job.json untouched"
+}
+
+test_stale_patch_removed() {
+  setup; role 'RETRO: nothing to change'
+  echo old >"$JOB/retro-factory.patch"
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "stale patch: exit 0"
+  assert_eq no "$(exists "$JOB/retro-factory.patch")" "stale patch: removed"
+  assert_eq "retro 001-a: 0 fixes, no repo changes, no factory changes" "$OUT" "stale patch: summary line"
 }
 
 test_push_failure_recovers() {
