@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# Sets up the worktrees and context files for a job's retro.
+#
+#   factory/bin/retro-prep <job folder>
+#
+# <repo> is two levels above this script, <name> its basename, <id> job.json's
+# .id. Creates the repo worktree at <repo>/../<name>-factory/retro-<id> on
+# factory/retro-<id>[-<k>]: with land "pr", the branch of this job's open
+# factory-retro PR, else the first unused name, from <base>; with land "local"
+# (no gh calls), the first one not yet merged into main. When the
+# factory_source setting names an ai-factory checkout <src>, does the same
+# there (always PR rules, from origin/main) on retro/<name>-<id>[-<k>] at
+# <src>/../<srcname>-factory/retro-<name>-<id>, writes every factory-retro PR
+# of <src> to <job>/retro-factory-prs.json and any installed-vs-source drift
+# to <job>/retro-stale.txt. Without it, copies the installed factory files
+# into a scratch git repo at <job>/.retro-factory. Bodies of this job's closed
+# (unmerged) retro PRs go to <job>/retro-rejected.md. Any worktree already at
+# either path is replaced. Records retro_worktree, retro_factory_worktree,
+# retro_factory_kind, retro_pr and retro_factory_pr in job.json.
+#
+# stdout: "repo <path>" then "factory <path> source|installed".
+# Exit: 0 ok, 1 environment failure (git or gh failed, or factory_source isn't
+# a git repo), 2 usage error or unreadable job.json.
+set -uo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: retro-prep <job folder>" >&2
+  exit 2
+fi
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo=$(cd "$here/../.." && pwd)
+name=$(basename "$repo")
+job=$(cd "$1" 2>/dev/null && pwd) && [ -f "$job/job.json" ] || {
+  echo "retro-prep: no job.json in $1" >&2
+  exit 2
+}
+id=$(jq -er '.id | strings' "$job/job.json" 2>/dev/null) || {
+  echo "retro-prep: cannot read .id from $job/job.json" >&2
+  exit 2
+}
+land=$("$here/settings" land) || exit 1
+base=$("$here/settings" base) || exit 1
+src=$("$here/settings" factory_source) || exit 1
+installed_paths=(.claude/skills/factory .claude/agents/factory-agent.md factory/agents factory/bin factory/dashboard.html)
+
+# prs <dir>: every factory-retro PR of the repo at <dir>, as a JSON array.
+prs() {
+  (cd "$1" && gh pr list --label factory-retro --state all --limit 200 \
+    --json number,title,state,url,headRefName,body) || {
+    echo "retro-prep: gh pr list failed in $1" >&2
+    exit 1
+  }
+}
+
+# mine <prefix> <prs-json>: the PRs whose branch is <prefix> or <prefix>-<k>.
+mine() {
+  printf '%s' "$2" | jq -c --arg p "$1" \
+    '[.[] | select(.headRefName | (. == $p) or (startswith($p + "-") and (.[($p | length) + 1:] | test("^[0-9]+$"))))]'
+}
+
+# pick_branch <git-dir> <prefix> <base-ref> <prs-json|->: prints
+# "<branch> <open-pr-url|->". <prs-json> is this job's PRs (PR rules); "-"
+# means local rules: the first <prefix>[-<k>] that doesn't exist yet or isn't
+# merged into <base-ref>.
+pick_branch() {
+  local dir=$1 prefix=$2 ref=$3 json=$4 open k=1 b
+  if [ "$json" != - ]; then
+    open=$(printf '%s' "$json" | jq -r 'first(.[] | select(.state == "OPEN") | "\(.headRefName) \(.url)") // empty')
+    [ -n "$open" ] && { echo "$open"; return; }
+  fi
+  while :; do
+    b=$prefix
+    [ "$k" -gt 1 ] && b="$prefix-$k"
+    k=$((k + 1))
+    if [ "$json" = - ]; then
+      git -C "$dir" rev-parse -q --verify "refs/heads/$b" >/dev/null || { echo "$b -"; return; }
+      git -C "$dir" merge-base --is-ancestor "$b" "$ref" || { echo "$b -"; return; }
+    else
+      git -C "$dir" rev-parse -q --verify "refs/heads/$b" >/dev/null && continue
+      git -C "$dir" rev-parse -q --verify "refs/remotes/origin/$b" >/dev/null && continue
+      printf '%s' "$json" | jq -e --arg b "$b" 'any(.[]; .headRefName == $b)' >/dev/null && continue
+      echo "$b -"
+      return
+    fi
+  done
+}
+
+# add_worktree <git-dir> <path> <branch> <start-ref>: replaces any worktree at
+# <path> with one on <branch>, reset to <start-ref> unless that is <branch>.
+add_worktree() {
+  local dir=$1 path=$2 branch=$3 start=$4
+  git -C "$dir" worktree remove --force "$path" >/dev/null 2>&1
+  git -C "$dir" worktree prune
+  mkdir -p "$(dirname "$path")" || exit 1
+  if [ "$start" = "$branch" ]; then
+    git -C "$dir" worktree add -q "$path" "$branch" >/dev/null || exit 1
+  else
+    git -C "$dir" worktree add -q -B "$branch" "$path" "$start" >/dev/null || exit 1
+  fi
+}
+
+# setup_worktree <git-dir> <path> <prefix> <base-ref> <prs-json|->: picks the
+# branch, adds the worktree and sets pr_url ("" when there's no open PR).
+setup_worktree() {
+  local dir=$1 path=$2 prefix=$3 ref=$4 json=$5 branch url start
+  read -r branch url < <(pick_branch "$dir" "$prefix" "$ref" "$json")
+  [ -n "$branch" ] || exit 1
+  if [ "$url" != - ]; then
+    git -C "$dir" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" || exit 1
+    start="origin/$branch" pr_url=$url
+  elif git -C "$dir" rev-parse -q --verify "refs/heads/$branch" >/dev/null && [ "$json" = - ]; then
+    start=$branch pr_url=''
+  else
+    start=$ref pr_url=''
+  fi
+  add_worktree "$dir" "$path" "$branch" "$start"
+}
+
+rejected=$(mktemp) || exit 1
+trap 'rm -f "$rejected"' EXIT
+# reject <prs-json>: appends the bodies of the CLOSED PRs to $rejected.
+reject() {
+  printf '%s' "$1" | jq -r '.[] | select(.state == "CLOSED") | "## \(.url)\n\n\(.body)\n"' >>"$rejected"
+}
+
+# Repo worktree.
+parent=$(cd "$repo/.." && pwd)
+repo_wt="$parent/$name-factory/retro-$id"
+if [ "$land" = local ]; then
+  repo_prs=-
+else
+  git -C "$repo" fetch -q origin || exit 1
+  all=$(prs "$repo") || exit 1
+  repo_prs=$(mine "factory/retro-$id" "$all") || exit 1
+  reject "$repo_prs"
+fi
+setup_worktree "$repo" "$repo_wt" "factory/retro-$id" "$base" "$repo_prs"
+repo_pr=$pr_url
+
+# Factory worktree.
+if [ -n "$src" ]; then
+  if ! git -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "retro-prep: factory_source $src is not a git repo" >&2
+    exit 1
+  fi
+  src=$(cd "$src" && pwd)
+  git -C "$src" fetch -q origin || exit 1
+  all=$(prs "$src") || exit 1
+  printf '%s\n' "$all" >"$job/retro-factory-prs.json" || exit 1
+  src_prs=$(mine "retro/$name-$id" "$all") || exit 1
+  reject "$src_prs"
+  factory_wt="$(cd "$src/.." && pwd)/$(basename "$src")-factory/retro-$name-$id"
+  setup_worktree "$src" "$factory_wt" "retro/$name-$id" origin/main "$src_prs"
+  factory_pr=$pr_url kind=source
+  stale=$(for p in "${installed_paths[@]}"; do diff -rq "$repo/$p" "$factory_wt/$p" 2>&1; done)
+  if [ -n "$stale" ]; then
+    printf '%s\n' "$stale" >"$job/retro-stale.txt" || exit 1
+  else
+    rm -f "$job/retro-stale.txt"
+  fi
+else
+  factory_wt="$job/.retro-factory"
+  rm -rf "$factory_wt"
+  for p in "${installed_paths[@]}" factory/models.json factory/autopilot-policy.md; do
+    [ -e "$repo/$p" ] || continue
+    mkdir -p "$factory_wt/$(dirname "$p")" && cp -R "$repo/$p" "$factory_wt/$p" || exit 1
+  done
+  {
+    git -C "$factory_wt" init -q &&
+      git -C "$factory_wt" add -A &&
+      git -C "$factory_wt" commit -q -m installed
+  } >/dev/null || exit 1
+  factory_pr='' kind=installed
+fi
+
+if [ -s "$rejected" ]; then
+  cp "$rejected" "$job/retro-rejected.md" || exit 1
+else
+  rm -f "$job/retro-rejected.md"
+fi
+
+# shellcheck disable=SC2016 # $-names are jq variables
+"$here/job-set" "$job/job.json" '.retro_worktree = $rw | .retro_factory_worktree = $fw
+  | .retro_factory_kind = $kind
+  | .retro_pr = (if $rp == "" then null else $rp end)
+  | .retro_factory_pr = (if $fp == "" then null else $fp end)' \
+  --arg rw "$repo_wt" --arg fw "$factory_wt" --arg kind "$kind" \
+  --arg rp "$repo_pr" --arg fp "$factory_pr" || exit 1
+
+echo "repo $repo_wt"
+echo "factory $factory_wt $kind"
