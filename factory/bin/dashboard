@@ -5,9 +5,11 @@
 //
 // Open http://127.0.0.1:<port>/. The page polls GET /api/state (models,
 // land mode and every job with its usage and past review verdicts), gets
-// agent runs through GET /api/runs?job=<id>, and reads a job's files through
-// GET /api/files?job=<id> and GET /api/file?job=<id>&path=<path>. Everything
-// is read-only. Only .md files, plan.json and usage.jsonl inside
+// agent runs through GET /api/runs?job=<id>, task changes through
+// GET /api/changes?job=<id> and GET /api/diff?job=<id>[&task=<id>|&commit=<hex>],
+// and job files through GET /api/files?job=<id> and
+// GET /api/file?job=<id>&path=<path>. Everything is read-only. Only .md files,
+// plan.json and usage.jsonl inside
 // factory/jobs/<id>/ are listed; /api/file also serves .runs/<stem>.prompt.md
 // and .runs/<stem>.last.md, while raw Codex logs stay private. Listens on
 // 127.0.0.1 only.
@@ -17,6 +19,7 @@ const http = require('http')
 const fs = require('fs')
 const path = require('path')
 const { STEM, listRuns, derivedUsage } = require('../dashboard/runs')
+const dashboardGit = require('../dashboard/git')
 
 const factory = path.resolve(__dirname, '..')
 const jobsDir = path.join(factory, 'jobs')
@@ -143,7 +146,7 @@ function send(res, code, type, body) {
 }
 const json = (res, code, body) => send(res, code, 'application/json; charset=utf-8', JSON.stringify(body))
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   if (req.method !== 'GET') return json(res, 405, { error: 'read-only' })
   const url = new URL(req.url, 'http://localhost')
   try {
@@ -157,6 +160,34 @@ const server = http.createServer((req, res) => {
       if (!dir) return json(res, 404, { error: 'no such job' })
       const job = readJSON(path.join(dir, 'job.json'), {})
       return json(res, 200, listRuns(dir, job, readUsage(dir)))
+    }
+    if (url.pathname === '/api/changes' || url.pathname === '/api/diff') {
+      const id = url.searchParams.get('job')
+      const dir = jobDir(id)
+      if (!dir) return json(res, 404, { error: 'no such job' })
+      const job = readJSON(path.join(dir, 'job.json'), {})
+      const settings = readJSON(path.join(factory, 'settings.json'), {})
+      const gitJob = {
+        ...job,
+        _dashboardBase: settings && settings.land === 'local' ? 'main' : 'origin/main',
+      }
+      const repo = path.resolve(factory, '..')
+      if (url.pathname === '/api/changes') {
+        return json(res, 200, await dashboardGit.changes(repo, id, gitJob))
+      }
+      const result = await dashboardGit.diff(repo, id, gitJob, {
+        task: url.searchParams.has('task') ? url.searchParams.get('task') : undefined,
+        commit: url.searchParams.has('commit') ? url.searchParams.get('commit') : undefined,
+      })
+      if (result.status !== 200) return json(res, result.status, { error: result.text })
+      const headers = {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      }
+      if (result.truncated) headers['x-diff-truncated'] = '1'
+      res.writeHead(200, headers)
+      return res.end(result.text)
     }
     if (url.pathname === '/api/files' || url.pathname === '/api/file') {
       const dir = jobDir(url.searchParams.get('job'))
