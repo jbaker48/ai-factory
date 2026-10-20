@@ -41,12 +41,20 @@ models, a reasoning effort. Edit it to move any role to any model, or pick
 a preset from `factory/presets/` to match the subscriptions you have:
 
 ```bash
-factory/bin/models          # print the active preset: mixed, claude, openai or custom
+factory/bin/models          # print the active preset: mixed, lean, claude, openai or custom
 factory/bin/models mixed    # Claude and OpenAI (Codex) models, the default
+factory/bin/models lean     # mixed, spending less quota
 factory/bin/models claude   # Claude models only
 factory/bin/models openai   # OpenAI models only, through the Codex CLI
 ```
 
+- **`lean`** is `mixed` with less thinking where the output is long and the
+  judgement is not. Reasoning counts as output, so the builder (the role that
+  writes the most) drops from `xhigh` to `high` effort, and the escalation
+  builder catches the tasks that turn out hard. Autopilot drops to `high` too.
+  The importer and briefer, which turn files into beads or summaries, move from
+  Opus to Sonnet. The spec-writer and planner stay on Opus: their output is
+  short and every later stage follows it.
 - **`claude`** runs every role as a Claude subagent: Sonnet builds and
   reviews, Opus takes the spec, plan, escalation, security, adversarial,
   approver and autopilot roles. It needs neither the Codex CLI nor the Codex
@@ -275,7 +283,7 @@ the retros help.
   agents/factory-agent.md        runs any role on a Claude model
 factory/
   models.json                    role → provider, model, effort
-  presets/                       mixed.json, claude.json, openai.json: models.json presets
+  presets/                       mixed.json, lean.json, claude.json, openai.json: models.json presets
   autopilot-policy.md            what the autopilot may decide alone
   AGENTS.template.md             starting point for your repo's AGENTS.md
   agents/                        one instruction file per role, for any provider
@@ -287,9 +295,10 @@ factory/
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
   bin/job-set                    updates a job.json field with jq, quietly
+  bin/dashboard                  serves dashboard.html and the job files, read-only
   bin/autopilot                  drains the queue, one headless session per job
   bin/retro-due, retro-prep, retro-publish   decide, set up and publish a retro
-  dashboard.html                 the visual board
+  dashboard.html                 the visual board, served by bin/dashboard
   jobs/                          one folder per job (runtime state)
   imports/                       one folder per PRD import (runtime state)
   autopilot-runs/                headless session output from bin/autopilot
@@ -324,12 +333,14 @@ the decisions. By hand:
 ## Dashboard
 
 ```bash
-cd factory && python3 -m http.server
+factory/bin/dashboard            # or --port <n>; needs only node
 ```
 
-Open <http://localhost:8000/dashboard.html>. Jobs move across eight stages as
-cards. Each card shows its bead, a strip of task dots that fill in as Beads
-tasks close, and review chips per round. Column headers show the models from
-`models.json`. Autopilot jobs are flagged, and jobs that need you stand out.
-Click a card to read the spec, plan, task reports, reviews and autopilot
-decisions.
+Open <http://127.0.0.1:4100/>. The server is read-only and listens on this
+machine only; the page polls it every two seconds. Jobs that need you come
+first, with their situation and the commands to copy. Running jobs sit on one
+stage track (Spec, Plan, Build, Review, Approve) whose legend shows each
+stage's models from `models.json`; task dots fill in under Build as Beads
+tasks close, and review chips per round sit under Review. Merged and dropped
+jobs are listed below. Click a job to read the spec, plan, task reports,
+reviews and autopilot decisions. Light and dark follow your OS, with a toggle.

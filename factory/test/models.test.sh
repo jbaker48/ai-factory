@@ -28,6 +28,13 @@ test_openai_preset() {
   assert_eq "true true" "$(jq -r '[.["reviewer-ux"].browser, .["reviewer-ui"].browser] | join(" ")' "$R/factory/models.json")" "browser roles flagged"
 }
 
+test_lean_preset() {
+  setup
+  M lean >/dev/null
+  assert_eq lean "$(M)" "lean active"
+  assert_eq "high high sonnet sonnet" "$(jq -r '[.builder.effort, .autopilot.effort, .importer.model, .briefer.model] | join(" ")' "$R/factory/models.json")" "lean lowers effort and moves writers to sonnet"
+}
+
 test_custom_needs_force() {
   setup
   jq '.builder.model = "x"' "$R/factory/models.json" >"$TEST_TMP/m" && mv "$TEST_TMP/m" "$R/factory/models.json"
@@ -47,7 +54,7 @@ test_unknown_preset() {
 test_presets_cover_same_roles() {
   local a b
   a=$(jq -c 'keys' "$FACTORY_SRC/presets/mixed.json")
-  for p in claude openai; do
+  for p in claude openai lean; do
     b=$(jq -c 'keys' "$FACTORY_SRC/presets/$p.json")
     assert_eq "$a" "$b" "$p preset names the same roles as mixed"
   done

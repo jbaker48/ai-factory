@@ -157,7 +157,7 @@ test_snapshot_before_every_role() {
 }
 
 test_dashboard_hints_review() {
-  assert_contains "$(cat "$ROOT/factory/dashboard.html")" '<div class="hint">/factory review ${esc(job.id)}' "needs-human hint names /factory review"
+  assert_contains "$(cat "$ROOT/factory/dashboard.html")" '`/factory review ${job.id}`' "needs-human card offers /factory review"
 }
 
 test_import_conflict_queues_only_free_beads() {

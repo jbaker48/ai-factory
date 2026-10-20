@@ -63,3 +63,5 @@ Non-blocking observations. Optional.
   Don't block on pre-existing issues the change didn't make worse; mention
   them under Notes.
 - Under Findings, write "None." when there are none.
+- Keep it short: one numbered line per finding, at most three lines of Notes,
+  and no summary of the spec, the diff or what you checked.
