@@ -198,6 +198,9 @@ test_retro_wiring() {
   s=$(section "$f" '/factory retro <job-id>' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" '## /factory retro <job-id>' "SKILL.md has /factory retro <job-id>"
   assert_contains "$s" 'skip `retro-due`' "/factory retro skips retro-due"
+  assert_contains "$s" 'If `job.json` `retro_worktree` is not null and `retro.md`'"'"'s first line passes step 4, a publish was cut off: run only step 5 and step 6 (`factory/bin/retro-publish <job folder>`), not prep or the role.' "/factory retro finishes a cut-off publish alone"
+  assert_contains "$t" 'It prints three lines: `repo <path>`, `factory <path> <kind>`, then `base <ref>`.' "Retro step names prep's three lines"
+  assert_contains "$t" 'and `<ref>` from the `base` line as `<paths>`'"'"' Base' "Retro step uses the base line for <paths>' Base"
   for n in 'factory/bin/retro-due <job folder>' 'factory/bin/retro-prep <job folder>' \
     'factory/bin/retro-publish <job folder>' 'usage-record claude <job folder> retro' \
     'A retro never changes `stage` or `situation`' 'retro_pr'; do

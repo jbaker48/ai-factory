@@ -496,10 +496,11 @@ PRs for the user. A retro never changes `stage` or `situation`.
 1. Unless the job came from `/factory retro`, run
    `factory/bin/retro-due <job folder>`. On exit 1, stop silently.
 2. Run `factory/bin/retro-prep <job folder>` in the foreground. It prints
-   `repo <path>`, then `factory <path> <kind>`.
+   three lines: `repo <path>`, `factory <path> <kind>`, then `base <ref>`.
 3. Run `retro` with the task
    `Retro. Retro worktree: <repo path>. Factory worktree: <factory path> (<kind>).`
-   (the job's own worktree may already be gone; the role knows), then
+   and `<ref>` from the `base` line as `<paths>`' Base (the job's own
+   worktree may already be gone; the role knows), then
    `factory/bin/usage-record claude <job folder> retro`.
 4. Check that `retro.md`'s first line is `RETRO: <n> fixes` or
    `RETRO: nothing to change`.
@@ -757,8 +758,11 @@ resumes resubmitted jobs and keeps watching for more.
 
 Run **Retro** on one job by hand, at any stage and even if it isn't due:
 skip `retro-due`. Use it on old jobs, and to finish a retro that failed or
-was cut off. Running it again replaces `retro.md` and reuses the open retro
-PRs.
+was cut off. If `job.json` `retro_worktree` is not null and `retro.md`'s
+first line passes step 4, a publish was cut off: run only step 5 and step 6
+(`factory/bin/retro-publish <job folder>`), not prep or the role. Otherwise
+running it again replaces `retro.md` and reuses the open retro PRs and any
+unpublished retro branch.
 
 ## /factory approve <job-id>
 
