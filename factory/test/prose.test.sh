@@ -172,5 +172,25 @@ test_retro_role() {
   assert_eq "sonnet" "$(jq -r '.retro.model // empty' "$ROOT/factory/models.json")" "models.json has retro on sonnet"
 }
 
+test_retro_wiring() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" t s n
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  assert_contains "$(sed -n 3p "$f")" '/factory retro' "description lists /factory retro"
+  s=$(section "$f" '/factory retro <job-id>' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" '## /factory retro <job-id>' "SKILL.md has /factory retro <job-id>"
+  assert_contains "$s" 'skip `retro-due`' "/factory retro skips retro-due"
+  for n in 'factory/bin/retro-due <job folder>' 'factory/bin/retro-prep <job folder>' \
+    'factory/bin/retro-publish <job folder>' 'usage-record claude <job folder> retro' \
+    'A retro never changes `stage` or `situation`' 'retro_pr'; do
+    assert_contains "$t" "$n" "SKILL.md mentions $n"
+  done
+  s=$(awk '/^### Merge$/ {on = 1} on && /^- \*\*0\*\*/ {b = 1} on && /^- \*\*6\*\*/ {exit} b' "$f")
+  assert_contains "$s" '**Retro**' "Merge exit 0 runs the Retro"
+  s=$(awk '/^ *- \*\*DROP\*\*/ {b = 1} b && /^6\. / {exit} b' "$f")
+  assert_contains "$s" '**Retro**' "resume DROP runs the Retro"
+  assert_contains "$(cat "$ROOT/README.md")" 'factory_source' "README documents factory_source"
+  assert_contains "$(cat "$ROOT/INSTALL.md")" 'factory_source' "INSTALL documents factory_source"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

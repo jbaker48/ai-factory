@@ -1,6 +1,6 @@
 ---
 name: factory
-description: Run the software factory. Use when the user types /factory <feature>, /factory add, /factory next, /factory autopilot, /factory import <prd>, /factory adopt <bead>, /factory status, /factory review [<job-id>], /factory approve <job-id>, /factory rework <job-id> <note>, or /factory resume <job-id>. The session that runs it becomes the orchestrator of the spec → plan → build → review → approve loop, with Beads tracking the work and Claude and OpenAI models doing it.
+description: Run the software factory. Use when the user types /factory <feature>, /factory add, /factory next, /factory autopilot, /factory import <prd>, /factory adopt <bead>, /factory status, /factory review [<job-id>], /factory approve <job-id>, /factory rework <job-id> <note>, /factory resume <job-id>, or /factory retro <job-id>. The session that runs it becomes the orchestrator of the spec → plan → build → review → approve loop, with Beads tracking the work and Claude and OpenAI models doing it.
 ---
 
 # Factory
@@ -40,6 +40,7 @@ feature ─► spec-writer ─► planner ─► Beads tasks ─► builder, one
 | approve   | `approver`                       | `decision.md`                                |
 | autopilot | `autopilot`                      | `autopilot-<k>.md`                           |
 | review    | `briefer` (in `/factory review`) | `human-brief-<k>.md`, `human-<k>.md`         |
+| retro     | `retro`                          | `retro.md`, `retro-pr-{repo,factory}.md`     |
 
 `MAX_ROUNDS = 3` review rounds per run: round `N` is the run's
 `N - round_base`th (see **job.json**). `MAX_TASK_RUNS = 2` builder runs per
@@ -211,7 +212,17 @@ state that never lands in a commit.
 <repo>/factory/jobs/<job-id>/autopilot-<k>.md
 <repo>/factory/jobs/<job-id>/.runs/            Codex prompts and logs, from run-codex
 <repo>/factory/jobs/<job-id>/.resume-claim/    a drain worker holds this resubmitted job
+<repo>/factory/jobs/<job-id>/retro.md         the retro: cost, causes, fixes
+<repo>/factory/jobs/<job-id>/retro-pr-{repo,factory}.md  the retro PR bodies
+<repo>/factory/jobs/<job-id>/retro-comment-<n>.md  a comment for factory PR <n> (.posted.md once posted)
+<repo>/factory/jobs/<job-id>/retro-rejected.md  bodies of this job's closed, unmerged retro PRs
+<repo>/factory/jobs/<job-id>/retro-factory-prs.json  ai-factory's factory-retro PRs
+<repo>/factory/jobs/<job-id>/retro-stale.txt  installed factory files that differ from factory_source
+<repo>/factory/jobs/<job-id>/retro-factory.patch  factory fixes, when factory_source is unset
+<repo>/factory/jobs/<job-id>/.retro-factory/  scratch copy of the installed factory, for that patch
 <repo>/../<name>-factory/<job-id>/             the job's worktree, on factory/<job-id>
+<repo>/../<name>-factory/retro-<job-id>/       the retro's worktree, on factory/retro-<job-id>[-<k>]
+<src>/../<srcname>-factory/retro-<name>-<job-id>/  with factory_source <src>: its retro worktree
 ```
 
 ### job.json
@@ -261,6 +272,10 @@ state that never lands in a commit.
   base past it.
 - `pr` is the job's pull request url, written by `factory/bin/land` as soon as
   the PR exists (`land: "pr"` only).
+- `retro_worktree`, `retro_factory_worktree`, `retro_factory_kind` (`source`
+  or `installed`), `retro_pr` and `retro_factory_pr` are written by
+  `retro-prep` and `retro-publish`, never by you. The worktrees go back to
+  `null` once the retro is published.
 - `updated` is stamped by `job-set` on every change.
 - Change it only with `factory/bin/job-set` (see **Keep your context small**).
   Together with Beads and the job folder, it is everything **/factory resume**
@@ -449,7 +464,7 @@ When it exits:
   ```
   Remove the `needs-human` label if the bead has it, and set
   `stage: "merged"` and `situation: null`, then run
-  `factory/bin/usage-record session <job folder>`. If removing the worktree fails,
+  `factory/bin/usage-record session <job folder>`, then **Retro**. If removing the worktree fails,
   the job is still merged: tell the user what `git worktree remove` printed.
 - **6** (the base moved since `reviewed_base`): `land` merged the new base
   into the job branch with a merge commit (and pushed it with `land: "pr"`;
@@ -472,6 +487,26 @@ When it exits:
   minutes): go to **Needs human** with situation `merge-blocked`, saying the
   job is approved but the main checkout is busy.
 - Anything else is an environment failure: stop and tell the user.
+
+### Retro
+
+Works out why an expensive job needed extra attempts, and proposes fixes as
+PRs for the user. A retro never changes `stage` or `situation`.
+
+1. Unless the job came from `/factory retro`, run
+   `factory/bin/retro-due <job folder>`. On exit 1, stop silently.
+2. Run `factory/bin/retro-prep <job folder>` in the foreground. It prints
+   `repo <path>`, then `factory <path> <kind>`.
+3. Run `retro` with the task
+   `Retro. Retro worktree: <repo path>. Factory worktree: <factory path> (<kind>).`
+   (the job's own worktree may already be gone; the role knows), then
+   `factory/bin/usage-record claude <job folder> retro`.
+4. Check that `retro.md`'s first line is `RETRO: <n> fixes` or
+   `RETRO: nothing to change`.
+5. Run `factory/bin/retro-publish <job folder>` and print its line.
+6. On any non-zero exit or a bad first line, tell the user in one line,
+   quoting stderr, and stop; `/factory retro <job-id>` finishes it later. A
+   headless drain carries on to its next job.
 
 ### Needs human
 
@@ -589,7 +624,8 @@ owner and waiting for the drain (`bd list -l factory,resubmitted`), the
 `/factory review`), and the stage of each job folder's `job.json`, `dropped`
 included. Then run `factory/bin/usage-summary` and print its output
 as-is (one line per job not yet merged or dropped, with token totals and
-runs, then the quota lines); don't read usage files yourself.
+runs, then the trend over recent merged jobs and the quota lines); don't read
+usage files yourself.
 
 ## /factory import <prd>
 
@@ -716,6 +752,13 @@ finds a drain, say it will pick the jobs up. If not, offer to start
 `factory/bin/autopilot --watch` with Bash and `run_in_background: true`; it
 resumes resubmitted jobs and keeps watching for more.
 
+## /factory retro <job-id>
+
+Run **Retro** on one job by hand, at any stage and even if it isn't due:
+skip `retro-due`. Use it on old jobs, and to finish a retro that failed or
+was cut off. Running it again replaces `retro.md` and reuses the open retro
+PRs.
+
 ## /factory approve <job-id>
 
 A shortcut for a `/factory review` that ends in APPROVE, with no brief. The
@@ -834,7 +877,7 @@ the job folder; don't read more of the job than the step below needs.
        (after the local branch is gone, so `gh` only has the remote one to
        delete). Then `bd close <bead> --reason "Dropped: <reason>"`, set
        `stage: "dropped"`, and run
-       `factory/bin/usage-record session <job folder>`.
+       `factory/bin/usage-record session <job folder>`, then **Retro**.
 6. Tell the user, in one line, where the job went back in, then carry on as
    usual. `autopilot` stays as `job.json` has it.
 
@@ -844,3 +887,4 @@ Keep the user posted with one short line per transition, for example
 `003-rate-limiting: round 2, security CHANGES, code/ux/ui PASS → 1 fix task (app-k2f.4) → builder gpt-6-luna`.
 When the job ends, say whether it merged, was dropped or needs a human, and why. On
 autopilot, also name each decision the autopilot took and its confidence.
+A retro adds one line: `retro-publish`'s output, or why the retro stopped.

@@ -138,7 +138,10 @@ Show the user each of these and record their answer:
   `"land": "local"`. Ask which labels mark high-priority beads and put them in
   `priority_labels` (`[]` for none), and leave `jobs` at 1 unless they want
   parallel jobs: `jobs` is how many jobs `factory/bin/autopilot` runs at once
-  (`--jobs N` overrides it per run).
+  (`--jobs N` overrides it per run). `factory_source` is optional: the
+  absolute path of a local ai-factory checkout (`<source>` works if it is
+  one), where retros open PRs with factory fixes; leave it `""` to get them
+  as a patch file in the job folder instead.
 - **Commit**: the factory reads `AGENTS.md` from worktrees branched off
   `main`, so the install only works once it is committed on `main`. Offer to
   commit it as one commit. With `land: "pr"` worktrees branch from
