@@ -16,7 +16,7 @@
 <style>
   :root {
     --bg: #f1f3f6;
-    --lane: #e9edf2;
+    --lane: #e3e8ef;
     --surface: #ffffff;
     --line: #c5ccd6;
     --ink: #182234;
@@ -32,7 +32,7 @@
   :root[data-theme="dark"] {
     --bg: #171c24;
     --lane: #1b222c;
-    --surface: #202833;
+    --surface: #293442;
     --line: #424e5f;
     --ink: #eef2f7;
     --muted: #c3ccd8;
@@ -46,7 +46,7 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; min-height: 100%; }
   body {
-    max-width: 100%; overflow-x: hidden;
+    max-width: 100%;
     background: var(--bg); color: var(--ink);
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
     font-variant-numeric: tabular-nums;
@@ -78,7 +78,7 @@
   .bar i.full { background: var(--change); }
   .quota-value { white-space: nowrap; }
   #spend { margin-top: 12px; max-width: 100%; }
-  #spend summary { min-height: 44px; display: inline-flex; align-items: center; color: var(--muted); cursor: pointer; }
+  #spend summary { min-height: 44px; display: list-item; padding: 10px 0; color: var(--muted); cursor: pointer; }
   .spend-body { max-width: 100%; overflow-x: auto; }
   .tables { display: flex; flex-wrap: wrap; gap: 6px 36px; }
   table.spend { border-collapse: collapse; font-size: 12px; margin: 4px 0; }
@@ -103,14 +103,18 @@
   @keyframes stage-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .42; } }
   .none { color: var(--muted); padding: 4px 0 6px; }
   .card-stack { display: grid; gap: 8px; min-width: 0; }
-  .card-shell { min-width: 0; }
+  .card-shell { display: grid; min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 4px; }
+  .card-shell.selected { border: 2px solid var(--blue); }
   .job-card {
-    display: flex; flex-direction: column; align-items: stretch; gap: 7px;
+    display: grid; gap: 7px;
     width: 100%; min-height: 44px; min-width: 0; padding: 11px 12px;
-    text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
+    text-align: left; background: transparent; border: 0; border-radius: 0; cursor: pointer;
   }
-  .job-card:hover { border-color: var(--muted); }
-  .job-card.selected { border: 2px solid var(--blue); padding: 10px 11px; }
+  .card-shell:hover { border-color: var(--muted); }
+  .job-card:focus-visible { outline-offset: -3px; }
+  .card-shell.selected .job-card { padding: 10px 11px; }
+  .card-description { display: grid; gap: 7px; min-width: 0; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .job-head { display: flex; flex-wrap: wrap; gap: 2px 9px; align-items: baseline; min-width: 0; }
   .job-number { color: var(--ink); font-weight: 600; }
   .bead { color: var(--muted); }
@@ -131,7 +135,7 @@
   .tasks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
   .task-dot { width: 13px; height: 8px; flex: none; border: 1px solid var(--muted); background: transparent; }
   .task-dot.closed { background: var(--pass); border-color: var(--pass); }
-  .task-dot.running { background: var(--blue); border-color: var(--blue); }
+  .task-dot.running { background: var(--wait); border-color: var(--wait); }
   .task-dot.blocked { background: var(--change); border-color: var(--change); }
   .task-dot.open { background: transparent; }
   .task-count { margin-left: 3px; color: var(--muted); font-size: 11px; }
@@ -147,7 +151,7 @@
   .reviewer.pending { border: 1px dashed var(--wait); }
   .reviewer.pending span { color: var(--wait); }
   .flags { display: grid; gap: 2px; color: var(--wait); font-size: 12px; overflow-wrap: anywhere; }
-  .pr-link { display: inline-flex; align-items: center; min-height: 44px; margin-left: 8px; padding: 0 4px; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+  .pr-link { display: inline-flex; align-items: center; min-height: 44px; margin: 0 12px 8px; padding: 0; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
   .pr-link:hover { text-decoration-thickness: 2px; }
   .more {
     min-height: 44px; margin-top: 8px; padding: 7px 0; border: 0; background: transparent;
@@ -189,7 +193,7 @@
     <span class="land" id="land">land: loading</span>
     <div class="header-tools">
       <span id="status">Connecting to the dashboard server</span>
-      <button class="theme" id="theme" type="button">Theme: auto</button>
+      <button class="theme" id="theme" type="button">Dark theme</button>
     </div>
   </div>
   <div class="meters" id="meters" aria-label="Quota meters">
@@ -262,7 +266,7 @@ function runawayFlags(jobs = []) {
     if (job.stage !== 'merged' && job.stage !== 'dropped') continue
     for (const [stage, value] of Object.entries(stageTotals(job.usage || []))) (buckets[stage] ||= []).push(value)
   }
-  const flags = {}
+  const flags = Object.create(null)
   for (const job of jobs) {
     flags[job.id] = Object.entries(stageTotals(job.usage || [])).sort().flatMap(([stage, value]) => {
       const bucket = buckets[stage]
@@ -345,12 +349,12 @@ function reviewData(job) {
 }
 
 function reviewBoxes(verdicts = {}) {
-  return `<div class="reviewers" aria-label="Review results">${REVIEWERS.map(([key, short]) => {
+  return `<span class="reviewers" role="group" aria-label="Review results">${REVIEWERS.map(([key, short]) => {
     const value = verdicts[key]
     const state = value === 'PASS' ? 'pass' : value === 'CHANGES' ? 'changes' : 'pending'
     const word = state === 'pass' ? 'pass' : state === 'changes' ? 'changes' : 'pending'
     return `<span class="reviewer ${state}" title="${escapeHtml(key)}: ${word}"><b>${short}</b><span>${word}</span></span>`
-  }).join('')}</div>`
+  }).join('')}</span>`
 }
 
 function reviewRoundLine(job) {
@@ -362,7 +366,7 @@ function reviewRoundLine(job) {
   const number = result.number ? `Round ${result.number}` : 'Last round'
   const parts = []
   if (pass) parts.push(`${pass} pass`)
-  if (changes) parts.push(`${changes} changes`)
+  if (changes) parts.push(`${changes} change${changes === 1 ? '' : 's'}`)
   return `${number}: ${parts.join(', ')}`
 }
 
@@ -381,7 +385,7 @@ function taskDots(tasks = []) {
     return `<span class="task-dot ${state}" role="img" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}"></span>`
   }).join('')
   const closed = tasks.filter((task) => taskStatus(task) === 'closed').length
-  return `<div class="tasks">${dots}<span class="task-count">${closed} closed of ${tasks.length}</span></div>`
+  return `<span class="tasks">${dots}<span class="task-count">${closed} closed of ${tasks.length}</span></span>`
 }
 
 function buildLine(job, data) {
@@ -391,7 +395,7 @@ function buildLine(job, data) {
   const model = tasks[activeIndex]?.model || roleModel(data, 'builder')
   const progress = !tasks.length ? 'none' : activeIndex >= 0
     ? `task ${activeIndex + 1} of ${tasks.length}`
-    : tasks.length ? `${closed} of ${tasks.length} tasks closed` : 'Tasks not recorded'
+    : `${closed} of ${tasks.length} tasks closed`
   return `<span class="stage-copy">${modelText(model)}<span>·</span><span class="task-progress">${progress}</span></span>${taskDots(tasks)}`
 }
 
@@ -399,10 +403,10 @@ function decisionLine(job) {
   if (job.stage === 'approve') return `<span class="marker wait"><span class="marker-square"></span>Approve</span><span class="round-result">${escapeHtml(reviewRoundLine(job))}</span>`
   if (job.stage === 'autopilot') return `<span class="marker wait"><span class="marker-square"></span>Autopilot</span><span class="round-result">${escapeHtml(reviewRoundLine(job))}</span>`
   if (job.stage === 'needs-human') {
-    const situation = SITUATIONS[job.situation]
+    const situation = Object.hasOwn(SITUATIONS, job.situation) ? SITUATIONS[job.situation] : null
     return `<span class="marker change"><span class="marker-square"></span>${situation ? `Needs you: ${escapeHtml(situation)}` : 'Needs you'}</span><span class="round-result">${escapeHtml(reviewRoundLine(job))}</span>`
   }
-  const situation = SITUATIONS[job.situation]
+  const situation = Object.hasOwn(SITUATIONS, job.situation) ? SITUATIONS[job.situation] : null
   const note = situation ? `<span class="round-result">${escapeHtml(situation)}</span>` : ''
   return `<span class="marker wait"><span class="marker-square"></span>Resubmitted</span>${note}<span class="round-result">${escapeHtml(reviewRoundLine(job))}</span>`
 }
@@ -427,7 +431,9 @@ function cardStage(job, data) {
   }
   const outcome = job.stage === 'merged' ? 'Merged' : 'Dropped'
   const tone = job.stage === 'merged' ? 'pass' : ''
-  const taskCount = Array.isArray(job.tasks) ? `${job.tasks.length} task${job.tasks.length === 1 ? '' : 's'}` : 'none'
+  const taskCount = Array.isArray(job.tasks) && job.tasks.length
+    ? `${job.tasks.length} task${job.tasks.length === 1 ? '' : 's'}`
+    : 'tasks not recorded'
   return `<span class="stage-copy"><span class="marker ${tone}"><span class="marker-square"></span>${outcome}</span><span>${escapeHtml(taskCount)}</span></span>`
 }
 
@@ -435,26 +441,34 @@ function safePullRequest(value) {
   return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : null
 }
 
-function jobCard(job, data, flags, selectedId) {
+function jobCard(job, data, flags, selectedId, descriptionId) {
   const id = escapeHtml(job.id || '')
-  const bead = job.bead ? `<span class="bead mono">${escapeHtml(job.bead)}</span>` : ''
+  const bead = job.bead ? `<span class="bead mono" aria-hidden="true">${escapeHtml(job.bead)}</span>` : ''
+  const beadDescription = job.bead ? `<span class="sr-only">Bead ${escapeHtml(job.bead)}.</span>` : ''
+  const feature = job.feature || ''
+  const identity = [job.id, feature].filter((value) => value !== null && value !== undefined && value !== '').map(String).join(': ')
+  const name = identity ? ` aria-label="${escapeHtml(identity)}"` : ''
   const total = jobTokens(job)
   const tokenLabel = total === null ? 'tokens not recorded' : `${fmtTok(total)} tokens`
-  const source = job.usage_derived ? '<span class="token-source">(from Codex logs)</span>' : ''
+  const source = total !== null && job.usage_derived ? '<span class="token-source">(from Codex logs)</span>' : ''
   const link = safePullRequest(job.pr)
   const content = cardStage(job, data)
-  return `<div class="card-shell"><button class="job-card${job.id === selectedId ? ' selected' : ''}" type="button" data-job="${id}"${job.id === selectedId ? ' aria-current="true"' : ''}>
+  const selected = job.id === selectedId
+  return `<div class="card-shell${selected ? ' selected' : ''}"><button class="job-card${selected ? ' selected' : ''}" type="button" data-job="${id}"${name} aria-describedby="card-description-${descriptionId}"${selected ? ' aria-current="true"' : ''}>
     <span class="job-head"><span class="job-number mono">${id}</span>${bead}</span>
-    <span class="feature">${escapeHtml(job.feature || '')}</span>
-    <span class="token-total">${tokenLabel}${source}</span>
-    ${content}
-    ${flagsLine(flags[job.id] || [])}
+    <span class="feature">${escapeHtml(feature)}</span>
+    <span class="card-description" id="card-description-${descriptionId}">
+      ${beadDescription}
+      <span class="token-total">${tokenLabel}${source}</span>
+      ${content}
+      ${flagsLine(flags[job.id] || [])}
+    </span>
   </button>${link ? `<a class="pr-link" href="${escapeHtml(link)}" target="_blank" rel="noopener">Pull request</a>` : ''}</div>`
 }
 
-function laneCards(jobs, data, flags, selectedId) {
+function laneCards(jobs, data, flags, selectedId, descriptionPrefix) {
   return jobs.length
-    ? `<div class="card-stack">${jobs.map((job) => jobCard(job, data, flags, selectedId)).join('')}</div>`
+    ? `<div class="card-stack">${jobs.map((job, index) => jobCard(job, data, flags, selectedId, `${descriptionPrefix}-${index}`)).join('')}</div>`
     : '<div class="none">none</div>'
 }
 
@@ -469,16 +483,16 @@ function renderBoard(data, { showAllDone = false, selectedId = null } = {}) {
   const runningSections = RUNNING_STAGES.map((stage) => {
     const sectionJobs = doneOrder(running.filter((job) => job.stage === stage))
     const sectionClass = sectionJobs.length ? 'stage-section current' : 'stage-section'
-    return `<section class="${sectionClass}" aria-labelledby="stage-${stage}"><h3 id="stage-${stage}"><span class="stage-mark" aria-hidden="true"></span>${stage[0].toUpperCase()}${stage.slice(1)}<span class="count">${sectionJobs.length}</span></h3>${laneCards(sectionJobs, data, flags, selectedId)}</section>`
+    return `<section class="${sectionClass}" aria-labelledby="stage-${stage}"><h3 id="stage-${stage}"><span class="stage-mark" aria-hidden="true"></span>${stage[0].toUpperCase()}${stage.slice(1)}<span class="count">${sectionJobs.length}</span></h3>${laneCards(sectionJobs, data, flags, selectedId, `running-${stage}`)}</section>`
   }).join('')
   const shownDone = showAllDone ? done : done.slice(0, 10)
   const more = done.length > 10
     ? `<button class="more" type="button" data-more>${showAllDone ? 'Show the 10 newest' : `Show all ${done.length}`}</button>` : ''
   return `<div class="lanes">
     <section class="lane" aria-labelledby="lane-running"><h2 id="lane-running">Running <span class="count">${running.length}</span></h2>${runningSections}</section>
-    <section class="lane" aria-labelledby="lane-deciding"><h2 id="lane-deciding">Deciding <span class="count">${deciding.length}</span></h2>${laneCards(deciding, data, flags, selectedId)}</section>
-    <section class="lane" aria-labelledby="lane-needs"><h2 id="lane-needs">Needs you <span class="count">${needs.length}</span></h2>${laneCards(needs, data, flags, selectedId)}</section>
-    <section class="lane" aria-labelledby="lane-done"><h2 id="lane-done">Done <span class="count">${done.length}</span></h2>${laneCards(shownDone, data, flags, selectedId)}${more}</section>
+    <section class="lane" aria-labelledby="lane-deciding"><h2 id="lane-deciding">Deciding <span class="count">${deciding.length}</span></h2>${laneCards(deciding, data, flags, selectedId, 'deciding')}</section>
+    <section class="lane" aria-labelledby="lane-needs"><h2 id="lane-needs">Needs you <span class="count">${needs.length}</span></h2>${laneCards(needs, data, flags, selectedId, 'needs')}</section>
+    <section class="lane" aria-labelledby="lane-done"><h2 id="lane-done">Done <span class="count">${done.length}</span></h2>${laneCards(shownDone, data, flags, selectedId, 'done')}${more}</section>
   </div>`
 }
 
@@ -508,12 +522,16 @@ function tone(first) {
 
 function inline(s) {
   const codes = []
+  const links = []
   s = escapeHtml(s).replace(/`([^`]+)`/g, (_, code) => `\u0000${codes.push(code) - 1}\u0000`)
+  s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|#)[^)\s]*)\)/g, (_, label, href) =>
+    `\u0001${links.push(`<a href="${href}" target="_blank" rel="noopener">${label}</a>`) - 1}\u0001`)
   s = s
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
-    .replace(/\[([^\]]+)\]\(((?:https?:\/\/|#)[^)\s]*)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`)
+  return s
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`)
+    .replace(/\u0001(\d+)\u0001/g, (_, i) => links[i])
 }
 
 function markdown(src) {
@@ -598,7 +616,7 @@ function usageMarkdown(records) {
 'use strict'
 
 const POLL_MS = 2000
-const THEMES = ['auto', 'light', 'dark']
+const THEMES = ['light', 'dark']
 const RETRO_FIELDS = ['retro_pr', 'retro_factory_pr']
 const painted = {}
 let data = null
@@ -623,15 +641,14 @@ function storeSet(key, value) {
 }
 
 function applyTheme(value) {
-  if (value === 'auto') delete document.documentElement.dataset.theme
-  else document.documentElement.dataset.theme = value
-  $('theme').textContent = `Theme: ${value}`
+  document.documentElement.dataset.theme = value
+  $('theme').textContent = value === 'light' ? 'Dark theme' : 'Light theme'
 }
 
-let theme = THEMES.includes(storeGet('factory-theme')) ? storeGet('factory-theme') : 'auto'
+let theme = THEMES.includes(storeGet('factory-theme')) ? storeGet('factory-theme') : 'light'
 applyTheme(theme)
 $('theme').addEventListener('click', () => {
-  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]
+  theme = theme === 'light' ? 'dark' : 'light'
   storeSet('factory-theme', theme)
   applyTheme(theme)
 })
@@ -646,6 +663,7 @@ function syncSelection(id = selectedJobId()) {
   for (const card of document.querySelectorAll('.job-card')) {
     const selected = card.dataset.job === id
     card.classList.toggle('selected', selected)
+    card.closest('.card-shell')?.classList.toggle('selected', selected)
     if (selected) card.setAttribute('aria-current', 'true')
     else card.removeAttribute('aria-current')
   }
