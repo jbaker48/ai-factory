@@ -221,17 +221,17 @@ also clears import conflicts labelled `needs-human` by asking you about each.
 ## Retros
 
 When a job that needed extra attempts (more than one review round, a rework
-or respec, a builder rerun, an escalation or an owner decision) merges or is
-dropped, the orchestrator runs a `retro` agent on it, headless drains
-included. It works out what each extra attempt was for, writes `retro.md`,
+or respec, a builder rerun, an escalation, or an autopilot or owner
+decision) merges or is dropped, the orchestrator runs a `retro` agent on it,
+headless drains included. It works out what each extra attempt was for, writes `retro.md`,
 and drafts the fixes that would have saved them:
 
 - **Repo lessons** go into `AGENTS.md` in a PR labelled `factory-retro`,
   titled `Retro <job-id>: <n> lessons` (with `land: "local"`, a kept branch
   `factory/retro-<job-id>` instead).
-- **Factory fixes** (role files, `SKILL.md`, scripts) go to ai-factory itself
-  when `factory_source` in `factory/settings.json` names a local ai-factory
-  checkout: a PR there titled `Retro <repo> <job-id>: <n> fixes`. Without it
+- **Factory fixes**, such as changes to role files, `SKILL.md` or scripts,
+  go to ai-factory itself when `factory_source` in `factory/settings.json`
+  names a local ai-factory checkout: a PR there titled `Retro <repo> <job-id>: <n> fixes`. Without it
   they land in the job folder as `retro-factory.patch`.
 
 Nothing merges by itself; you review the PRs. `/factory retro <job-id>` runs

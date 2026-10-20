@@ -185,9 +185,10 @@ test_retro_wiring() {
     assert_contains "$t" "$n" "SKILL.md mentions $n"
   done
   s=$(awk '/^### Merge$/ {on = 1} on && /^- \*\*0\*\*/ {b = 1} on && /^- \*\*6\*\*/ {exit} b' "$f")
-  assert_contains "$s" '**Retro**' "Merge exit 0 runs the Retro"
+  assert_contains "$(printf '%s' "$s" | tr '\n' ' ' | tr -s ' ')" '**Retro**, then `factory/bin/usage-record session <job folder>`' "Merge exit 0 runs the Retro before usage-record session"
   s=$(awk '/^ *- \*\*DROP\*\*/ {b = 1} b && /^6\. / {exit} b' "$f")
-  assert_contains "$s" '**Retro**' "resume DROP runs the Retro"
+  assert_contains "$(printf '%s' "$s" | tr '\n' ' ' | tr -s ' ')" '**Retro**, then `factory/bin/usage-record session <job folder>`' "resume DROP runs the Retro before usage-record session"
+  assert_contains "$t" 'stop the retro; `/factory retro <job-id>` finishes it later. The job stays where it is, and a drain' "a failed retro stops only the retro"
   assert_contains "$(cat "$ROOT/README.md")" 'factory_source' "README documents factory_source"
   assert_contains "$(cat "$ROOT/INSTALL.md")" 'factory_source' "INSTALL documents factory_source"
 }

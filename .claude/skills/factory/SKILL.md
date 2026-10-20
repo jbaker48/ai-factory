@@ -462,10 +462,10 @@ When it exits:
   git branch -D factory/<job-id>
   bd close <bead> --reason "Merged <pr>"    # local: "Merged factory/<job-id> into main"
   ```
-  Remove the `needs-human` label if the bead has it, and set
-  `stage: "merged"` and `situation: null`, then run
-  `factory/bin/usage-record session <job folder>`, then **Retro**. If removing the worktree fails,
-  the job is still merged: tell the user what `git worktree remove` printed.
+  If removing the worktree fails, the job is still merged: tell the user what
+  `git worktree remove` printed. Remove the `needs-human` label if the bead
+  has it, and set `stage: "merged"` and `situation: null`. Then run
+  **Retro**, then `factory/bin/usage-record session <job folder>`.
 - **6** (the base moved since `reviewed_base`): `land` merged the new base
   into the job branch with a merge commit (and pushed it with `land: "pr"`;
   the PR stays open and is reused). The final review never saw that code, so
@@ -505,8 +505,9 @@ PRs for the user. A retro never changes `stage` or `situation`.
    `RETRO: nothing to change`.
 5. Run `factory/bin/retro-publish <job folder>` and print its line.
 6. On any non-zero exit or a bad first line, tell the user in one line,
-   quoting stderr, and stop; `/factory retro <job-id>` finishes it later. A
-   headless drain carries on to its next job.
+   quoting stderr, and stop the retro; `/factory retro <job-id>` finishes it
+   later. The job stays where it is, and a drain (`/factory autopilot` in
+   this session, or headless) carries on to its next job.
 
 ### Needs human
 
@@ -876,8 +877,8 @@ the job folder; don't read more of the job than the step below needs.
        `gh pr close <pr> --delete-branch --comment "Dropped: <reason>"`
        (after the local branch is gone, so `gh` only has the remote one to
        delete). Then `bd close <bead> --reason "Dropped: <reason>"`, set
-       `stage: "dropped"`, and run
-       `factory/bin/usage-record session <job folder>`, then **Retro**.
+       `stage: "dropped"`, run **Retro**, then
+       `factory/bin/usage-record session <job folder>`.
 6. Tell the user, in one line, where the job went back in, then carry on as
    usual. `autopilot` stays as `job.json` has it.
 
