@@ -81,6 +81,27 @@ test_trend_line() {
   assert_contains "$(run)" "trend (last 3 merged): first-pass 1/3, median rounds 3.0, median reworks+respecs 1.0, median tokens 2.0M" "trend"
 }
 
+test_trend_newest_by_id() {
+  fresh
+  # Unpadded ids, so a string sort puts 10-x before 2-x. 1-x and 2-x are the
+  # oldest and not first-pass, but a later retro re-stamped their updated.
+  for i in $(seq 1 12); do
+    if [ "$i" -le 2 ]; then
+      jobj "$i-x" "{\"stage\":\"merged\",\"updated\":\"2026-12-$(printf '%02d' "$i")\",\"round\":4}"
+    else
+      jobj "$i-x" "{\"stage\":\"merged\",\"updated\":\"2026-10-$(printf '%02d' "$i")\",\"round\":1}"
+    fi
+  done
+  assert_contains "$(run)" "trend (last 10 merged): first-pass 10/10, median rounds 1.0" "trend window is the 10 highest ids, not the newest updated"
+}
+
+test_trend_excludes_retro_tokens() {
+  fresh
+  jobj 001-a '{"id":"001-a","stage":"merged","round":1}' "$(ul build 1000000 0 0)" "$(ul retro 5000000 0 0 | jq -c '.role = "retro"')"
+  jobj 002-b '{"id":"002-b","stage":"merged","round":1}' "$(ul retro 4000000 0 0 | jq -c '.role = "retro"')"
+  assert_contains "$(run)" "median tokens 1.0M" "retro rows left out of trend tokens"
+}
+
 test_trend_no_usage() {
   fresh
   jobj 001-a '{"id":"001-a","stage":"merged","updated":"2026-10-01","round":1,"reworks":0,"respecs":0}'

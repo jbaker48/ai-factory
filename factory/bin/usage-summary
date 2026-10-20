@@ -8,9 +8,11 @@
 #   <job-id> <stage>: <input>M in (<cached%> cached), <output>k out, <runs> runs[, FLAG <stage> <x>× median ...]
 # then "trend (last <n> merged): first-pass <x>/<n>, median rounds <r>,
 # median reworks+respecs <w>, median tokens <t>M" over up to 10 merged jobs
-# (newest by updated; first-pass = round <= 1, no reworks/respecs/human
-# decision, no task run twice; tokens "n/a" if none have usage; omitted with
-# no merged jobs), then "quota: codex <window> <after>% (resets <date>)" from the newest usage
+# (newest = highest numeric id prefix, not .updated, which a retro re-stamps;
+# first-pass = round <= 1, no reworks/respecs/human decision, no task run
+# twice; tokens leave out role "retro" rows and are "n/a" if no job has other
+# usage; omitted with no merged jobs), then
+# "quota: codex <window> <after>% (resets <date>)" from the newest usage
 # record with quota data ("quota: no data" if none), then "claude: tokens only".
 # With no usage files and no merged jobs it prints just "quota: no data".
 #
@@ -54,11 +56,12 @@ jq -n -R -r '
             | select(.n >= 3 and .med > 0 and $e.value >= 2 * .med)
             | ", FLAG \($e.key) \($e.value / .med | r1)× median" ] | join("") ) as $flags
       | "\(.id) \(.stage): \($in / 1e6 | r1)M in (\(if $in > 0 then ($ca / $in * 100 | round) else 0 end)% cached), \(($out / 1e3) | round)k out, \(.u | length) runs\($flags)" ),
-    ( [ $all[] | select(.stage == "merged") ] | sort_by([.j.updated // "", .id]) | reverse | .[:10]
+    ( [ $all[] | select(.stage == "merged") ]
+      | sort_by([(.id | capture("^(?<n>[0-9]+)").n | tonumber) // -1, .id]) | reverse | .[:10]
       | select(length > 0) | length as $n
       | map(select((.j.round // 0) <= 1 and (.j.reworks // 0) == 0 and (.j.respecs // 0) == 0
                    and .j.human_decision == null and all((.j.tasks // [])[]; (.runs // 0) <= 1))) as $fp
-      | [ .[] | select(.u | length > 0) | [.u[] | (.input|n) + (.output|n)] | add ] as $tok
+      | [ .[] | [.u[] | select(.role != "retro") | (.input|n) + (.output|n)] | select(length > 0) | add ] as $tok
       | "trend (last \($n) merged): first-pass \($fp | length)/\($n), median rounds \(map(.j.round // 0) | median | r1), median reworks+respecs \(map((.j.reworks // 0) + (.j.respecs // 0)) | median | r1), median tokens \(if ($tok | length) == 0 then "n/a" else ($tok | median / 1e6 | r1) + "M" end)" ),
     ( [ $jobs[].u[] | select(.quota != null) ] | sort_by(.ts) | last
       | if . == null then "quota: no data"
