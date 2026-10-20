@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Tests for factory/bin/retro-publish. Real git, set up by retro-prep; gh is a
 # stub that answers `pr create` with $URL in the target repo and $SRC_URL in
-# the factory source, and logs every call (with its directory) to gh.calls.
+# the factory source (failing while $STUBS/fail-create exists), `pr view` with
+# $OLD_BODY, and logs every call (with its directory) to gh.calls.
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 URL=https://github.com/o/r/pull/7
 SRC_URL=https://github.com/o/ai-factory/pull/9
-export URL SRC_URL SRC_REAL=''
+export URL SRC_URL SRC_REAL='' OLD_BODY=''
 
 # setup [settings-json]: target repo $R with job folder $JOB (id 001-a), the
 # gh stub, and retro-prep run (worktrees in $RW and $FW).
@@ -29,7 +30,10 @@ case "$*" in
   "pr list"*) echo "[]" ;;
   "label create"*) ;;
   "pr create"*)
+    [ -e "$STUBS/fail-create" ] && exit 1
     if [ -n "$SRC_REAL" ] && [ "$(pwd -P)" = "$SRC_REAL" ]; then echo "$SRC_URL"; else echo "$URL"; fi ;;
+  "pr view"*) printf "%s\n" "$OLD_BODY" ;;
+  "pr edit"*) ;;
   "pr comment"*) ;;
   *) echo "unexpected gh $*" >&2; exit 99 ;;
 esac'
@@ -244,6 +248,128 @@ test_push_failure_recovers() {
   assert_eq 0 "$rc" "push fail: re-run exit 0"
   assert_eq "retro 001-a: 1 fixes, $URL, no factory changes" "$OUT" "push fail: re-run opens the PR"
   assert_eq "$(git -C "$R" rev-parse factory/retro-001-a)" "$(remote_head "$R" factory/retro-001-a)" "push fail: re-run pushed"
+  assert_eq "factory/retro-001-a" "$(retro_branches)" "push fail: no -2 branch or orphan"
+}
+
+# retro_branches: every factory/retro-* branch, local and on origin, deduped.
+retro_branches() {
+  { git -C "$R" for-each-ref --format='%(refname:short)' 'refs/heads/factory/retro-*'
+    git -C "$R" ls-remote -q --heads origin 'factory/retro-*' | sed 's|.*refs/heads/||'; } | sort -u | tr '\n' ' ' | sed 's/ $//'
+}
+
+test_pr_create_failure_recovers() {
+  setup; role 'RETRO: 1 fixes'; lesson
+  touch "$STUBS/fail-create"
+  P >/dev/null 2>&1; rc=$?
+  assert_eq 1 "$rc" "create fail: exit 1"
+  assert_eq "$RW" "$(j .retro_worktree)" "create fail: job.json untouched"
+  assert_eq null "$(j .retro_pr)" "create fail: no retro_pr"
+  assert_eq "$(git -C "$R" rev-parse factory/retro-001-a)" "$(remote_head "$R" factory/retro-001-a)" "create fail: branch was pushed"
+  rm -f "$STUBS/fail-create"
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "create fail: re-run exit 0"
+  assert_eq "retro 001-a: 1 fixes, $URL, no factory changes" "$OUT" "create fail: re-run opens the PR"
+  assert_eq "$URL" "$(j .retro_pr)" "create fail: retro_pr set"
+  assert_eq "factory/retro-001-a" "$(retro_branches)" "create fail: no -2 branch or orphan"
+}
+
+test_reprep_after_failed_push() {
+  setup; role 'RETRO: 1 fixes'; lesson
+  good=$(git -C "$R" remote get-url origin)
+  git -C "$R" remote set-url origin "$TEST_TMP/missing.git"
+  P >/dev/null 2>&1
+  head=$(git -C "$R" rev-parse factory/retro-001-a)
+  git -C "$R" remote set-url origin "$good"
+  prep
+  assert_eq factory/retro-001-a "$(git -C "$RW" branch --show-current)" "reprep push: unpublished branch reused"
+  assert_eq "$head" "$(git -C "$RW" rev-parse HEAD)" "reprep push: its commit kept"
+  role 'RETRO: 1 fixes'
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "reprep push: publish exit 0"
+  assert_eq "retro 001-a: 1 fixes, $URL, no factory changes" "$OUT" "reprep push: PR opened"
+  assert_eq "factory/retro-001-a" "$(retro_branches)" "reprep push: no -2 branch or orphan"
+}
+
+test_reprep_after_failed_create() {
+  setup; role 'RETRO: 1 fixes'; lesson
+  touch "$STUBS/fail-create"
+  P >/dev/null 2>&1
+  rm -f "$STUBS/fail-create"
+  head=$(git -C "$R" rev-parse factory/retro-001-a)
+  prep
+  assert_eq factory/retro-001-a "$(git -C "$RW" branch --show-current)" "reprep create: pushed branch reused"
+  assert_eq "$head" "$(git -C "$RW" rev-parse HEAD)" "reprep create: its commit kept"
+  role 'RETRO: 1 fixes'
+  OUT=$(P); rc=$?
+  assert_eq "retro 001-a: 1 fixes, $URL, no factory changes" "$OUT" "reprep create: PR opened"
+  assert_eq "factory/retro-001-a" "$(retro_branches)" "reprep create: no -2 branch or orphan"
+}
+
+test_existing_pr_url_printed() {
+  setup; role 'RETRO: nothing to change'
+  OLD_BODY='repo pr body'
+  # shellcheck disable=SC2016 # $u is a jq variable
+  "$R/factory/bin/job-set" "$JOB/job.json" '.retro_pr = $u' --arg u "$URL"
+  OUT=$(P); rc=$?
+  OLD_BODY=''
+  assert_eq 0 "$rc" "existing pr: exit 0"
+  assert_eq "retro 001-a: 0 fixes, $URL, no factory changes" "$OUT" "existing pr: url printed with nothing new"
+  case $(calls) in *"pr edit"*) _fail "existing pr: unchanged body not edited" ;; *) _pass ;; esac
+}
+
+test_pr_body_edited() {
+  R=$(mkrepo)
+  JOB="$R/factory/jobs/001-a"
+  mkdir -p "$JOB" && JOB=$(cd "$JOB" && pwd)
+  echo '{"id":"001-a","stage":"merged"}' >"$JOB/job.json"
+  mksrc; mkstub; prep; role 'RETRO: 2 fixes'; lesson
+  echo 'new rule' >>"$FW/factory/agents/x.md"
+  # shellcheck disable=SC2016 # $u and $f are jq variables
+  "$R/factory/bin/job-set" "$JOB/job.json" '.retro_pr = $u | .retro_factory_pr = $f' --arg u "$URL" --arg f "$SRC_URL"
+  OLD_BODY='old body'
+  OUT=$(P); rc=$?
+  OLD_BODY=''
+  assert_eq 0 "$rc" "edit: exit 0"
+  assert_contains "$(calls)" "pr edit $URL --body-file $JOB/retro-pr-repo.md" "edit: repo PR body updated"
+  assert_contains "$(calls)" "pr edit $SRC_URL --body-file $JOB/retro-pr-factory.md" "edit: factory PR body updated"
+  assert_eq "$SRC_REAL" "$(sed -n "$(calls | grep -n "^pr edit $SRC_URL" | cut -d: -f1)p" "$STUBS/gh.dirs")" "edit: factory edit ran in the source"
+  case $(calls) in *"pr create"*) _fail "edit: no new PR" ;; *) _pass ;; esac
+}
+
+test_titles_count_kinds() {
+  R=$(mkrepo)
+  JOB="$R/factory/jobs/001-a"
+  mkdir -p "$JOB" && JOB=$(cd "$JOB" && pwd)
+  echo '{"id":"001-a","stage":"merged"}' >"$JOB/job.json"
+  mksrc; mkstub; prep; role x
+  cat >"$JOB/retro.md" <<'MD'
+RETRO: 4 fixes
+
+## What each extra attempt was for
+- round 2: 1. kind: factory. not a fix line
+
+## Fixes
+1. kind: repo. File: AGENTS.md
+   - Change: a
+2. kind: factory. File: factory/agents/reviewer.md
+   - Change: b
+3. kind: repo. File: docs/x.md
+   - Change: c
+4. kind: work. File: src/y
+   - Change: d
+- No fix for `flaky`: none.
+
+## Repeats
+None.
+MD
+  lesson; echo 'new rule' >>"$FW/factory/agents/x.md"
+  OUT=$(P); rc=$?
+  assert_eq 0 "$rc" "kinds: exit 0"
+  assert_contains "$(calls)" "--title Retro\\ 001-a:\\ 2\\ lessons" "kinds: repo title counts kind repo"
+  assert_contains "$(calls)" "--title Retro\\ work\\ 001-a:\\ 1\\ fixes" "kinds: factory title counts kind factory"
+  assert_eq "Retro 001-a: 2 lessons" "$(git -C "$R" log -1 --format=%s factory/retro-001-a)" "kinds: repo commit message"
+  assert_eq "Retro work 001-a: 1 fixes" "$(git -C "$SRC" log -1 --format=%s retro/work-001-a)" "kinds: factory commit message"
+  assert_contains "$OUT" "retro 001-a: 4 fixes, " "kinds: summary keeps the total"
 }
 
 test_worktrees_removed() {
