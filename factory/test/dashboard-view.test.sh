@@ -37,6 +37,20 @@ test_detail_criteria_has_covered_tasks_and_status_words() {
   assert_eq true "$(v '(() => { const html = criteriaHtml([{n:1,text:"Pass **with evidence**.",tasks:[{id:"t.1",status:"closed"},{id:"t.2",status:"in_progress"},{id:"t.3",status:"blocked"}]}],null); return html.includes("<strong>with evidence</strong>") && html.includes("t.1</span><span class=\"criteria-status closed\">closed</span>") && html.includes("criteria-status running") && html.includes("criteria-status blocked") })()')" "criteria render markdown and covered task statuses"
 }
 
+test_detail_criteria_note_uses_div_around_markdown() {
+  assert_eq true "$(v '(() => { const html = criteriaHtml(null,"A paragraph."); return html.startsWith("<div class=\"detail-note\"><p>A paragraph.</p></div>") && !html.startsWith("<p class=\"detail-note\"><p>") })()')" "criteria note has valid markdown container markup"
+}
+
+test_detail_facts_are_plain_and_separated_by_middots() {
+  assert_eq '"<span class=\"detail-fact stage\">review</span><span class=\"detail-separator\" aria-hidden=\"true\">·</span><span class=\"detail-fact\">round 2</span><span class=\"detail-separator\" aria-hidden=\"true\">·</span><span class=\"detail-fact\">4 tasks</span>"' \
+    "$(v 'detailFactsHtml([{value:"review",kind:"stage"},{value:"round 2"},{value:"4 tasks"}])')" "header facts are plain text with only stage accented"
+}
+
+test_detail_links_use_full_pull_request_label() {
+  assert_eq '["Pull request","Retro PR","Factory retro PR"]' \
+    "$(v 'detailLinks({pr:"https://example.com/pull/1",retro_pr:"https://example.com/pull/2",retro_factory_pr:"https://example.com/pull/3"}).map(([label])=>label)')" "detail pull request labels are clear"
+}
+
 test_detail_change_summary_omits_missing_total() {
   assert_eq true "$(v 'changeSummary({kind:null,files:[],added:0,removed:0}) === null && changeSummary({kind:"landing",files:[{path:"a"},{path:"b"}],added:184,removed:3}) === "2 files, +184 −3"')" "change summary uses whole-job totals and omits missing changes"
 }
@@ -158,6 +172,34 @@ test_page_does_not_hide_horizontal_overflow() {
 
 test_detail_runs_slot_is_empty_for_task_seven() {
   assert_eq true "$(p 'html.includes(`<div id="d-runs" class="detail-runs"></div>`)')" "runs column stays empty until Task 7"
+}
+
+test_detail_desktop_reserves_space_for_panel() {
+  assert_eq true "$(p 'html.includes("body.detail-open:not(.detail-expanded) > header.wrap") && html.includes("body.detail-open:not(.detail-expanded) > main.wrap") && html.includes("body.detail-open:not(.detail-expanded) > footer.wrap") && html.includes("width: min(calc(100% - var(--detail-panel-width)), 1440px);") && html.includes("classList.toggle(\u0027detail-open\u0027") && html.includes("classList.toggle(\u0027detail-expanded\u0027, expanded)")')" "desktop panel leaves the board beside it"
+}
+
+test_detail_columns_stack_at_899px() {
+  assert_eq true "$(p '(() => { const start = html.indexOf("@media (max-width: 899px)"); const end = html.indexOf("@media (max-width: 520px)", start); const media = html.slice(start, end); return media.includes("#detail-panel { width: 100%; min-width: 0; max-width: none; }") && media.includes(".detail-grid { grid-template-columns: minmax(0, 1fr); }") })()')" "detail columns stack at the full-screen breakpoint"
+}
+
+test_detail_refresh_preserves_content_and_file_cache() {
+  assert_eq true "$(p '(() => { const script = html.split("<script>")[1]?.split("</script>")[0] || ""; const start = script.indexOf("async function requestPanelData("); const end = script.indexOf("\nfunction syncDetail", start); const request = script.slice(start, end); const guard = request.indexOf("if (firstLoad) {"); const blockEnd = request.indexOf("\n  }\n\n  const detailRequest", guard); const initial = request.slice(guard, blockEnd); return request.includes("async function requestPanelData(id, firstLoad)") && guard >= 0 && initial.includes("d-criteria-status") && initial.includes("d-run-count") && initial.includes("Loading…") && !request.includes("detailFileCache = new Map()") && !request.includes("detailFilesLoaded = false") })()')" "only the first panel load shows loading and file cache persists"
+}
+
+test_detail_close_focus_falls_back_to_main() {
+  assert_eq true "$(p 'html.includes(`<main class="wrap" id="main" tabindex="-1">`) && html.includes("if (!card || document.activeElement !== card) $(\u0027main\u0027)?.focus()")')" "close focus returns to the card or main"
+}
+
+test_detail_html_compares_last_written_string() {
+  assert_eq true "$(p 'html.includes("detailHtmlWritten.get(element) === value") && html.includes("detailHtmlWritten.set(element, value)")')" "detail HTML skips equal writes using the last string"
+}
+
+test_detail_close_is_neutral() {
+  assert_eq true "$(p 'html.includes(`<button class="detail-action" id="d-close" type="button">Close</button>`) && !html.includes(`detail-action danger`) && !html.includes(".detail-action.danger")')" "close button uses the neutral action style"
+}
+
+test_detail_facts_are_not_boxes() {
+  assert_eq true "$(p 'html.includes(".detail-fact { color: var(--ink); overflow-wrap: anywhere; }") && html.includes(".detail-separator { margin: 0 7px; color: var(--muted); }") && !html.includes(".detail-fact { min-height: 32px; display: inline-flex;")')" "header facts read as plain text"
 }
 
 test_running_task_dots_use_wait_colour() {

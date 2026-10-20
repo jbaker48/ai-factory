@@ -166,6 +166,14 @@
   footer .commands { display: flex; flex-wrap: wrap; gap: 4px 16px; }
   footer .mono { display: inline-block; }
 
+  body.detail-open { --detail-panel-width: min(760px, 56vw); }
+  body.detail-open:not(.detail-expanded) > header.wrap,
+  body.detail-open:not(.detail-expanded) > main.wrap,
+  body.detail-open:not(.detail-expanded) > footer.wrap {
+    width: min(calc(100% - var(--detail-panel-width)), 1440px);
+    margin-left: max(0px, calc((100% - var(--detail-panel-width) - 1440px) / 2));
+    margin-right: var(--detail-panel-width);
+  }
   #detail-panel {
     position: fixed; z-index: 10; top: 0; right: 0; width: min(760px, 56vw); min-width: 480px;
     height: 100vh; height: 100dvh; background: var(--surface); border-left: 1px solid var(--line);
@@ -180,21 +188,21 @@
   .detail-toolbar-spacer { flex: 1; }
   .detail-action { min-height: 44px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); cursor: pointer; }
   .detail-action:hover { border-color: var(--muted); }
-  .detail-action.danger { color: var(--change); }
   .detail-header { min-width: 0; padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
   .detail-id { margin: 0 0 6px; font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
   .detail-feature { margin: 0 0 8px; font-size: 16px; font-weight: 620; overflow-wrap: anywhere; }
   .detail-context { display: grid; gap: 3px; min-width: 0; color: var(--muted); }
   .detail-context > div { overflow-wrap: anywhere; }
   .detail-context-label { color: var(--ink); font-weight: 600; }
-  .detail-facts { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 10px; }
-  .detail-fact { min-height: 32px; display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); overflow-wrap: anywhere; }
+  .detail-facts { display: flex; flex-wrap: wrap; align-items: baseline; margin-top: 10px; overflow-wrap: anywhere; }
+  .detail-fact { color: var(--ink); overflow-wrap: anywhere; }
   .detail-fact.stage { color: var(--blue); font-weight: 600; }
+  .detail-fact.error { color: var(--change); }
+  .detail-separator { margin: 0 7px; color: var(--muted); }
   .detail-links { display: flex; flex-wrap: wrap; gap: 0 14px; margin-top: 5px; }
   .detail-links a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
   .detail-message { min-height: 0; margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
   .detail-message.error { color: var(--change); }
-  .detail-fact.error { color: var(--change); }
   #d-files-slot { max-height: 250px; padding: 8px 14px; overflow: auto; border-bottom: 1px solid var(--line); background: var(--bg); }
   .detail-file { margin: 0; border-bottom: 1px solid var(--line); }
   .detail-file:last-child { border-bottom: 0; }
@@ -239,8 +247,12 @@
     .wrap { padding-left: 16px; padding-right: 16px; }
     .lanes { grid-template-columns: minmax(0, 1fr); gap: 10px; }
     .lane { padding: 14px; }
+    body.detail-open:not(.detail-expanded) > header.wrap,
+    body.detail-open:not(.detail-expanded) > main.wrap,
+    body.detail-open:not(.detail-expanded) > footer.wrap { width: min(100%, 1440px); margin: 0 auto; }
     #detail-panel { width: 100%; min-width: 0; max-width: none; }
     #d-expand { display: none; }
+    .detail-grid { grid-template-columns: minmax(0, 1fr); }
   }
   @media (max-width: 520px) {
     .wrap { padding-left: 12px; padding-right: 12px; }
@@ -254,7 +266,6 @@
     .reviewer { padding: 4px 1px; }
     .detail-toolbar { padding: 6px 10px; }
     .detail-header { padding: 12px; }
-    .detail-grid { grid-template-columns: minmax(0, 1fr); }
     .criteria-column { padding: 14px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
     .detail-runs { padding: 14px 12px; }
     .detail-diff { margin-right: 12px; margin-left: 12px; }
@@ -284,7 +295,7 @@
   </details>
   <div id="problems" aria-live="polite"></div>
 </header>
-<main class="wrap" id="main">
+<main class="wrap" id="main" tabindex="-1">
   <p class="muted">Reading factory jobs</p>
 </main>
 <footer class="wrap">
@@ -528,6 +539,27 @@ function safePullRequest(value) {
   return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : null
 }
 
+function detailLinks(job = {}) {
+  const pr = safePullRequest(job.pr)
+  const retroPr = safePullRequest(job.retro_pr)
+  const factoryRetroPr = safePullRequest(job.retro_factory_pr)
+  return [
+    pr && ['Pull request', pr],
+    retroPr && ['Retro PR', retroPr],
+    factoryRetroPr && ['Factory retro PR', factoryRetroPr],
+  ].filter(Boolean)
+}
+
+function detailFactsHtml(facts) {
+  return facts.filter(({ value }) => value).map(({ id, value, kind }) => {
+    const classes = ['detail-fact', kind].filter(Boolean).join(' ')
+    const attributes = [`class="${classes}"`]
+    if (id) attributes.push(`id="${escapeHtml(id)}"`)
+    if (id === 'd-run-count') attributes.push('aria-live="polite"')
+    return `<span ${attributes.join(' ')}>${escapeHtml(value)}</span>`
+  }).join('<span class="detail-separator" aria-hidden="true">·</span>')
+}
+
 function jobCard(job, data, flags, selectedId, descriptionId) {
   const id = escapeHtml(job.id || '')
   const bead = job.bead ? `<span class="bead mono" aria-hidden="true">${escapeHtml(job.bead)}</span>` : ''
@@ -690,7 +722,7 @@ function markdown(src) {
 
 function criteriaHtml(criteria, note) {
   if (criteria === null || criteria === undefined) {
-    return `<p class="detail-note">${markdown(note || 'No spec yet.')}</p>`
+    return `<div class="detail-note">${markdown(note || 'No spec yet.')}</div>`
   }
   if (!criteria.length) return '<p class="detail-note">No acceptance criteria.</p>'
   return criteria.map((criterion) => {
@@ -726,8 +758,8 @@ function usageMarkdown(records) {
 
 const POLL_MS = 2000
 const THEMES = ['light', 'dark']
-const RETRO_FIELDS = ['retro_pr', 'retro_factory_pr']
 const painted = {}
+const detailHtmlWritten = new WeakMap()
 let data = null
 let failed = false
 let showAllDone = false
@@ -741,6 +773,13 @@ let detailFilesRequest = null
 let detailFileCache = new Map()
 
 const $ = (id) => document.getElementById(id)
+
+function updateDetailLayout() {
+  const open = Boolean(detailId)
+  const expanded = open && $('detail-panel').classList.contains('expanded')
+  document.body.classList.toggle('detail-open', open)
+  document.body.classList.toggle('detail-expanded', expanded)
+}
 
 function paint(id, html) {
   if (painted[id] === html) return
@@ -858,10 +897,6 @@ function fileRank(path) {
   return [1, 0, path]
 }
 
-function retroLinks(job) {
-  return RETRO_FIELDS.map((field) => job[field]).filter((url) => /^https?:\/\//.test(url || ''))
-}
-
 function planText(json) {
   let plan
   try { plan = JSON.parse(json) } catch { return 'STATUS: BLOCKED\n\nplan.json is not valid JSON.' }
@@ -879,19 +914,13 @@ function detailShell() {
       <span class="detail-toolbar-spacer"></span>
       <button class="detail-action" id="d-files-toggle" type="button" aria-expanded="false">Files</button>
       <div id="d-change-control"></div>
-      <button class="detail-action danger" id="d-close" type="button">Close</button>
+      <button class="detail-action" id="d-close" type="button">Close</button>
     </div>
     <header class="detail-header">
       <div class="detail-id mono" id="d-id"></div>
       <h2 class="detail-feature" id="d-feature"></h2>
       <div class="detail-context" id="d-context"></div>
-      <div class="detail-facts">
-        <span class="detail-fact stage" id="d-stage" hidden></span>
-        <span class="detail-fact" id="d-round" hidden></span>
-        <span class="detail-fact" id="d-task-count" hidden></span>
-        <span class="detail-fact" id="d-token-count" hidden></span>
-        <span class="detail-fact" id="d-run-count" aria-live="polite">Loading…</span>
-      </div>
+      <div class="detail-facts" id="d-facts"></div>
       <nav class="detail-links" id="d-links" aria-label="Job links"></nav>
       <p class="detail-message" id="d-changes-status" aria-live="polite">Loading…</p>
     </header>
@@ -935,7 +964,9 @@ function setDetailText(id, value) {
 
 function setDetailHtml(id, value) {
   const element = $(id)
-  if (element && element.innerHTML !== value) updateHtml(element, value)
+  if (!element || detailHtmlWritten.get(element) === value) return
+  detailHtmlWritten.set(element, value)
+  updateHtml(element, value)
 }
 
 function updateDetailHeader(job, id) {
@@ -949,30 +980,23 @@ function updateDetailHeader(job, id) {
   setDetailHtml('d-context', context.join(''))
 
   const stage = job?.stage ? String(job.stage) : ''
-  setDetailText('d-stage', stage)
-  $('d-stage').hidden = !stage
   const round = job?.round !== null && job?.round !== undefined && Number.isFinite(Number(job.round))
     ? `round ${job.round}` : ''
-  setDetailText('d-round', round)
-  $('d-round').hidden = !round
   const taskCount = Array.isArray(job?.tasks)
     ? `${job.tasks.length} task${job.tasks.length === 1 ? '' : 's'}` : job ? 'tasks not recorded' : ''
-  setDetailText('d-task-count', taskCount)
-  $('d-task-count').hidden = !taskCount
   const total = job ? jobTokens(job) : null
   const tokenCount = job ? total === null ? 'tokens not recorded' : `${fmtTok(total)} tokens` : ''
-  setDetailText('d-token-count', tokenCount)
-  $('d-token-count').hidden = !tokenCount
-
-  const pr = safePullRequest(job?.pr)
-  const retro = retroLinks(job || {})
-  const retroPr = retro.includes(job?.retro_pr) ? safePullRequest(job.retro_pr) : null
-  const factoryRetro = retro.includes(job?.retro_factory_pr) ? safePullRequest(job.retro_factory_pr) : null
-  const links = [
-    pr && ['PR', pr],
-    retroPr && ['Retro PR', retroPr],
-    factoryRetro && ['Factory retro PR', factoryRetro],
-  ].filter(Boolean)
+  const existingRuns = $('d-run-count')
+  const runCount = existingRuns?.textContent || 'Loading…'
+  const runKind = existingRuns?.classList.contains('error') ? 'error' : ''
+  setDetailHtml('d-facts', detailFactsHtml([
+    { value: stage, kind: 'stage' },
+    { value: round },
+    { value: taskCount },
+    { value: tokenCount },
+    { id: 'd-run-count', value: runCount, kind: runKind },
+  ]))
+  const links = detailLinks(job || {})
   setDetailHtml('d-links', links.map(([label, url]) =>
     `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${label}</a>`).join(''))
 }
@@ -1156,7 +1180,7 @@ async function loadFiles(id, generation) {
   if (detailFilesRequest?.id === id && detailFilesRequest.generation === generation) return
   const request = { id, generation }
   detailFilesRequest = request
-  setDetailMessage('d-files-status', 'Loading…')
+  if (!detailFilesLoaded) setDetailMessage('d-files-status', 'Loading…')
   try {
     const files = await fetchJson(`/api/files?job=${encodeURIComponent(id)}`)
     if (!detailIsCurrent(id, generation)) return
@@ -1172,15 +1196,18 @@ async function loadFiles(id, generation) {
   }
 }
 
-async function requestPanelData(id) {
+async function requestPanelData(id, firstLoad) {
   const generation = ++detailGeneration
-  detailFileCache = new Map()
-  detailFilesLoaded = false
-  setDetailMessage('d-criteria-status', 'Loading…')
-  setDetailMessage('d-changes-status', 'Loading…')
-  $('d-run-count').textContent = 'Loading…'
-  $('d-run-count').classList.remove('error')
-  if (detailFilesVisible) setDetailMessage('d-files-status', 'Loading…')
+  if (firstLoad) {
+    setDetailMessage('d-criteria-status', 'Loading…')
+    setDetailMessage('d-changes-status', 'Loading…')
+    const runCount = $('d-run-count')
+    if (runCount) {
+      runCount.textContent = 'Loading…'
+      runCount.classList.remove('error')
+    }
+    if (detailFilesVisible && !detailFilesLoaded) setDetailMessage('d-files-status', 'Loading…')
+  }
 
   const detailRequest = fetchJson(`/api/detail?job=${encodeURIComponent(id)}`)
     .then((result) => {
@@ -1239,6 +1266,7 @@ function syncDetail() {
     panel.hidden = false
     panel.setAttribute('aria-hidden', 'false')
     panel.innerHTML = detailShell()
+    updateDetailLayout()
     requestAnimationFrame(() => {
       if (detailId !== id) return
       panel.classList.add('open')
@@ -1249,8 +1277,9 @@ function syncDetail() {
   if (!data) return
   const updatedKey = job ? String(job.updated ?? '') : 'missing'
   if (detailUpdated !== updatedKey) {
+    const firstLoad = detailUpdated === null
     detailUpdated = updatedKey
-    requestPanelData(id)
+    requestPanelData(id, firstLoad)
   }
 }
 
@@ -1263,11 +1292,13 @@ function hideDetail(returnFocus) {
   const panel = $('detail-panel')
   panel.classList.remove('open', 'expanded')
   panel.setAttribute('aria-hidden', 'true')
+  updateDetailLayout()
   syncSelection(null)
   setTimeout(() => { if (!detailId) panel.hidden = true }, 200)
   if (returnFocus && id) {
     const card = [...document.querySelectorAll('.job-card[data-job]')].find((element) => element.dataset.job === id)
     card?.focus()
+    if (!card || document.activeElement !== card) $('main')?.focus()
   }
 }
 
@@ -1283,6 +1314,7 @@ function toggleExpand() {
   const expanded = panel.classList.toggle('expanded')
   button.textContent = expanded ? 'Restore width' : 'Expand'
   button.setAttribute('aria-pressed', String(expanded))
+  updateDetailLayout()
 }
 
 function toggleFiles() {
