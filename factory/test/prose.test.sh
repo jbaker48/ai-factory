@@ -33,6 +33,13 @@ test_dashboard_reads_usage() {
   assert_eq "0" "$?" "dashboard reads usage.jsonl"
 }
 
+test_dashboard_retro() {
+  local h; h=$(cat "$ROOT/factory/dashboard.html")
+  assert_contains "$h" 'retro_pr' "dashboard reads retro_pr"
+  assert_contains "$h" 'retro_factory_pr' "dashboard reads retro_factory_pr"
+  assert_contains "$h" "'retro.md'" "dashboard ranks retro.md"
+}
+
 test_briefer_role() {
   local f="$ROOT/factory/agents/briefer.md" t
   t=$(cat "$f" 2>/dev/null)

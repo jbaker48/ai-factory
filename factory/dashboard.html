@@ -182,6 +182,8 @@
   .open .drawer { transform: none; }
   .d-head { padding: 20px 24px 16px; border-bottom: 1px solid var(--line); position: relative; }
   .d-head .num { font-size: 12px; }
+  .retro-links { font-size: 11px; margin-top: 4px; }
+  .retro-links a { color: var(--active); margin-right: 12px; }
   .d-head h3 { margin: 4px 40px 6px 0; font-size: 16px; font-weight: 600; line-height: 1.35; }
   .close {
     position: absolute; top: 16px; right: 16px; width: 32px; height: 32px;
@@ -303,6 +305,7 @@
       <div class="num" id="d-num"></div>
       <h3 id="d-title"></h3>
       <div class="branch" id="d-branch"></div>
+      <div class="retro-links" id="d-retro"></div>
       <button class="close" data-close aria-label="Close">×</button>
     </div>
     <div class="d-body">
@@ -568,7 +571,7 @@ function card(job, past, flags) {
         ${flag}
       </div>
       <p class="feature">${esc(job.feature)}</p>
-      <div class="branch">${job.bead ? `<span class="bead">${esc(job.bead)}</span> · ` : ''}${esc(job.branch)}</div>
+      <div class="branch">${job.bead ? `<span class="bead">${esc(job.bead)}</span> · ` : ''}${esc(job.branch)}${job.retro_pr || job.retro_factory_pr ? ' · <span class="bead">retro</span>' : ''}</div>
       ${taskDots(job.tasks)}
       ${usageLine(job, flags)}
       ${rows.length ? `<div class="rounds">${rows.join('')}</div>` : ''}
@@ -670,7 +673,7 @@ async function listFiles(dir) {
 }
 
 function fileRank(path) {
-  const order = ['spec.md', 'plan.json', 'build.md', 'decision.md', 'usage.jsonl']
+  const order = ['spec.md', 'plan.json', 'build.md', 'decision.md', 'retro.md', 'usage.jsonl']
   if (order.includes(path)) return [0, order.indexOf(path), path]
   if (path.startsWith('build/')) return [3, 0, path]
   const round = path.match(/^round-(\d+)\/review-(\w+)\.md$/)
@@ -717,6 +720,9 @@ async function refreshDrawer() {
   $('d-num').textContent = `${job.id} · ${job.stage}${job.round ? ` · round ${job.round}` : ''}${job.autopilot ? ' · autopilot' : ''}`
   $('d-title').textContent = job.feature
   $('d-branch').textContent = `${job.bead ? job.bead + ' · ' : ''}${job.branch}`
+  $('d-retro').innerHTML = [['retro PR', job.retro_pr], ['factory retro PR', job.retro_factory_pr]]
+    .filter(([, u]) => /^https?:\/\//.test(u || ''))
+    .map(([label, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${label}</a>`).join('')
 
   const base = `jobs/${job.id}/`
   const files = sortFiles(await listFiles(base))
