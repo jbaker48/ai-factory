@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Says whether a finished job needs a retro. Prints nothing.
+#
+#   factory/bin/retro-due <job folder>
+#
+# Exit codes: 0 = due, 1 = not due, 2 = usage error or unreadable job.json.
+# A job is due when its stage is merged or dropped, it has no retro.md, and at
+# least one of: round > 1; reworks or respecs > 0; any task ran more than
+# once; a human-*.md, rework-*.md, autopilot-*.md or decision-round*.md file
+# exists; the first line of decision.md is ESCALATE.
+set -uo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: retro-due <job folder>" >&2
+  exit 2
+fi
+dir=$1
+if [ ! -f "$dir/job.json" ]; then
+  echo "retro-due: no job.json in $dir" >&2
+  exit 2
+fi
+
+# Prints "yes" when the job.json signals are met and the stage is an end state.
+signal=$(jq -e -r '
+  if (.stage | IN("merged", "dropped")) | not then "no"
+  elif ((.round // 0) > 1 or (.reworks // 0) > 0 or (.respecs // 0) > 0
+        or any((.tasks // [])[]; (.runs // 0) > 1)) then "yes"
+  else "maybe" end' "$dir/job.json" 2>/dev/null) || {
+  echo "retro-due: cannot read $dir/job.json" >&2
+  exit 2
+}
+
+[ "$signal" = no ] && exit 1
+[ -f "$dir/retro.md" ] && exit 1
+[ "$signal" = yes ] && exit 0
+
+for g in "$dir"/human-*.md "$dir"/rework-*.md "$dir"/autopilot-*.md "$dir"/decision-round*.md; do
+  compgen -G "$g" >/dev/null && exit 0
+done
+[ -f "$dir/decision.md" ] && [ "$(head -n 1 "$dir/decision.md")" = ESCALATE ] && exit 0
+exit 1
