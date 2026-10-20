@@ -1,4 +1,6 @@
 // Read task commits and job changes without modifying the repository.
+// Usage: changes(repo, id, job, base) and diff(repo, id, job, selector, base).
+// Exports changes and diff.
 'use strict'
 const { execFile } = require('child_process')
 
@@ -10,7 +12,7 @@ const METADATA_CAP = 16 * 1024 * 1024
 
 function run(repo, args, maxBuffer = METADATA_CAP) {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd: repo, encoding: 'utf8', maxBuffer }, (error, stdout, stderr) => {
+    execFile('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer }, (error, stdout, stderr) => {
       if (!error) return resolve({ code: 0, stdout, stderr, overflow: false })
       if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
         return resolve({ code: 0, stdout: stdout || error.stdout || '', stderr, overflow: true })
@@ -38,10 +40,6 @@ function taskIds(job) {
   return Array.isArray(job.tasks)
     ? job.tasks.filter((task) => task && typeof task.id === 'string').map((task) => task.id)
     : []
-}
-
-function baseOf(job) {
-  return job._dashboardBase === 'main' ? 'main' : 'origin/main'
 }
 
 async function resolve(repo, ref) {
@@ -85,7 +83,7 @@ function landingMatchers(id, job) {
 
 async function landingCommit(repo, base, id, job) {
   if (!(await resolve(repo, base))) return null
-  const commits = parseLog(checked(await run(repo, ['log', '--format=%H%x1f%s', base, '--'])))
+  const commits = parseLog(checked(await run(repo, ['log', '--format=%H%x1f%s', '-n', '5000', base, '--'])))
   const matchers = landingMatchers(id, job)
   if (matchers.pr) {
     const match = commits.find((item) => item.subject.endsWith(matchers.pr))
@@ -132,8 +130,7 @@ async function diffNumstat(repo, args) {
   return numstat(checked(await run(repo, full)))
 }
 
-async function inspect(repo, id, job) {
-  const base = baseOf(job)
+async function inspect(repo, id, job, base) {
   const ref = await jobRef(repo, id)
   const tasks = ref ? await taskCommits(repo, ref.ref, job) : Object.create(null)
   let landing = null
@@ -149,8 +146,8 @@ function emptyChanges() {
   }
 }
 
-async function changes(repo, id, job) {
-  const found = await inspect(repo, id, job)
+async function changes(repo, id, job, base) {
+  const found = await inspect(repo, id, job, base)
   const out = emptyChanges()
   if (found.ref) out.source = found.ref.source
   for (const [taskId, commit] of Object.entries(found.tasks)) {
@@ -197,7 +194,7 @@ async function diffText(repo, args) {
   return result(200, `${cut}\n… diff truncated at ${diffCapLabel()} MB\n`, true)
 }
 
-async function diff(repo, id, job, selector = {}) {
+async function diff(repo, id, job, selector = {}, base) {
   const hasTask = selector.task !== undefined && selector.task !== null
   const hasCommit = selector.commit !== undefined && selector.commit !== null
   if (hasTask && hasCommit) return result(400, 'Choose either task or commit')
@@ -205,7 +202,7 @@ async function diff(repo, id, job, selector = {}) {
   if (hasTask && !taskIds(job).includes(selector.task)) return result(400, 'Unknown task id')
   if (hasCommit && !/^[0-9a-f]{7,40}$/.test(selector.commit)) return result(400, 'Invalid commit')
 
-  const found = await inspect(repo, id, job)
+  const found = await inspect(repo, id, job, base)
   if (hasTask) {
     const task = found.tasks[selector.task]
     if (!task) return result(404, 'Task commits are no longer available for this job')

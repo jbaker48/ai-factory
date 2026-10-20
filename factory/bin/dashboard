@@ -167,18 +167,15 @@ const server = http.createServer(async (req, res) => {
       if (!dir) return json(res, 404, { error: 'no such job' })
       const job = readJSON(path.join(dir, 'job.json'), {})
       const settings = readJSON(path.join(factory, 'settings.json'), {})
-      const gitJob = {
-        ...job,
-        _dashboardBase: settings && settings.land === 'local' ? 'main' : 'origin/main',
-      }
+      const base = settings && settings.land === 'local' ? 'main' : 'origin/main'
       const repo = path.resolve(factory, '..')
       if (url.pathname === '/api/changes') {
-        return json(res, 200, await dashboardGit.changes(repo, id, gitJob))
+        return json(res, 200, await dashboardGit.changes(repo, id, job, base))
       }
-      const result = await dashboardGit.diff(repo, id, gitJob, {
+      const result = await dashboardGit.diff(repo, id, job, {
         task: url.searchParams.has('task') ? url.searchParams.get('task') : undefined,
         commit: url.searchParams.has('commit') ? url.searchParams.get('commit') : undefined,
-      })
+      }, base)
       if (result.status !== 200) return json(res, result.status, { error: result.text })
       const headers = {
         'content-type': 'text/plain; charset=utf-8',

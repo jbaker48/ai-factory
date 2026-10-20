@@ -20,6 +20,9 @@ git -C "$REPO" commit -q -m 'add a (b-1.10)'
 printf 'one\ntwo\nthree\n' >"$REPO/b.txt"
 git -C "$REPO" add b.txt
 git -C "$REPO" commit -q -m 'add b (b-1.1)'
+printf 'four\nfive\n' >"$REPO/c.txt"
+git -C "$REPO" add c.txt
+git -C "$REPO" commit -q -m 'add c (b-1.10)'
 
 PORT=$(node -e 's=require("net").createServer().listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')
 SRV=
@@ -50,8 +53,8 @@ test_task_commits() {
   local c hash; c=$(get '/api/changes?job=001-a')
   assert_eq branch "$(jq -r .source <<<"$c")" "finds the job branch"
   assert_eq "b.txt 3" "$(jq -r '.tasks["b-1.1"].files[0] | "\(.path) \(.added)"' <<<"$c")" "b-1.1 is not matched by (b-1.10)"
-  assert_eq "a.txt" "$(jq -r '.tasks["b-1.10"].files[0].path' <<<"$c")" "b-1.10 has its own commit"
-  assert_eq "branch 2" "$(jq -r '.job | "\(.kind) \(.files | length)"' <<<"$c")" "whole job against main"
+  assert_eq "c.txt" "$(jq -r '.tasks["b-1.10"].files[0].path' <<<"$c")" "b-1.10 resolves to its newest commit"
+  assert_eq "branch 3" "$(jq -r '.job | "\(.kind) \(.files | length)"' <<<"$c")" "whole job against main"
   assert_contains "$(get '/api/diff?job=001-a&task=b-1.1')" '+++ b/b.txt' "task diff"
   hash=$(jq -r '.tasks["b-1.1"].commit' <<<"$c")
   assert_contains "$(get "/api/diff?job=001-a&commit=$hash")" '+++ b/b.txt' "diff accepts this job's task commit"
