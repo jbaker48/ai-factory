@@ -1,3 +1,5 @@
+// Builds the dashboard's ordered agent runs from .runs/ files and usage records.
+// Exports STEM, stageOfKey, listRuns and derivedUsage.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -132,13 +134,15 @@ function listRuns(dir, job, usage) {
 
   const assigned = new Map()
   const records = Array.isArray(usage) ? usage : []
+  records.forEach((record) => {
+    if (!isPlainObject(record) || typeof record.log !== 'string' || !record.log.startsWith('.runs/')) return
+    const id = record.log.slice('.runs/'.length)
+    if (runs.has(id) && !assigned.has(id)) assigned.set(id, record)
+  })
+
   records.forEach((record, index) => {
     if (!isPlainObject(record)) return
-    if (typeof record.log === 'string' && record.log.startsWith('.runs/')) {
-      const id = record.log.slice('.runs/'.length)
-      if (runs.has(id) && !assigned.has(id)) assigned.set(id, record)
-      return
-    }
+    if (typeof record.log === 'string' && record.log.startsWith('.runs/')) return
     if (typeof record.role !== 'string' || !record.role) return
     const stamp = stampFromTs(record.ts)
     let candidate = null
