@@ -24,6 +24,23 @@ test_escape() {
   assert_eq false "$(v 'inline("<script>").includes("<script")')" "inline escapes html"
 }
 
+test_markdown_code_inside_link_label() {
+  assert_eq '"<a href=\"http://a/b\" target=\"_blank\" rel=\"noopener\"><code>code</code> x</a>"' \
+    "$(v 'inline("[`code` x](http://a/b)")')" "code spans inside link labels render"
+}
+
+test_hash() {
+  assert_eq '["001-a",null,null]' "$(v '["#job=001-a","#job=../x","#other"].map(hashJob)')" "hash parsing"
+}
+
+test_detail_criteria_has_covered_tasks_and_status_words() {
+  assert_eq true "$(v '(() => { const html = criteriaHtml([{n:1,text:"Pass **with evidence**.",tasks:[{id:"t.1",status:"closed"},{id:"t.2",status:"in_progress"},{id:"t.3",status:"blocked"}]}],null); return html.includes("<strong>with evidence</strong>") && html.includes("t.1</span><span class=\"criteria-status closed\">closed</span>") && html.includes("criteria-status running") && html.includes("criteria-status blocked") })()')" "criteria render markdown and covered task statuses"
+}
+
+test_detail_change_summary_omits_missing_total() {
+  assert_eq true "$(v 'changeSummary({kind:null,files:[],added:0,removed:0}) === null && changeSummary({kind:"landing",files:[{path:"a"},{path:"b"}],added:184,removed:3}) === "2 files, +184 −3"')" "change summary uses whole-job totals and omits missing changes"
+}
+
 test_tokens() {
   assert_eq null "$(v 'jobTokens({usage: []})')" "no records is null, not 0"
   assert_eq 15 "$(v 'jobTokens({usage: [{input: 10, output: 5}]})')" "sums records"
@@ -137,6 +154,10 @@ test_spend_summary_has_visible_disclosure_and_tap_height() {
 
 test_page_does_not_hide_horizontal_overflow() {
   assert_eq false "$(p 'html.includes("overflow-x: hidden")')" "page does not hide horizontal overflow"
+}
+
+test_detail_runs_slot_is_empty_for_task_seven() {
+  assert_eq true "$(p 'html.includes(`<div id="d-runs" class="detail-runs"></div>`)')" "runs column stays empty until Task 7"
 }
 
 test_running_task_dots_use_wait_colour() {

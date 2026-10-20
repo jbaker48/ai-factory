@@ -44,6 +44,7 @@
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; min-height: 100%; }
   body {
     max-width: 100%;
@@ -165,10 +166,81 @@
   footer .commands { display: flex; flex-wrap: wrap; gap: 4px 16px; }
   footer .mono { display: inline-block; }
 
+  #detail-panel {
+    position: fixed; z-index: 10; top: 0; right: 0; width: min(760px, 56vw); min-width: 480px;
+    height: 100vh; height: 100dvh; background: var(--surface); border-left: 1px solid var(--line);
+    transform: translateX(101%); visibility: hidden;
+    pointer-events: none; transition: transform .18s ease, width .18s ease, visibility 0s linear .18s;
+  }
+  #detail-panel[hidden] { display: none; }
+  #detail-panel.open { transform: translateX(0); visibility: visible; pointer-events: auto; box-shadow: -12px 0 28px rgba(24, 34, 52, .16); transition: transform .18s ease, width .18s ease, visibility 0s; }
+  #detail-panel.expanded { width: 100vw; min-width: 0; max-width: none; }
+  .detail-frame { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+  .detail-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 60px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+  .detail-toolbar-spacer { flex: 1; }
+  .detail-action { min-height: 44px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); cursor: pointer; }
+  .detail-action:hover { border-color: var(--muted); }
+  .detail-action.danger { color: var(--change); }
+  .detail-header { min-width: 0; padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
+  .detail-id { margin: 0 0 6px; font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
+  .detail-feature { margin: 0 0 8px; font-size: 16px; font-weight: 620; overflow-wrap: anywhere; }
+  .detail-context { display: grid; gap: 3px; min-width: 0; color: var(--muted); }
+  .detail-context > div { overflow-wrap: anywhere; }
+  .detail-context-label { color: var(--ink); font-weight: 600; }
+  .detail-facts { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 10px; }
+  .detail-fact { min-height: 32px; display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); overflow-wrap: anywhere; }
+  .detail-fact.stage { color: var(--blue); font-weight: 600; }
+  .detail-links { display: flex; flex-wrap: wrap; gap: 0 14px; margin-top: 5px; }
+  .detail-links a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+  .detail-message { min-height: 0; margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+  .detail-message.error { color: var(--change); }
+  .detail-fact.error { color: var(--change); }
+  #d-files-slot { max-height: 250px; padding: 8px 14px; overflow: auto; border-bottom: 1px solid var(--line); background: var(--bg); }
+  .detail-file { margin: 0; border-bottom: 1px solid var(--line); }
+  .detail-file:last-child { border-bottom: 0; }
+  .detail-file summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; overflow-wrap: anywhere; }
+  .detail-file summary .mono { color: var(--ink); }
+  .detail-file-first { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-file-content { max-width: 100%; padding: 4px 0 10px; overflow-wrap: anywhere; }
+  .detail-file-content pre { max-width: 100%; max-height: 320px; overflow: auto; white-space: pre; }
+  #detail-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); min-height: 100%; }
+  .criteria-column { min-width: 0; padding: 16px 18px; border-right: 1px solid var(--line); background: var(--bg); }
+  .criteria-column h2, .detail-diff h2 { margin: 0 0 10px; font-size: 15px; font-weight: 650; }
+  .detail-runs { min-width: 0; padding: 16px 18px; }
+  .detail-note { margin: 0; color: var(--muted); }
+  .detail-criterion { display: flex; gap: 10px; min-width: 0; padding: 10px 0; border-top: 1px solid var(--line); }
+  .criterion-number { flex: none; min-width: 20px; padding-top: 1px; color: var(--ink); font-weight: 650; }
+  .criterion-content { min-width: 0; flex: 1; }
+  .detail-markdown { min-width: 0; overflow-wrap: anywhere; }
+  .detail-markdown p { margin: 0 0 7px; }
+  .detail-markdown p:last-child { margin-bottom: 0; }
+  .detail-markdown h1, .detail-markdown h2, .detail-markdown h3, .detail-markdown h4 { margin: 8px 0 5px; font-size: 14px; }
+  .detail-markdown ul, .detail-markdown ol { margin: 5px 0; padding-left: 20px; }
+  .detail-markdown code { font: 12px var(--mono); overflow-wrap: anywhere; }
+  .detail-markdown pre { max-width: 100%; overflow: auto; white-space: pre; }
+  .detail-markdown table { display: block; max-width: 100%; overflow-x: auto; }
+  .criteria-coverage { display: grid; gap: 4px; margin-top: 8px; }
+  .criteria-task { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+  .marker-square.closed { background: var(--pass); border: 1px solid var(--pass); }
+  .marker-square.running, .marker-square.open { background: var(--wait); border: 1px solid var(--wait); }
+  .marker-square.blocked { background: var(--change); border: 1px solid var(--change); }
+  .criteria-status { font-size: 12px; }
+  .criteria-status.closed { color: var(--pass); }
+  .criteria-status.running, .criteria-status.open { color: var(--wait); }
+  .criteria-status.blocked { color: var(--change); }
+  #d-scope { margin-top: 16px; border-top: 1px solid var(--line); }
+  #d-scope summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+  #d-scope-content { padding-bottom: 10px; }
+  .detail-diff { margin: 0 18px 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .detail-diff pre { max-width: 100%; max-height: 45vh; margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); font: 12px/1.5 var(--mono); white-space: pre; }
+
   @media (max-width: 899px) {
     .wrap { padding-left: 16px; padding-right: 16px; }
     .lanes { grid-template-columns: minmax(0, 1fr); gap: 10px; }
     .lane { padding: 14px; }
+    #detail-panel { width: 100%; min-width: 0; max-width: none; }
+    #d-expand { display: none; }
   }
   @media (max-width: 520px) {
     .wrap { padding-left: 12px; padding-right: 12px; }
@@ -180,9 +252,15 @@
     .bar { width: 64px; }
     .lane { padding: 12px; }
     .reviewer { padding: 4px 1px; }
+    .detail-toolbar { padding: 6px 10px; }
+    .detail-header { padding: 12px; }
+    .detail-grid { grid-template-columns: minmax(0, 1fr); }
+    .criteria-column { padding: 14px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .detail-runs { padding: 14px 12px; }
+    .detail-diff { margin-right: 12px; margin-left: 12px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+    *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   }
 </style>
 </head>
@@ -221,6 +299,7 @@
     <span class="mono">/factory rework &lt;job-id&gt; &lt;note&gt;</span>
   </div>
 </footer>
+<aside id="detail-panel" hidden aria-label="Job detail" aria-hidden="true"></aside>
 <script id="view">
 'use strict'
 
@@ -237,6 +316,14 @@ const SITUATIONS = {
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+}
+
+function hashJob(hash) {
+  const match = String(hash || '').match(/^#?job=(.*)$/)
+  if (!match) return null
+  let id
+  try { id = decodeURIComponent(match[1]) } catch { return null }
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) ? id : null
 }
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v) ? v : 0
@@ -530,8 +617,8 @@ function inline(s) {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
   return s
-    .replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`)
     .replace(/\u0001(\d+)\u0001/g, (_, i) => links[i])
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`)
 }
 
 function markdown(src) {
@@ -601,6 +688,28 @@ function markdown(src) {
   return html
 }
 
+function criteriaHtml(criteria, note) {
+  if (criteria === null || criteria === undefined) {
+    return `<p class="detail-note">${markdown(note || 'No spec yet.')}</p>`
+  }
+  if (!criteria.length) return '<p class="detail-note">No acceptance criteria.</p>'
+  return criteria.map((criterion) => {
+    const coverage = (criterion.tasks || []).map((task) => {
+      const status = taskStatus(task)
+      return `<span class="criteria-task"><span class="marker-square ${status}" aria-hidden="true"></span><span class="mono">${escapeHtml(task.id)}</span><span class="criteria-status ${status}">${status}</span></span>`
+    }).join('') || '<span class="muted">No covering tasks.</span>'
+    return `<article class="detail-criterion"><span class="criterion-number mono">${escapeHtml(criterion.n)}</span><div class="criterion-content"><div class="detail-markdown">${markdown(criterion.text)}</div><div class="criteria-coverage" aria-label="Covering tasks">${coverage}</div></div></article>`
+  }).join('')
+}
+
+function changeSummary(change) {
+  if (!change || !['landing', 'branch'].includes(change.kind)) return null
+  const count = Array.isArray(change.files) ? change.files.length : 0
+  const added = Number.isFinite(change.added) ? change.added : 0
+  const removed = Number.isFinite(change.removed) ? change.removed : 0
+  return `${count} file${count === 1 ? '' : 's'}, +${added} −${removed}`
+}
+
 function usageMarkdown(records) {
   const cell = (value) => (value === null || value === undefined ? '' : String(value)).replace(/\|/g, '/')
   const delta = (quota) => quota && typeof quota.after === 'number' && typeof quota.before === 'number'
@@ -623,6 +732,13 @@ let data = null
 let failed = false
 let showAllDone = false
 let lastUpdated = null
+let detailId = null
+let detailUpdated = null
+let detailGeneration = 0
+let detailFilesVisible = false
+let detailFilesLoaded = false
+let detailFilesRequest = null
+let detailFileCache = new Map()
 
 const $ = (id) => document.getElementById(id)
 
@@ -654,9 +770,7 @@ $('theme').addEventListener('click', () => {
 })
 
 function selectedJobId() {
-  const match = location.hash.match(/^#?job=(.*)$/)
-  if (!match) return null
-  try { return decodeURIComponent(match[1]) } catch { return match[1] }
+  return hashJob(location.hash)
 }
 
 function syncSelection(id = selectedJobId()) {
@@ -670,8 +784,10 @@ function syncSelection(id = selectedJobId()) {
 }
 
 function openDetail(id) {
-  location.hash = 'job=' + id
+  if (!hashJob(`#job=${encodeURIComponent(id)}`)) return
+  location.hash = 'job=' + encodeURIComponent(id)
   syncSelection(id)
+  syncDetail()
 }
 
 function timeLabel(date) {
@@ -710,6 +826,7 @@ function render() {
     const next = [...candidates].find((element) => focus.job ? element.dataset.job === focus.job : focus.href ? element.getAttribute('href') === focus.href : true)
     next?.focus()
   }
+  syncDetail()
 }
 
 async function poll() {
@@ -755,6 +872,459 @@ function planText(json) {
     (plan.blocked ? `\n\n## Blocked\n\n${plan.blocked}` : '')
 }
 
+function detailShell() {
+  return `<div class="detail-frame">
+    <div class="detail-toolbar">
+      <button class="detail-action" id="d-expand" type="button" aria-pressed="false">Expand</button>
+      <span class="detail-toolbar-spacer"></span>
+      <button class="detail-action" id="d-files-toggle" type="button" aria-expanded="false">Files</button>
+      <div id="d-change-control"></div>
+      <button class="detail-action danger" id="d-close" type="button">Close</button>
+    </div>
+    <header class="detail-header">
+      <div class="detail-id mono" id="d-id"></div>
+      <h2 class="detail-feature" id="d-feature"></h2>
+      <div class="detail-context" id="d-context"></div>
+      <div class="detail-facts">
+        <span class="detail-fact stage" id="d-stage" hidden></span>
+        <span class="detail-fact" id="d-round" hidden></span>
+        <span class="detail-fact" id="d-task-count" hidden></span>
+        <span class="detail-fact" id="d-token-count" hidden></span>
+        <span class="detail-fact" id="d-run-count" aria-live="polite">Loading…</span>
+      </div>
+      <nav class="detail-links" id="d-links" aria-label="Job links"></nav>
+      <p class="detail-message" id="d-changes-status" aria-live="polite">Loading…</p>
+    </header>
+    <section id="d-files-slot" hidden aria-live="polite">
+      <p class="detail-message" id="d-files-status"></p>
+      <div id="d-files-list"></div>
+    </section>
+    <div id="detail-scroll">
+      <div class="detail-grid">
+        <section class="criteria-column" aria-labelledby="d-criteria-title">
+          <h2 id="d-criteria-title" tabindex="-1">Acceptance criteria</h2>
+          <p class="detail-message" id="d-criteria-status" aria-live="polite">Loading…</p>
+          <div id="d-criteria-content"></div>
+          <details id="d-scope" data-detail-key="scope" hidden>
+            <summary>Out of scope</summary>
+            <div class="detail-markdown" id="d-scope-content"></div>
+          </details>
+        </section>
+        <div id="d-runs" class="detail-runs"></div>
+      </div>
+      <section class="detail-diff" id="d-diff-slot" hidden>
+        <h2>Whole-job diff</h2>
+        <pre id="d-diff" tabindex="0"></pre>
+      </section>
+    </div>
+  </div>`
+}
+
+function setDetailMessage(id, message, error = false) {
+  const element = $(id)
+  if (!element) return
+  element.textContent = message
+  element.hidden = !message
+  element.classList.toggle('error', error)
+}
+
+function setDetailText(id, value) {
+  const element = $(id)
+  if (element && element.textContent !== value) element.textContent = value
+}
+
+function setDetailHtml(id, value) {
+  const element = $(id)
+  if (element && element.innerHTML !== value) updateHtml(element, value)
+}
+
+function updateDetailHeader(job, id) {
+  setDetailText('d-id', job?.id || id)
+  setDetailText('d-feature', job?.feature || '')
+  $('d-feature').hidden = !job?.feature
+
+  const context = []
+  if (job?.bead) context.push(`<div><span class="detail-context-label">Bead</span> ${escapeHtml(job.bead)}</div>`)
+  if (job?.branch) context.push(`<div><span class="detail-context-label">Branch</span> <span class="mono">${escapeHtml(job.branch)}</span></div>`)
+  setDetailHtml('d-context', context.join(''))
+
+  const stage = job?.stage ? String(job.stage) : ''
+  setDetailText('d-stage', stage)
+  $('d-stage').hidden = !stage
+  const round = job?.round !== null && job?.round !== undefined && Number.isFinite(Number(job.round))
+    ? `round ${job.round}` : ''
+  setDetailText('d-round', round)
+  $('d-round').hidden = !round
+  const taskCount = Array.isArray(job?.tasks)
+    ? `${job.tasks.length} task${job.tasks.length === 1 ? '' : 's'}` : job ? 'tasks not recorded' : ''
+  setDetailText('d-task-count', taskCount)
+  $('d-task-count').hidden = !taskCount
+  const total = job ? jobTokens(job) : null
+  const tokenCount = job ? total === null ? 'tokens not recorded' : `${fmtTok(total)} tokens` : ''
+  setDetailText('d-token-count', tokenCount)
+  $('d-token-count').hidden = !tokenCount
+
+  const pr = safePullRequest(job?.pr)
+  const retro = retroLinks(job || {})
+  const retroPr = retro.includes(job?.retro_pr) ? safePullRequest(job.retro_pr) : null
+  const factoryRetro = retro.includes(job?.retro_factory_pr) ? safePullRequest(job.retro_factory_pr) : null
+  const links = [
+    pr && ['PR', pr],
+    retroPr && ['Retro PR', retroPr],
+    factoryRetro && ['Factory retro PR', factoryRetro],
+  ].filter(Boolean)
+  setDetailHtml('d-links', links.map(([label, url]) =>
+    `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${label}</a>`).join(''))
+}
+
+function focusPath(root) {
+  const active = document.activeElement
+  if (!root || !root.contains(active)) return null
+  const path = []
+  let current = active
+  while (current && current !== root) {
+    const parent = current.parentElement
+    if (!parent) return null
+    path.unshift([...parent.children].indexOf(current))
+    current = parent
+  }
+  return path
+}
+
+function restoreFocusPath(root, path) {
+  if (!root || path === null) return false
+  let target = root
+  for (const index of path) {
+    target = target.children[index]
+    if (!target) return false
+  }
+  target.focus?.()
+  return document.activeElement === target
+}
+
+function updateHtml(root, html) {
+  const path = focusPath(root)
+  const body = $('detail-scroll')
+  const scrollTop = body?.scrollTop || 0
+  root.innerHTML = html
+  const restored = restoreFocusPath(root, path)
+  if (path !== null && !restored) {
+    const fallback = root.id === 'd-links' ? $('d-close')
+      : root.id === 'd-scope-content' ? $('d-scope')?.querySelector('summary')
+        : root.id === 'd-criteria-content' ? $('d-criteria-title')
+          : root.closest('.detail-file')?.querySelector('summary') || $('d-close')
+    fallback?.focus()
+  }
+  if (body) body.scrollTop = scrollTop
+}
+
+function detailIsCurrent(id, generation) {
+  return id === detailId && generation === detailGeneration
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { cache: 'no-store' })
+  let body = null
+  try { body = await response.json() } catch { /* report the HTTP status below */ }
+  if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`)
+  return body
+}
+
+async function fetchText(url) {
+  const response = await fetch(url, { cache: 'no-store' })
+  const text = await response.text()
+  if (!response.ok) {
+    let message
+    try { message = JSON.parse(text).error } catch { /* use the HTTP status below */ }
+    throw new Error(message || `HTTP ${response.status}`)
+  }
+  return text
+}
+
+function renderChangeControl(change) {
+  const summary = changeSummary(change)
+  const existing = $('d-job-diff')
+  if (!summary) {
+    if (existing === document.activeElement) $('d-files-toggle').focus()
+    if ($('d-diff-slot') && !$('d-diff-slot').hidden && $('d-diff-slot').contains(document.activeElement)) $('d-files-toggle').focus()
+    if ($('d-diff-slot')) $('d-diff-slot').hidden = true
+    existing?.remove()
+    return
+  }
+  if (existing) {
+    existing.textContent = summary
+    return
+  }
+  $('d-change-control').innerHTML = `<button class="detail-action" id="d-job-diff" type="button" aria-expanded="false">${escapeHtml(summary)}</button>`
+}
+
+async function loadJobDiff(id, generation) {
+  const slot = $('d-diff-slot')
+  const pre = $('d-diff')
+  if (!slot || !pre) return
+  const scrollTop = pre.scrollTop
+  const scrollLeft = pre.scrollLeft
+  pre.textContent = 'Loading…'
+  try {
+    const text = await fetchText(`/api/diff?job=${encodeURIComponent(id)}`)
+    if (!detailIsCurrent(id, generation)) return
+    pre.textContent = text || 'No diff output.'
+  } catch (error) {
+    if (!detailIsCurrent(id, generation)) return
+    pre.textContent = `Could not load whole-job diff: ${error.message}`
+  }
+  pre.scrollTop = scrollTop
+  pre.scrollLeft = scrollLeft
+}
+
+function renderCriteria(result) {
+  updateHtml($('d-criteria-content'), criteriaHtml(result.criteria, result.criteria_note))
+  const scope = $('d-scope')
+  const hasScope = typeof result.out_of_scope === 'string' && result.out_of_scope.trim() !== ''
+  if (!hasScope && scope.contains(document.activeElement)) $('d-criteria-title').focus()
+  scope.hidden = !hasScope
+  if (hasScope) updateHtml($('d-scope-content'), markdown(result.out_of_scope))
+}
+
+function renderFileText(path, text) {
+  if (!text.trim()) return '<p class="detail-message">Empty file.</p>'
+  if (path === 'plan.json') return `<div class="detail-markdown">${markdown(planText(text))}</div>`
+  if (path.endsWith('.md')) return `<div class="detail-markdown">${markdown(text)}</div>`
+  return `<pre>${escapeHtml(text)}</pre>`
+}
+
+async function loadFile(id, path, details, generation) {
+  if (!details.open || !detailIsCurrent(id, generation)) return
+  const target = details.querySelector('.detail-file-content')
+  if (!target) return
+  if (detailFileCache.has(path)) {
+    updateHtml(target, renderFileText(path, detailFileCache.get(path)))
+    return
+  }
+  if (target.dataset.loading === 'true') return
+  target.dataset.loading = 'true'
+  target.innerHTML = '<p class="detail-message">Loading…</p>'
+  try {
+    const text = await fetchText(`/api/file?job=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`)
+    if (!detailIsCurrent(id, generation) || !details.open) return
+    detailFileCache.set(path, text)
+    updateHtml(target, renderFileText(path, text))
+  } catch (error) {
+    if (!detailIsCurrent(id, generation) || !details.open) return
+    target.innerHTML = `<p class="detail-message error">${escapeHtml(`Could not load ${path}: ${error.message}`)}</p>`
+  } finally {
+    target.dataset.loading = 'false'
+  }
+}
+
+function renderFiles(files, id, generation) {
+  const list = $('d-files-list')
+  const slot = $('d-files-slot')
+  const openPaths = new Set([...list.querySelectorAll('.detail-file')]
+    .filter((details) => details.open).map((details) => details.dataset.filePath))
+  const activeDetails = document.activeElement.closest?.('.detail-file')
+  const focusedFile = activeDetails?.dataset.filePath || null
+  const focus = focusPath(activeDetails)
+  const scrollTop = slot.scrollTop
+  const sorted = [...files].sort((a, b) => {
+    const left = fileRank(a.path)
+    const right = fileRank(b.path)
+    return left[0] - right[0] || left[1] - right[1] || left[2].localeCompare(right[2])
+  })
+  if (!sorted.length) {
+    list.innerHTML = '<p class="detail-message">No files.</p>'
+  } else {
+    list.innerHTML = sorted.map(({ path: file, first }) =>
+      `<details class="detail-file" data-file-path="${escapeHtml(file)}" data-detail-key="file:${escapeHtml(file)}"><summary><span class="mono">${escapeHtml(file)}</span>${first ? `<span class="detail-file-first">${escapeHtml(first)}</span>` : ''}</summary><div class="detail-file-content"></div></details>`).join('')
+    for (const details of list.querySelectorAll('.detail-file')) {
+      details.addEventListener('toggle', () => loadFile(id, details.dataset.filePath, details, generation))
+      if (openPaths.has(details.dataset.filePath)) {
+        details.open = true
+        loadFile(id, details.dataset.filePath, details, generation)
+      }
+    }
+  }
+  if (focusedFile) {
+    const nextDetails = [...list.querySelectorAll('.detail-file')].find((details) => details.dataset.filePath === focusedFile)
+    if (!restoreFocusPath(nextDetails, focus)) $('d-files-toggle').focus()
+  }
+  slot.scrollTop = scrollTop
+}
+
+async function loadFiles(id, generation) {
+  if (!detailIsCurrent(id, generation)) return
+  if (detailFilesRequest?.id === id && detailFilesRequest.generation === generation) return
+  const request = { id, generation }
+  detailFilesRequest = request
+  setDetailMessage('d-files-status', 'Loading…')
+  try {
+    const files = await fetchJson(`/api/files?job=${encodeURIComponent(id)}`)
+    if (!detailIsCurrent(id, generation)) return
+    if (!Array.isArray(files)) throw new Error('invalid response')
+    detailFilesLoaded = true
+    setDetailMessage('d-files-status', '')
+    renderFiles(files, id, generation)
+  } catch (error) {
+    if (!detailIsCurrent(id, generation)) return
+    setDetailMessage('d-files-status', `Could not load files: ${error.message}`, true)
+  } finally {
+    if (detailFilesRequest === request) detailFilesRequest = null
+  }
+}
+
+async function requestPanelData(id) {
+  const generation = ++detailGeneration
+  detailFileCache = new Map()
+  detailFilesLoaded = false
+  setDetailMessage('d-criteria-status', 'Loading…')
+  setDetailMessage('d-changes-status', 'Loading…')
+  $('d-run-count').textContent = 'Loading…'
+  $('d-run-count').classList.remove('error')
+  if (detailFilesVisible) setDetailMessage('d-files-status', 'Loading…')
+
+  const detailRequest = fetchJson(`/api/detail?job=${encodeURIComponent(id)}`)
+    .then((result) => {
+      if (!detailIsCurrent(id, generation)) return
+      if (!result || typeof result !== 'object') throw new Error('invalid response')
+      renderCriteria(result)
+      setDetailMessage('d-criteria-status', '')
+    }).catch((error) => {
+      if (detailIsCurrent(id, generation)) setDetailMessage('d-criteria-status', `Could not load acceptance criteria: ${error.message}`, true)
+    })
+  const changesRequest = fetchJson(`/api/changes?job=${encodeURIComponent(id)}`)
+    .then((result) => {
+      if (!detailIsCurrent(id, generation)) return
+      if (!result || typeof result !== 'object') throw new Error('invalid response')
+      renderChangeControl(result.job)
+      setDetailMessage('d-changes-status', '')
+      if (!$('d-diff-slot').hidden) {
+        if (changeSummary(result.job)) loadJobDiff(id, generation)
+        else $('d-diff-slot').hidden = true
+      }
+    }).catch((error) => {
+      if (detailIsCurrent(id, generation)) setDetailMessage('d-changes-status', `Could not load changes: ${error.message}`, true)
+    })
+  const runsRequest = fetchJson(`/api/runs?job=${encodeURIComponent(id)}`)
+    .then((runs) => {
+      if (!detailIsCurrent(id, generation)) return
+      if (!Array.isArray(runs)) throw new Error('invalid response')
+      $('d-run-count').textContent = `${runs.length} run${runs.length === 1 ? '' : 's'}`
+      $('d-run-count').classList.remove('error')
+    }).catch((error) => {
+      if (!detailIsCurrent(id, generation)) return
+      $('d-run-count').textContent = `Could not load runs: ${error.message}`
+      $('d-run-count').classList.add('error')
+    })
+  const filesRequest = detailFilesVisible ? loadFiles(id, generation) : Promise.resolve()
+  await Promise.all([detailRequest, changesRequest, runsRequest, filesRequest])
+}
+
+function syncDetail() {
+  const id = selectedJobId()
+  if (!id) {
+    if (detailId) hideDetail(true)
+    return
+  }
+  const job = data?.jobs?.find((item) => item.id === id) || null
+  const panel = $('detail-panel')
+  if (detailId !== id) {
+    detailGeneration++
+    detailId = id
+    detailUpdated = null
+    detailFilesVisible = false
+    detailFilesLoaded = false
+    detailFilesRequest = null
+    detailFileCache = new Map()
+    panel.classList.remove('expanded')
+    panel.hidden = false
+    panel.setAttribute('aria-hidden', 'false')
+    panel.innerHTML = detailShell()
+    requestAnimationFrame(() => {
+      if (detailId !== id) return
+      panel.classList.add('open')
+      $('d-close')?.focus()
+    })
+  }
+  updateDetailHeader(job, id)
+  if (!data) return
+  const updatedKey = job ? String(job.updated ?? '') : 'missing'
+  if (detailUpdated !== updatedKey) {
+    detailUpdated = updatedKey
+    requestPanelData(id)
+  }
+}
+
+function hideDetail(returnFocus) {
+  const id = detailId
+  detailGeneration++
+  detailId = null
+  detailUpdated = null
+  detailFilesVisible = false
+  const panel = $('detail-panel')
+  panel.classList.remove('open', 'expanded')
+  panel.setAttribute('aria-hidden', 'true')
+  syncSelection(null)
+  setTimeout(() => { if (!detailId) panel.hidden = true }, 200)
+  if (returnFocus && id) {
+    const card = [...document.querySelectorAll('.job-card[data-job]')].find((element) => element.dataset.job === id)
+    card?.focus()
+  }
+}
+
+function closeDetail() {
+  if (location.hash) history.replaceState(history.state, '', location.pathname + location.search)
+  hideDetail(true)
+}
+
+function toggleExpand() {
+  const panel = $('detail-panel')
+  const button = $('d-expand')
+  if (!panel || !button) return
+  const expanded = panel.classList.toggle('expanded')
+  button.textContent = expanded ? 'Restore width' : 'Expand'
+  button.setAttribute('aria-pressed', String(expanded))
+}
+
+function toggleFiles() {
+  const button = $('d-files-toggle')
+  const slot = $('d-files-slot')
+  detailFilesVisible = !detailFilesVisible
+  button.setAttribute('aria-expanded', String(detailFilesVisible))
+  slot.hidden = !detailFilesVisible
+  if (detailFilesVisible && !detailFilesLoaded) loadFiles(detailId, detailGeneration)
+}
+
+function toggleJobDiff(button) {
+  const slot = $('d-diff-slot')
+  const open = slot.hidden
+  slot.hidden = !open
+  button.setAttribute('aria-expanded', String(open))
+  if (open) {
+    requestAnimationFrame(() => slot.scrollIntoView({ block: 'nearest' }))
+    loadJobDiff(detailId, detailGeneration)
+  }
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && detailId) {
+    event.preventDefault()
+    closeDetail()
+  }
+})
+
+$('detail-panel').addEventListener('click', (event) => {
+  if (event.target.closest('#d-close')) return closeDetail()
+  if (event.target.closest('#d-expand')) return toggleExpand()
+  if (event.target.closest('#d-files-toggle')) return toggleFiles()
+  const diff = event.target.closest('#d-job-diff')
+  if (diff) return toggleJobDiff(diff)
+})
+
+window.addEventListener('hashchange', () => {
+  syncSelection()
+  syncDetail()
+})
+
 $('main').addEventListener('click', (event) => {
   const more = event.target.closest('[data-more]')
   if (more) {
@@ -766,7 +1336,6 @@ $('main').addEventListener('click', (event) => {
   const card = event.target.closest('[data-job]')
   if (card && $('main').contains(card)) openDetail(card.dataset.job)
 })
-window.addEventListener('hashchange', () => syncSelection())
 
 poll()
 setInterval(poll, POLL_MS)
