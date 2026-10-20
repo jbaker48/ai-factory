@@ -210,5 +210,37 @@ test_cards_stand_out_from_lanes_in_both_themes() {
   assert_eq true "$(p 'html.includes("--lane: #e3e8ef") && html.includes("--surface: #ffffff") && html.includes("--lane: #1b222c") && html.includes("--surface: #293442")')" "card and lane surfaces differ in light and dark themes"
 }
 
+test_fold() {
+  local g='[{"kind":"spec"},{"kind":"round","round":1},{"kind":"between","after":1},{"kind":"round","round":2},{"kind":"between","after":2},{"kind":"round","round":3},{"kind":"approve"}]'
+  assert_eq '["spec","round","fold","between","round","approve"]' "$(v "foldTimeline($g).map(x=>x.kind)")" "three rounds fold the middle"
+  assert_eq '"Rework cycle 1 (round 2)"' "$(v "foldTimeline($g)[2].label")" "singular label"
+}
+
+test_fold_eight_rounds_keeps_last_between_visible() {
+  local g='[{"kind":"round","round":1},{"kind":"between","after":1},{"kind":"round","round":2},{"kind":"between","after":2},{"kind":"round","round":3},{"kind":"between","after":3},{"kind":"round","round":4},{"kind":"between","after":4},{"kind":"round","round":5},{"kind":"between","after":5},{"kind":"round","round":6},{"kind":"between","after":6},{"kind":"round","round":7},{"kind":"between","after":7},{"kind":"round","round":8}]'
+  assert_eq '["round","fold","between","round"]' "$(v "foldTimeline($g).map(x=>x.kind)")" "eight rounds keep the last between visible"
+  assert_eq '"Rework cycles 1 to 6 (rounds 2 to 7)"' "$(v "foldTimeline($g)[1].label")" "eight-round fold label"
+}
+
+test_parse_diff() {
+  local d; d=$(printf 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n ctx\n+<b>new</b>\n' | jq -Rs .)
+  assert_eq '["x",1,0]' "$(v "(p=>[p.path,p.added,p.removed])(parseDiff($d)[0])")" "one file, one added line"
+}
+
+test_parse_diff_deletion_uses_old_path_and_escapes_rendered_lines() {
+  local d; d=$(printf 'diff --git a/old.txt b/old.txt\n--- a/old.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-<script>\n' | jq -Rs .)
+  assert_eq '["old.txt",0,1]' "$(v "(p=>[p.path,p.added,p.removed])(parseDiff($d)[0])")" "deleted file uses old path"
+  assert_eq true "$(v "(() => { const html = diffHtml($d, true); return html.includes('Diff truncated at 2 MB') && html.includes('class=\"diff-line del\">-&lt;script&gt;') && !html.includes('<script>') })()")" "diff lines are escaped and truncation is visible"
+}
+
+test_plan_tasks() {
+  assert_eq '"- `1.1` Add guard (covers 1, 2)"' \
+    "$(v 'planTasks({tasks:[{key:"1.1",title:"Add guard",covers:[1,2]}]})')" "plan tasks use keys, titles and coverage"
+}
+
+test_detail_open_board_uses_two_by_two_lanes_and_panel_width() {
+  assert_eq true "$(p 'html.includes("body.detail-open { --detail-panel-width: min(640px, 48vw); }") && html.includes("body.detail-open:not(.detail-expanded) .lanes { grid-template-columns: repeat(2, minmax(0, 1fr));") && html.includes("#detail-panel {") && html.includes("width: min(640px, 48vw); min-width: 0;")')" "open detail keeps a readable two by two board"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

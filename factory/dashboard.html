@@ -26,6 +26,8 @@
     --pass: #17663a;
     --wait: #755000;
     --change: #a52c21;
+    --diff-add-bg: #edf6ef;
+    --diff-del-bg: #faeeed;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     color-scheme: light;
   }
@@ -41,6 +43,8 @@
     --pass: #8bd6a0;
     --wait: #f0c76f;
     --change: #ff9389;
+    --diff-add-bg: #21372a;
+    --diff-del-bg: #402a2a;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
@@ -166,7 +170,7 @@
   footer .commands { display: flex; flex-wrap: wrap; gap: 4px 16px; }
   footer .mono { display: inline-block; }
 
-  body.detail-open { --detail-panel-width: min(760px, 56vw); }
+  body.detail-open { --detail-panel-width: min(640px, 48vw); }
   body.detail-open:not(.detail-expanded) > header.wrap,
   body.detail-open:not(.detail-expanded) > main.wrap,
   body.detail-open:not(.detail-expanded) > footer.wrap {
@@ -174,8 +178,9 @@
     margin-left: max(0px, calc((100% - var(--detail-panel-width) - 1440px) / 2));
     margin-right: var(--detail-panel-width);
   }
+  body.detail-open:not(.detail-expanded) .lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #detail-panel {
-    position: fixed; z-index: 10; top: 0; right: 0; width: min(760px, 56vw); min-width: 480px;
+    position: fixed; z-index: 10; top: 0; right: 0; width: min(640px, 48vw); min-width: 0;
     height: 100vh; height: 100dvh; background: var(--surface); border-left: 1px solid var(--line);
     transform: translateX(101%); visibility: hidden;
     pointer-events: none; transition: transform .18s ease, width .18s ease, visibility 0s linear .18s;
@@ -216,7 +221,43 @@
   .criteria-column { min-width: 0; padding: 16px 18px; border-right: 1px solid var(--line); background: var(--bg); }
   .criteria-column h2, .detail-diff h2 { margin: 0 0 10px; font-size: 15px; font-weight: 650; }
   .detail-runs { min-width: 0; padding: 16px 18px; }
+  .detail-runs > h2 { margin: 0 0 10px; font-size: 15px; font-weight: 650; }
   .detail-note { margin: 0; color: var(--muted); }
+  .timeline-group { min-width: 0; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .timeline-group:first-child { padding-top: 0; }
+  .timeline-heading { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+  .timeline-merge { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; min-width: 0; }
+  .timeline-merge a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-decoration: underline; overflow-wrap: anywhere; }
+  .timeline-fold-toggle, .run-toggle, .run-file-toggle {
+    min-height: 44px; padding: 7px 0; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer;
+  }
+  .timeline-fold-toggle { font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+  .timeline-fold-content { margin: 4px 0 0 8px; padding-left: 12px; border-left: 1px solid var(--line); }
+  .timeline-run { min-width: 0; padding: 8px 0; border-top: 1px solid var(--line); }
+  .timeline-run:first-child { border-top: 0; }
+  .run-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; overflow-wrap: anywhere; }
+  .run-role { font-weight: 620; }
+  .run-task { font: 12px var(--mono); overflow-wrap: anywhere; }
+  .run-model, .run-tokens, .run-time { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .run-toggle-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 0 12px; margin-top: 2px; }
+  .run-toggle { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+  .run-toggle:hover, .timeline-fold-toggle:hover, .run-file-toggle:hover { text-decoration-thickness: 2px; }
+  .run-toggle-content { grid-column: 1 / -1; max-width: 100%; padding: 4px 0 8px; overflow-wrap: anywhere; }
+  .run-toggle-content pre { max-width: 100%; max-height: 360px; margin: 0; padding: 10px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .run-file-list { min-width: 0; }
+  .run-file-toggle { display: flex; width: 100%; align-items: baseline; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); }
+  .run-file-path { min-width: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
+  .run-file-count { flex: none; color: var(--muted); font-size: 12px; }
+  .detail-file-diff { padding: 4px 0 10px; }
+  .diff-view { min-width: 0; }
+  .diff-truncated { margin: 4px 0 6px; color: var(--wait); font-weight: 600; }
+  .diff-scroll { max-width: 100%; max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); overscroll-behavior: contain; }
+  .diff-scroll pre { margin: 0; padding: 10px; color: var(--ink); font: 12px/1.5 var(--mono); white-space: pre; }
+  .diff-line { display: block; min-width: max-content; padding: 0 8px; }
+  .diff-line.add { background: var(--diff-add-bg); color: var(--pass); }
+  .diff-line.del { background: var(--diff-del-bg); color: var(--change); }
+  .diff-line.hunk { background: var(--lane); color: var(--muted); }
+  .diff-line.meta { color: var(--muted); }
   .detail-criterion { display: flex; gap: 10px; min-width: 0; padding: 10px 0; border-top: 1px solid var(--line); }
   .criterion-number { flex: none; min-width: 20px; padding-top: 1px; color: var(--ink); font-weight: 650; }
   .criterion-content { min-width: 0; flex: 1; }
@@ -241,7 +282,7 @@
   #d-scope summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
   #d-scope-content { padding-bottom: 10px; }
   .detail-diff { margin: 0 18px 18px; padding-top: 16px; border-top: 1px solid var(--line); }
-  .detail-diff pre { max-width: 100%; max-height: 45vh; margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); font: 12px/1.5 var(--mono); white-space: pre; }
+  #d-diff-viewer .diff-scroll { max-height: 45vh; }
 
   @media (max-width: 899px) {
     .wrap { padding-left: 16px; padding-right: 16px; }
@@ -742,6 +783,92 @@ function changeSummary(change) {
   return `${count} file${count === 1 ? '' : 's'}, +${added} −${removed}`
 }
 
+function foldTimeline(groups) {
+  if (!Array.isArray(groups)) return []
+  const rounds = groups.map((group, index) => group?.kind === 'round' ? index : -1).filter((index) => index >= 0)
+  if (rounds.length <= 2) return groups
+
+  const firstRoundIndex = rounds[0]
+  const lastRoundIndex = rounds.at(-1)
+  const penultimateRoundIndex = rounds.at(-2)
+  const firstRound = groups[firstRoundIndex]
+  const firstBetweenIndex = groups.findIndex((group, index) =>
+    index > firstRoundIndex && index < penultimateRoundIndex && group?.kind === 'between' && Number(group.after) === Number(firstRound.round))
+  if (firstBetweenIndex < 0) return groups
+
+  const count = rounds.length
+  const label = count === 3
+    ? 'Rework cycle 1 (round 2)'
+    : `Rework cycles 1 to ${count - 2} (rounds 2 to ${count - 1})`
+  return [
+    ...groups.slice(0, firstBetweenIndex),
+    { kind: 'fold', label, groups: groups.slice(firstBetweenIndex, penultimateRoundIndex + 1) },
+    ...groups.slice(penultimateRoundIndex + 1, lastRoundIndex + 1),
+    ...groups.slice(lastRoundIndex + 1),
+  ]
+}
+
+function planTasks(plan) {
+  const tasks = Array.isArray(plan?.tasks) ? plan.tasks : []
+  if (!tasks.length) return 'none'
+  return tasks.map((task) => {
+    const key = task?.key == null ? '' : task.key
+    const title = task?.title == null ? '' : task.title
+    const covers = Array.isArray(task?.covers) && task.covers.length ? task.covers.join(', ') : 'none'
+    return `- \`${key}\` ${title} (covers ${covers})`
+  }).join('\n')
+}
+
+function diffPath(header, prefix) {
+  if (!header) return null
+  let value = header.slice(4).split('\t', 1)[0]
+  if (value.startsWith('"')) {
+    const quoted = value.match(/^"((?:\\.|[^"])*)"$/)
+    if (quoted) value = quoted[1].replace(/\\([\\"])/g, '$1').replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+  }
+  if (value === '/dev/null') return null
+  return value.startsWith(prefix) ? value.slice(prefix.length) : value
+}
+
+function parseDiff(text) {
+  const blocks = []
+  let current = null
+  for (const line of String(text || '').replace(/\r/g, '').split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      current = { path: null, added: 0, removed: 0, lines: [] }
+      blocks.push(current)
+    }
+    if (!current || !line) continue
+    current.lines.push({
+      type: line.startsWith('@@') ? 'hunk'
+        : line.startsWith('+') && !line.startsWith('+++') ? 'add'
+          : line.startsWith('-') && !line.startsWith('---') ? 'del'
+            : line.startsWith(' ') ? 'ctx' : 'meta',
+      text: line,
+    })
+    if (line.startsWith('+++ ')) {
+      const path = diffPath(line, 'b/')
+      if (path !== null) current.path = path
+    } else if (line.startsWith('--- ') && current.path === null) {
+      current.path = diffPath(line, 'a/')
+    }
+    if (line.startsWith('+') && !line.startsWith('+++')) current.added++
+    if (line.startsWith('-') && !line.startsWith('---')) current.removed++
+  }
+  return blocks
+}
+
+function diffFilesHtml(files, truncated = false, emptyMessage = 'No diff output.') {
+  const lines = files.flatMap((file) => file.lines).map(({ type, text }) =>
+    `<span class="diff-line ${type}">${escapeHtml(text)}</span>`).join('\n')
+  const body = lines || escapeHtml(emptyMessage)
+  return `<div class="diff-view">${truncated ? '<p class="diff-truncated">Diff truncated at 2 MB</p>' : ''}<div class="diff-scroll" tabindex="0"><pre>${body}</pre></div></div>`
+}
+
+function diffHtml(text, truncated = false) {
+  return diffFilesHtml(parseDiff(text), truncated, text ? String(text) : 'No diff output.')
+}
+
 function usageMarkdown(records) {
   const cell = (value) => (value === null || value === undefined ? '' : String(value)).replace(/\|/g, '/')
   const delta = (quota) => quota && typeof quota.after === 'number' && typeof quota.before === 'number'
@@ -771,6 +898,12 @@ let detailFilesVisible = false
 let detailFilesLoaded = false
 let detailFilesRequest = null
 let detailFileCache = new Map()
+let detailTimeline = null
+let detailChanges = null
+let detailChangesError = null
+let detailOpenToggles = new Set()
+let detailTaskDiffCache = new Map()
+let detailTaskDiffRequests = new Map()
 
 const $ = (id) => document.getElementById(id)
 
@@ -943,7 +1076,7 @@ function detailShell() {
       </div>
       <section class="detail-diff" id="d-diff-slot" hidden>
         <h2>Whole-job diff</h2>
-        <pre id="d-diff" tabindex="0"></pre>
+        <div id="d-diff-viewer"></div>
       </section>
     </div>
   </div>`
@@ -1079,26 +1212,302 @@ function renderChangeControl(change) {
     existing.textContent = summary
     return
   }
-  $('d-change-control').innerHTML = `<button class="detail-action" id="d-job-diff" type="button" aria-expanded="false">${escapeHtml(summary)}</button>`
+  $('d-change-control').innerHTML = `<button class="detail-action" id="d-job-diff" type="button" aria-expanded="false" aria-controls="d-diff-slot">${escapeHtml(summary)}</button>`
+}
+
+async function fetchDiff(url) {
+  const response = await fetch(url, { cache: 'no-store' })
+  const text = await response.text()
+  if (!response.ok) {
+    let message
+    try { message = JSON.parse(text).error } catch { /* use the HTTP status below */ }
+    throw new Error(message || `HTTP ${response.status}`)
+  }
+  return { text, truncated: response.headers.get('x-diff-truncated') === '1' }
+}
+
+function timelineGroupTitle(group) {
+  if (group.kind === 'spec') return 'Spec'
+  if (group.kind === 'plan') return 'Plan'
+  if (group.kind === 'build') return 'Build'
+  if (group.kind === 'round') return `Round ${group.round}`
+  if (group.kind === 'between') return Number(group.after) === 0 ? 'Before round 1' : `Between rounds ${group.after} and ${Number(group.after) + 1}`
+  if (group.kind === 'approve') return 'Approve'
+  if (group.kind === 'merge') return 'Merge'
+  if (group.kind === 'other') return 'Other runs'
+  if (group.kind === 'fold') return group.label || 'Rework cycles'
+  return 'Other runs'
+}
+
+function runRole(run) {
+  const roles = {
+    'spec-writer': 'Spec writer',
+    planner: 'Planner',
+    builder: 'Builder',
+    'builder-escalation': 'Builder escalation',
+    approver: 'Approver',
+    autopilot: 'Autopilot',
+    briefer: 'Briefer',
+    retro: 'Retro writer',
+  }
+  if (typeof run.key === 'string' && run.key.startsWith('reviewer-')) return `${run.key.slice('reviewer-'.length)} reviewer`
+  return roles[run.key] || run.key || ''
+}
+
+function runTime(stamp) {
+  const match = typeof stamp === 'string' && stamp.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)
+  return match ? `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}:${match[6]}` : ''
+}
+
+function runTokenText(run) {
+  if (!run.tokens_from || !run.tokens || typeof run.tokens !== 'object') return 'tokens not recorded'
+  return `${fmtTok(tokens(run.tokens))} tokens`
+}
+
+function renderTimelineFile(path, text, kind) {
+  if (kind === 'prompt') return `<pre>${escapeHtml(text)}</pre>`
+  if (!text.trim()) return '<p class="detail-message">Empty file.</p>'
+  if (path === 'plan.json') {
+    try { return `<div class="detail-markdown">${markdown(planTasks(JSON.parse(text)))}</div>` }
+    catch { return '<p class="detail-message error">plan.json is not valid JSON.</p>' }
+  }
+  return `<div class="detail-markdown">${markdown(text)}</div>`
+}
+
+function timelineFileContent(path, kind, noRecord) {
+  if (!path) return `<p class="detail-message">${escapeHtml(noRecord)}</p>`
+  if (!detailFileCache.has(path)) return '<p class="detail-message">Loading…</p>'
+  return renderTimelineFile(path, detailFileCache.get(path), kind)
+}
+
+function detailToggleHtml({ key, label, kind, open, path = null, runId = null, taskId = null }, body, buttonClass = 'run-toggle', labelHtml = null, contentClass = 'run-toggle-content') {
+  const attrs = [
+    `class="${buttonClass}"`,
+    'type="button"',
+    `data-detail-toggle="${escapeHtml(key)}"`,
+    `data-toggle-kind="${escapeHtml(kind)}"`,
+    `aria-expanded="${String(open)}"`,
+  ]
+  if (path !== null) attrs.push(`data-file-path="${escapeHtml(path)}"`)
+  if (runId !== null) attrs.push(`data-run-id="${escapeHtml(runId)}"`)
+  if (taskId !== null) attrs.push(`data-task-id="${escapeHtml(taskId)}"`)
+  return `<button ${attrs.join(' ')}>${labelHtml === null ? escapeHtml(label) : labelHtml}</button><div class="${contentClass}" data-detail-content="${escapeHtml(key)}"${open ? '' : ' hidden'}>${body}</div>`
+}
+
+function renderTaskFile(run, file) {
+  const key = `${run.id}:changes:${run.task}:${file.path}`
+  const open = detailOpenToggles.has(key)
+  const counts = `+${Number.isFinite(file.added) ? file.added : 0} −${Number.isFinite(file.removed) ? file.removed : 0}`
+  let body = '<p class="detail-message">Loading…</p>'
+  const taskDiff = detailTaskDiffCache.get(String(run.task))
+  if (taskDiff) {
+    const entry = taskDiff.files.find((item) => item.path === file.path)
+    body = entry ? diffFilesHtml([entry], taskDiff.truncated, 'No diff output for this file.')
+      : '<p class="detail-message">No diff output for this file.</p>'
+  }
+  return detailToggleHtml({ key, label: file.path, kind: 'task-file', open, taskId: run.task }, body,
+    'run-file-toggle', `<span class="run-file-path">${escapeHtml(file.path)}</span><span class="run-file-count">${counts}</span>`, 'detail-file-diff')
+}
+
+function renderChangesContent(run) {
+  if (detailChangesError) return `<p class="detail-message error">${escapeHtml(`Could not load task changes: ${detailChangesError}`)}</p>`
+  if (!detailChanges) return '<p class="detail-message">Loading…</p>'
+  const taskId = String(run.task)
+  if (!Object.hasOwn(detailChanges, taskId)) return '<p class="detail-message">Task commits are no longer available for this job</p>'
+  const files = Array.isArray(detailChanges[taskId]?.files) ? detailChanges[taskId].files : []
+  if (!files.length) return '<p class="detail-message">none</p>'
+  return `<div class="run-file-list">${files.map((file) => renderTaskFile(run, file)).join('')}</div>`
+}
+
+function renderRun(run) {
+  const role = runRole(run)
+  const task = run.task ? `<span class="run-task">${escapeHtml(run.task)}</span>` : ''
+  const model = run.model ? `<span class="run-model">${escapeHtml(run.model)}</span>` : ''
+  const timeText = runTime(run.stamp)
+  const time = timeText ? `<time class="run-time">${escapeHtml(timeText)}</time>` : ''
+  const roleText = role ? `<span class="run-role">${escapeHtml(role)}</span>` : ''
+  const meta = `<div class="run-meta">${roleText}${task}${model}<span class="run-tokens">${escapeHtml(runTokenText(run))}</span>${time}</div>`
+  const promptKey = `${run.id}:prompt`
+  const outputKey = `${run.id}:output`
+  const changesKey = `${run.id}:changes`
+  const promptOpen = detailOpenToggles.has(promptKey)
+  const outputOpen = detailOpenToggles.has(outputKey)
+  const prompt = detailToggleHtml({ key: promptKey, label: 'Prompt', kind: 'prompt', open: promptOpen, path: run.prompt, runId: run.id },
+    promptOpen ? timelineFileContent(run.prompt, 'prompt', 'No prompt recorded for this run') : '')
+  const output = detailToggleHtml({ key: outputKey, label: 'Output', kind: 'output', open: outputOpen, path: run.output, runId: run.id },
+    outputOpen ? timelineFileContent(run.output, 'output', 'No output recorded') : '')
+  const toggles = [prompt, output]
+  if (run.stage === 'build' && run.task) {
+    const changesOpen = detailOpenToggles.has(changesKey)
+    toggles.push(detailToggleHtml({ key: changesKey, label: 'Changes', kind: 'changes', open: changesOpen, runId: run.id, taskId: run.task },
+      changesOpen ? renderChangesContent(run) : ''))
+  }
+  return `<article class="timeline-run">${meta}<div class="run-toggle-list">${toggles.join('')}</div></article>`
+}
+
+function renderTimelineNote(note, index) {
+  const path = typeof note.path === 'string' ? note.path : ''
+  const key = `note:${path}:${index}:output`
+  const open = detailOpenToggles.has(key)
+  const toggle = detailToggleHtml({ key, label: 'Output', kind: 'note-output', open, path },
+    open ? timelineFileContent(path, 'output', 'No output recorded') : '')
+  return `<article class="timeline-run"><div class="run-meta"><span class="run-role run-task">${escapeHtml(path || 'File not recorded')}</span></div>${toggle}</article>`
+}
+
+function renderTimelineGroup(group, groupIndex) {
+  const title = timelineGroupTitle(group)
+  if (group.kind === 'fold') {
+    const key = `fold:${groupIndex}:${group.label || ''}`
+    const open = detailOpenToggles.has(key)
+    const nested = Array.isArray(group.groups) ? group.groups.map((item, index) =>
+      renderTimelineGroup(item, `${groupIndex}-${index}`)).join('') : ''
+    return `<section class="timeline-group"><h3 class="timeline-heading"><button class="timeline-fold-toggle" type="button" data-detail-toggle="${escapeHtml(key)}" data-toggle-kind="fold" aria-expanded="${String(open)}">${escapeHtml(title)}</button></h3><div class="timeline-fold-content" data-detail-content="${escapeHtml(key)}"${open ? '' : ' hidden'}>${nested}</div></section>`
+  }
+  if (group.kind === 'merge') {
+    const merged = group.stage === 'merged'
+    const dropped = group.stage === 'dropped'
+    const label = merged ? 'Merged' : dropped ? 'Dropped' : String(group.stage || '')
+    const link = safePullRequest(group.pr)
+      ? `<a href="${escapeHtml(safePullRequest(group.pr))}" target="_blank" rel="noopener">Pull request</a>` : ''
+    return `<section class="timeline-group"><h3 class="timeline-heading">${escapeHtml(title)}</h3><div class="timeline-merge"><span class="marker ${merged ? 'pass' : dropped ? 'change' : ''}"><span class="marker-square"></span>${escapeHtml(label)}</span>${link}</div></section>`
+  }
+  const runs = Array.isArray(group.runs) ? group.runs : []
+  const notes = Array.isArray(group.notes) ? group.notes : []
+  let content = runs.map((run) => renderRun(run)).join('')
+  content += notes.map((note, index) => renderTimelineNote(note, `${groupIndex}-${index}`)).join('')
+  if (!runs.length && !notes.length && (group.kind === 'spec' || group.kind === 'plan') && group.output) {
+    const key = `group:${group.kind}:${group.output}:output`
+    const open = detailOpenToggles.has(key)
+    content = `<article class="timeline-run">${detailToggleHtml({ key, label: 'Output', kind: 'group-output', open, path: group.output },
+      open ? timelineFileContent(group.output, 'output', 'No output recorded') : '')}</article>`
+  }
+  if (!content) content = '<p class="detail-message">none</p>'
+  return `<section class="timeline-group"><h3 class="timeline-heading">${escapeHtml(title)}</h3>${content}</section>`
+}
+
+function renderTimeline(groups, id, generation) {
+  if (!Array.isArray(groups)) {
+    setDetailHtml('d-runs', '<p class="detail-message error" role="alert">Could not load agent runs: invalid response</p>')
+    return
+  }
+  if (!groups.length) {
+    setDetailHtml('d-runs', '<h2>Agent runs</h2><p class="detail-message">none</p>')
+    return
+  }
+  const html = `<h2>Agent runs</h2>${foldTimeline(groups).map((group, index) => renderTimelineGroup(group, index)).join('')}`
+  setDetailHtml('d-runs', html)
+  for (const button of $('d-runs').querySelectorAll('[data-detail-toggle][aria-expanded="true"]')) {
+    if (button.dataset.toggleKind === 'prompt' || button.dataset.toggleKind === 'output' ||
+        button.dataset.toggleKind === 'group-output' || button.dataset.toggleKind === 'note-output') {
+      loadTimelineFile(id, button.dataset.filePath || null, button.dataset.detailToggle, button.dataset.toggleKind, generation)
+    } else if (button.dataset.toggleKind === 'task-file') {
+      loadTaskDiff(id, button.dataset.taskId, button.dataset.filePath, button.dataset.detailToggle, generation)
+    }
+  }
+}
+
+function detailToggleContent(key) {
+  return [...$('d-runs').querySelectorAll('[data-detail-content]')]
+    .find((element) => element.dataset.detailContent === key) || null
+}
+
+async function loadTimelineFile(id, path, key, kind, generation) {
+  if (!detailIsCurrent(id, generation)) return
+  const target = detailToggleContent(key)
+  if (!target || target.hidden) return
+  if (!path) {
+    updateHtml(target, `<p class="detail-message">${escapeHtml(kind === 'prompt' ? 'No prompt recorded for this run' : 'No output recorded')}</p>`)
+    return
+  }
+  if (detailFileCache.has(path)) {
+    updateHtml(target, renderTimelineFile(path, detailFileCache.get(path), kind === 'prompt' ? 'prompt' : 'output'))
+    return
+  }
+  if (target.dataset.loading === 'true') return
+  target.dataset.loading = 'true'
+  updateHtml(target, '<p class="detail-message">Loading…</p>')
+  try {
+    const text = await fetchText(`/api/file?job=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`)
+    if (!detailIsCurrent(id, generation) || target.hidden) return
+    detailFileCache.set(path, text)
+    updateHtml(target, renderTimelineFile(path, text, kind === 'prompt' ? 'prompt' : 'output'))
+  } catch (error) {
+    if (!detailIsCurrent(id, generation) || target.hidden) return
+    updateHtml(target, `<p class="detail-message error">${escapeHtml(`Could not load ${path}: ${error.message}`)}</p>`)
+  } finally {
+    target.dataset.loading = 'false'
+  }
+}
+
+async function loadTaskDiff(id, taskId, path, key, generation) {
+  if (!detailIsCurrent(id, generation)) return
+  const target = detailToggleContent(key)
+  if (!target || target.hidden) return
+  const task = String(taskId || '')
+  if (detailTaskDiffCache.has(task)) {
+    const result = detailTaskDiffCache.get(task)
+    const file = result.files.find((item) => item.path === path)
+    updateHtml(target, file ? diffFilesHtml([file], result.truncated, 'No diff output for this file.')
+      : '<p class="detail-message">No diff output for this file.</p>')
+    return
+  }
+  target.dataset.loading = 'true'
+  updateHtml(target, '<p class="detail-message">Loading…</p>')
+  try {
+    if (!detailTaskDiffRequests.has(task)) {
+      const requests = detailTaskDiffRequests
+      const request = fetchDiff(`/api/diff?job=${encodeURIComponent(id)}&task=${encodeURIComponent(task)}`)
+        .finally(() => { if (requests.get(task) === request) requests.delete(task) })
+      detailTaskDiffRequests.set(task, request)
+    }
+    const result = await detailTaskDiffRequests.get(task)
+    if (!detailIsCurrent(id, generation)) return
+    const parsed = { files: parseDiff(result.text), truncated: result.truncated }
+    detailTaskDiffCache.set(task, parsed)
+    if (target.hidden) return
+    const file = parsed.files.find((item) => item.path === path)
+    updateHtml(target, file ? diffFilesHtml([file], result.truncated, 'No diff output for this file.')
+      : '<p class="detail-message">No diff output for this file.</p>')
+  } catch (error) {
+    if (!detailIsCurrent(id, generation) || target.hidden) return
+    updateHtml(target, `<p class="detail-message error">${escapeHtml(`Could not load task diff: ${error.message}`)}</p>`)
+  } finally {
+    target.dataset.loading = 'false'
+  }
+}
+
+function toggleDetailSection(button) {
+  const key = button.dataset.detailToggle
+  const open = button.getAttribute('aria-expanded') !== 'true'
+  button.setAttribute('aria-expanded', String(open))
+  const content = detailToggleContent(key)
+  if (content) content.hidden = !open
+  if (!open) {
+    detailOpenToggles.delete(key)
+    return
+  }
+  detailOpenToggles.add(key)
+  const kind = button.dataset.toggleKind
+  if (kind === 'prompt' || kind === 'output' || kind === 'group-output' || kind === 'note-output') {
+    loadTimelineFile(detailId, button.dataset.filePath || null, key, kind, detailGeneration)
+  } else if (kind === 'task-file') {
+    loadTaskDiff(detailId, button.dataset.taskId, button.dataset.filePath, key, detailGeneration)
+  }
 }
 
 async function loadJobDiff(id, generation) {
   const slot = $('d-diff-slot')
-  const pre = $('d-diff')
-  if (!slot || !pre) return
-  const scrollTop = pre.scrollTop
-  const scrollLeft = pre.scrollLeft
-  pre.textContent = 'Loading…'
+  const viewer = $('d-diff-viewer')
+  if (!slot || !viewer) return
+  setDetailHtml('d-diff-viewer', '<p class="detail-message">Loading…</p>')
   try {
-    const text = await fetchText(`/api/diff?job=${encodeURIComponent(id)}`)
+    const result = await fetchDiff(`/api/diff?job=${encodeURIComponent(id)}`)
     if (!detailIsCurrent(id, generation)) return
-    pre.textContent = text || 'No diff output.'
+    setDetailHtml('d-diff-viewer', diffHtml(result.text, result.truncated))
   } catch (error) {
     if (!detailIsCurrent(id, generation)) return
-    pre.textContent = `Could not load whole-job diff: ${error.message}`
+    setDetailHtml('d-diff-viewer', `<p class="detail-message error" role="alert">${escapeHtml(`Could not load whole-job diff: ${error.message}`)}</p>`)
   }
-  pre.scrollTop = scrollTop
-  pre.scrollLeft = scrollLeft
 }
 
 function renderCriteria(result) {
@@ -1201,6 +1610,7 @@ async function requestPanelData(id, firstLoad) {
   if (firstLoad) {
     setDetailMessage('d-criteria-status', 'Loading…')
     setDetailMessage('d-changes-status', 'Loading…')
+    setDetailHtml('d-runs', '<h2>Agent runs</h2><p class="detail-message">Loading…</p>')
     const runCount = $('d-run-count')
     if (runCount) {
       runCount.textContent = 'Loading…'
@@ -1214,22 +1624,34 @@ async function requestPanelData(id, firstLoad) {
       if (!detailIsCurrent(id, generation)) return
       if (!result || typeof result !== 'object') throw new Error('invalid response')
       renderCriteria(result)
+      detailTimeline = result.timeline
+      renderTimeline(detailTimeline, id, generation)
       setDetailMessage('d-criteria-status', '')
     }).catch((error) => {
-      if (detailIsCurrent(id, generation)) setDetailMessage('d-criteria-status', `Could not load acceptance criteria: ${error.message}`, true)
+      if (!detailIsCurrent(id, generation)) return
+      detailTimeline = []
+      setDetailMessage('d-criteria-status', `Could not load acceptance criteria: ${error.message}`, true)
+      setDetailHtml('d-runs', `<p class="detail-message error" role="alert">${escapeHtml(`Could not load agent runs: ${error.message}`)}</p>`)
     })
   const changesRequest = fetchJson(`/api/changes?job=${encodeURIComponent(id)}`)
     .then((result) => {
       if (!detailIsCurrent(id, generation)) return
-      if (!result || typeof result !== 'object') throw new Error('invalid response')
+      if (!result || typeof result !== 'object' || !result.tasks || typeof result.tasks !== 'object' || Array.isArray(result.tasks)) throw new Error('invalid response')
+      detailChanges = result.tasks
+      detailChangesError = null
       renderChangeControl(result.job)
       setDetailMessage('d-changes-status', '')
+      if (detailTimeline !== null) renderTimeline(detailTimeline, id, generation)
       if (!$('d-diff-slot').hidden) {
         if (changeSummary(result.job)) loadJobDiff(id, generation)
         else $('d-diff-slot').hidden = true
       }
     }).catch((error) => {
-      if (detailIsCurrent(id, generation)) setDetailMessage('d-changes-status', `Could not load changes: ${error.message}`, true)
+      if (!detailIsCurrent(id, generation)) return
+      detailChanges = null
+      detailChangesError = error.message
+      setDetailMessage('d-changes-status', `Could not load changes: ${error.message}`, true)
+      if (detailTimeline !== null) renderTimeline(detailTimeline, id, generation)
     })
   const runsRequest = fetchJson(`/api/runs?job=${encodeURIComponent(id)}`)
     .then((runs) => {
@@ -1262,6 +1684,12 @@ function syncDetail() {
     detailFilesLoaded = false
     detailFilesRequest = null
     detailFileCache = new Map()
+    detailTimeline = null
+    detailChanges = null
+    detailChangesError = null
+    detailOpenToggles = new Set()
+    detailTaskDiffCache = new Map()
+    detailTaskDiffRequests = new Map()
     panel.classList.remove('expanded')
     panel.hidden = false
     panel.setAttribute('aria-hidden', 'false')
@@ -1348,6 +1776,8 @@ $('detail-panel').addEventListener('click', (event) => {
   if (event.target.closest('#d-close')) return closeDetail()
   if (event.target.closest('#d-expand')) return toggleExpand()
   if (event.target.closest('#d-files-toggle')) return toggleFiles()
+  const timelineToggle = event.target.closest('[data-detail-toggle]')
+  if (timelineToggle) return toggleDetailSection(timelineToggle)
   const diff = event.target.closest('#d-job-diff')
   if (diff) return toggleJobDiff(diff)
 })
