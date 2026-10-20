@@ -5,7 +5,8 @@
 //
 // Open http://127.0.0.1:<port>/. The page polls GET /api/state (models,
 // land mode and every job with its usage and past review verdicts), gets
-// agent runs through GET /api/runs?job=<id>, task changes through
+// job details through GET /api/detail?job=<id>, agent runs through
+// GET /api/runs?job=<id>, task changes through
 // GET /api/changes?job=<id> and GET /api/diff?job=<id>[&task=<id>|&commit=<hex>],
 // and job files through GET /api/files?job=<id> and
 // GET /api/file?job=<id>&path=<path>. Everything is read-only. Only .md files,
@@ -20,6 +21,7 @@ const fs = require('fs')
 const path = require('path')
 const { STEM, listRuns, derivedUsage } = require('../dashboard/runs')
 const dashboardGit = require('../dashboard/git')
+const dashboardDetail = require('../dashboard/detail')
 
 const factory = path.resolve(__dirname, '..')
 const jobsDir = path.join(factory, 'jobs')
@@ -160,6 +162,13 @@ const server = http.createServer(async (req, res) => {
       if (!dir) return json(res, 404, { error: 'no such job' })
       const job = readJSON(path.join(dir, 'job.json'), {})
       return json(res, 200, listRuns(dir, job, readUsage(dir)))
+    }
+    if (url.pathname === '/api/detail') {
+      const id = url.searchParams.get('job')
+      const dir = jobDir(id)
+      if (!dir) return json(res, 404, { error: 'no such job' })
+      const job = readJSON(path.join(dir, 'job.json'), {})
+      return json(res, 200, dashboardDetail.detail(dir, job, readUsage(dir)))
     }
     if (url.pathname === '/api/changes' || url.pathname === '/api/diff') {
       const id = url.searchParams.get('job')
