@@ -27,8 +27,7 @@ the main checkout; your one file goes there. Never change anything in the
 worktree: the orchestrator checks it is still clean after you.
 
 For task state, read `<job folder>/beads.md`: the orchestrator's snapshot,
-taken just before you started. Don't write to Beads; `bd --readonly ...` is
-there if you need more than the snapshot.
+taken just before you started. Beads itself is not available to you.
 
 ## Situations
 

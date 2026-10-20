@@ -48,7 +48,7 @@ orchestrator's snapshot, taken just before you started.
 ## Decide
 
 The final round has five reviews. `review-adversarial.md` comes from the
-Codex plugin's adversarial reviewer: weigh its Notes, which hold findings
+adversarial reviewer (the Codex plugin or Claude): weigh its Notes, which hold findings
 below its blocking threshold, as well as its Findings.
 
 Pick exactly one:

@@ -16,17 +16,19 @@ anywhere, so start every shell command with `cd <worktree> && ` and use
 absolute paths for every file you read or write. The job folder is in the main
 checkout; your one file goes there.
 
-Beads is read-only for you. Use `bd --readonly ...` only.
+Beads is not available to you. Read `<job folder>/beads.md`: the
+orchestrator's snapshot, taken just before you started.
 
 ## Read first
 
 1. `AGENTS.md` (or `CLAUDE.md`): the project overview, important paths,
    commands and conventions.
-2. `bd --readonly show <bead>`: the request may have been queued with more
+2. The Bead section of `beads.md`: the request may have been queued with more
    context in its description, notes or comments. If it names a PRD section,
    read that section: the PRD is upstream of your spec. Don't contradict it,
    and turn its acceptance hints into criteria. Also read the beads it depends
-   on, so the spec builds on that work instead of redoing it.
+   on (the Dependencies section), so the spec builds on that work instead of
+   redoing it.
 3. Any doc AGENTS.md says to read before touching the area this feature lives in.
 4. The code the feature touches, in the worktree. Find the real files and
    components; don't guess at names.

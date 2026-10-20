@@ -15,7 +15,8 @@ shell may start anywhere, so start every shell command with `cd <worktree> && `
 and use absolute paths for every file you read or write. The job folder is in
 the main checkout; your one file goes there.
 
-Beads is read-only for you. Use `bd --readonly ...` only.
+Beads is not available to you. Read `<job folder>/beads.md`: the
+orchestrator's snapshot, taken just before you started.
 
 ## Read
 
@@ -28,7 +29,7 @@ Beads is read-only for you. Use `bd --readonly ...` only.
    what they say must not change. If the spec can't be met within them, write
    BLOCKED.
 4. The code the spec names, in the worktree.
-5. `bd --readonly children <bead>`: on a re-plan, closed tasks are work already
+5. The Children section of `beads.md`: on a re-plan, closed tasks are work already
    done on the branch (`git log --oneline <base>..<branch>`, with `<base>` the base ref from your prompt). Don't plan it again.
    An adopted bead may already have open task children from an earlier plan
    or a person. Reuse each one that fits by giving its plan task

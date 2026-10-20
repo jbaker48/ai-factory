@@ -1,0 +1,16 @@
+{
+  "spec-writer":        { "provider": "anthropic", "model": "opus" },
+  "planner":            { "provider": "anthropic", "model": "opus" },
+  "builder":            { "provider": "anthropic", "model": "sonnet" },
+  "builder-escalation": { "provider": "anthropic", "model": "opus",   "agent": "builder" },
+  "reviewer-security":  { "provider": "anthropic", "model": "opus" },
+  "reviewer-code":      { "provider": "anthropic", "model": "sonnet" },
+  "reviewer-ux":        { "provider": "anthropic", "model": "sonnet" },
+  "reviewer-ui":        { "provider": "anthropic", "model": "sonnet" },
+  "reviewer-adversarial": { "provider": "anthropic", "model": "opus" },
+  "approver":           { "provider": "anthropic", "model": "opus" },
+  "autopilot":          { "provider": "anthropic", "model": "opus" },
+  "importer":           { "provider": "anthropic", "model": "opus" },
+  "briefer":            { "provider": "anthropic", "model": "opus" },
+  "retro":              { "provider": "anthropic", "model": "sonnet" }
+}

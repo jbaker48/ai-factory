@@ -45,7 +45,8 @@ feature ─► spec-writer ─► planner ─► Beads tasks ─► builder, one
 `MAX_ROUNDS = 3` review rounds per run: round `N` is the run's
 `N - round_base`th (see **job.json**). `MAX_TASK_RUNS = 2` builder runs per
 task (the second on `builder-escalation`). To change the factory, edit this
-file, the role files in `factory/agents/`, and `factory/models.json`.
+file, the role files in `factory/agents/`, and `factory/models.json`
+(`factory/bin/models <preset>` switches it between presets).
 
 Every agent reads `AGENTS.md` (or `CLAUDE.md`) for the repo's setup, dev server,
 validation commands and conventions. Nothing repo-specific lives in these files.
@@ -59,9 +60,10 @@ The spec and Beads do different jobs. Keep them apart.
 - Beads tracks **the work**: one `feature` bead per job (linked to the spec with
   `--spec-id`), one `task` child per unit of build work, and the queue of
   features waiting for `/factory next` or the autopilot.
-- Agents never write Beads. Some roles read it with `bd --readonly`; the rest
-  read `<job folder>/beads.md`, the snapshot you take before every role (see
-  **Running a role**), because the Codex sandbox can't open the Beads lock.
+- Agents never use `bd`, because the Codex sandbox can't open the Beads lock
+  and any role may run there. They read `<job folder>/beads.md`, the snapshot
+  you take before every role (see **Running a role**); the importer reads
+  `<import folder>/beads.jsonl` instead.
   You make every write, from the main checkout, so parallel sessions never
   fight over it.
 
@@ -126,14 +128,16 @@ for the importer, which has no job).
   `<job folder>/usage.jsonl` and prints nothing.
 - **openai**: run, with Bash and `run_in_background: true`,
   `factory/bin/run-codex <key> <job folder> <worktree> "<paths> <task>"`.
-  You are notified when it exits. A non-zero exit is an environment failure:
+  You are notified when it exits. For an entry with `"browser": true` it
+  starts the role's agent-browser session itself, outside the sandbox. A non-zero exit is an environment failure:
   stop and tell the user, quoting the script's output.
 - **codex-plugin** (only `reviewer-adversarial`): run, with Bash and
   `run_in_background: true`,
   `factory/bin/run-adversarial <job folder> <worktree> <N>`. It runs the Codex
   plugin's `adversarial-review` against `<base>`, read-only, with the spec as
   its focus, and writes `round-<N>/review-adversarial.md` itself. Exit codes
-  mean the same as for `run-codex`.
+  mean the same as for `run-codex`. With provider `anthropic` or `openai`,
+  `reviewer-adversarial` runs from its role file like any other role.
 
 `<agent>` is the entry's `agent` field, or the key itself. When a step spawns
 several roles at once, issue every Agent and Bash call in **one message** so
@@ -399,10 +403,10 @@ starts the next review round; anything else is `build-blocked`.
    main` so reviewers diff against the current `origin/main`. Then set
    `reviewed_base` to `git rev-parse <base>` (`<base>` is
    `factory/bin/settings base`).
-2. Run all five reviewers **in one message**, so they run in parallel. The
-   four with role files get the task `Review round N.`, plus a port for
-   `reviewer-ux` and `reviewer-ui`. `reviewer-adversarial` gets `N` as
-   `run-adversarial`'s third argument.
+2. Run all five reviewers **in one message**, so they run in parallel. Each
+   gets the task `Review round N.`, plus a port for `reviewer-ux` and
+   `reviewer-ui`; on `codex-plugin`, `reviewer-adversarial` gets `N` as
+   `run-adversarial`'s third argument instead.
 3. **WAIT FOR ALL.** Each time a reviewer finishes, read the first line of its
    file (`VERDICT: PASS` or `VERDICT: CHANGES`) and write that verdict to
    `job.json` straight away, so the dashboard chips fill in as they land. The
@@ -500,8 +504,10 @@ PRs for the user. A retro never changes `stage` or `situation`.
 3. Run `retro` with the task
    `Retro. Retro worktree: <repo path>. Factory worktree: <factory path> (<kind>).`
    and `<ref>` from the `base` line as `<paths>`' Base (the job's own
-   worktree may already be gone; the role knows), then
-   `factory/bin/usage-record claude <job folder> retro`.
+   worktree may already be gone; the role knows). For an `anthropic` retro,
+   then run `factory/bin/usage-record claude <job folder> retro`. For an
+   `openai` one, call `run-codex retro <job folder> <repo path> "<prompt>"
+   <factory path>`, so the factory worktree is writable too.
 4. Check that `retro.md`'s first line is `RETRO: <n> fixes` or
    `RETRO: nothing to change`.
 5. Run `factory/bin/retro-publish <job folder>` and print its line.
@@ -636,7 +642,8 @@ trampling work in flight.
 
 1. Create `factory/imports/<YYYY-MM-DD>-<prd-slug>/` (gitignored, like
    `factory/jobs/`).
-2. Run `importer` with the task
+2. Run `bd --readonly export -o <import folder>/beads.jsonl`: the importer
+   reads every bead from it. Then run `importer` with the task
    `Repo: <repo>. PRD: <absolute prd path>. Import folder: <absolute folder>.`
    in place of `<paths> <task>`: it has no job, worktree or bead. For an
    OpenAI role, call `run-codex` with the import folder as `<job folder>` and

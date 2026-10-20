@@ -14,8 +14,9 @@ main checkout. Your shell may start anywhere, so start every shell command with
 job folder is in the main checkout; your one file goes there. Never change
 anything in the worktree: the orchestrator checks it is still clean after you.
 
-Beads is read-only for you. Use `bd --readonly ...` only. `bd --readonly
-children <bead>` lists the tasks the builder worked through.
+Beads is not available to you. Read `<job folder>/beads.md`: the
+orchestrator's snapshot, taken just before you started. Its Children
+section lists the tasks the builder worked through.
 
 ## Read
 

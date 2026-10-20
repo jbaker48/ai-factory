@@ -17,8 +17,8 @@ Run each check and note what is missing:
 | Tool | Check | Needed for |
 | --- | --- | --- |
 | Beads | `bd --version` | everything |
-| Codex CLI | `codex --version`, `codex login status` | every OpenAI role |
-| Codex plugin | `ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs` | `reviewer-adversarial` |
+| Codex CLI | `codex --version`, `codex login status` | every OpenAI role (the `mixed` and `openai` presets) |
+| Codex plugin | `ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs` | `reviewer-adversarial` in the `mixed` preset |
 | jq, node | `jq --version`, `node --version` | the scripts in `factory/bin/` |
 | Claude Code | `claude --version`, 2.1.259 or later | `factory/bin/autopilot` (`--permission-prompts`) |
 | agent-browser | `command -v agent-browser` | the UX and UI reviewers, if the project has pages |
@@ -131,8 +131,13 @@ Show the user each of these and record their answer:
 - **`factory/autopilot-policy.md`**: what the autopilot may merge without a
   person. Point out the project's own sensitive areas (from `AGENTS.md`) that
   the policy doesn't yet name, and offer to add them.
-- **`factory/models.json`**: the model and effort per role. Confirm their
-  Codex account can use the OpenAI models listed.
+- **`factory/models.json`**: the model and effort per role. Ask which
+  subscriptions they have and run the matching preset: both,
+  `factory/bin/models mixed` (the default); Claude only,
+  `factory/bin/models claude` (no Codex CLI or plugin); ChatGPT only,
+  `factory/bin/models openai` (no Codex plugin, but the orchestrator is still
+  Claude Code). For `mixed` and `openai`, confirm their Codex account can use
+  the OpenAI models listed.
 - **`factory/settings.json`**: write it from `factory/settings.example.json`.
   Ask whether the repo has a GitHub remote: yes sets `"land": "pr"`, no sets
   `"land": "local"`. Ask which labels mark high-priority beads and put them in
