@@ -178,7 +178,6 @@
     margin-left: max(0px, calc((100% - var(--detail-panel-width) - 1440px) / 2));
     margin-right: var(--detail-panel-width);
   }
-  body.detail-open:not(.detail-expanded) .lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #detail-panel {
     position: fixed; z-index: 10; top: 0; right: 0; width: min(640px, 48vw); min-width: 0;
     height: 100vh; height: 100dvh; background: var(--surface); border-left: 1px solid var(--line);
@@ -239,10 +238,10 @@
   .run-role { font-weight: 620; }
   .run-task { font: 12px var(--mono); overflow-wrap: anywhere; }
   .run-model, .run-tokens, .run-time { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-  .run-toggle-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 0 12px; margin-top: 2px; }
+  .run-toggle-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; margin-top: 2px; }
   .run-toggle { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
   .run-toggle:hover, .timeline-fold-toggle:hover, .run-file-toggle:hover { text-decoration-thickness: 2px; }
-  .run-toggle-content { grid-column: 1 / -1; max-width: 100%; padding: 4px 0 8px; overflow-wrap: anywhere; }
+  .run-toggle-content { max-width: 100%; padding: 4px 0 8px; overflow-wrap: anywhere; }
   .run-toggle-content pre { max-width: 100%; max-height: 360px; margin: 0; padding: 10px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   .run-file-list { min-width: 0; }
   .run-file-toggle { display: flex; width: 100%; align-items: baseline; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); }
@@ -283,6 +282,10 @@
   #d-scope-content { padding-bottom: 10px; }
   .detail-diff { margin: 0 18px 18px; padding-top: 16px; border-top: 1px solid var(--line); }
   #d-diff-viewer .diff-scroll { max-height: 45vh; }
+
+  @media (min-width: 900px) {
+    body.detail-open:not(.detail-expanded) .lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
 
   @media (max-width: 899px) {
     .wrap { padding-left: 16px; padding-right: 16px; }
@@ -792,19 +795,25 @@ function foldTimeline(groups) {
   const lastRoundIndex = rounds.at(-1)
   const penultimateRoundIndex = rounds.at(-2)
   const firstRound = groups[firstRoundIndex]
-  const firstBetweenIndex = groups.findIndex((group, index) =>
-    index > firstRoundIndex && index < penultimateRoundIndex && group?.kind === 'between' && Number(group.after) === Number(firstRound.round))
-  if (firstBetweenIndex < 0) return groups
+  const startIndex = firstRoundIndex + 1
+  let lastBetweenIndex = -1
+  for (let index = lastRoundIndex - 1; index > penultimateRoundIndex; index--) {
+    if (groups[index]?.kind === 'between' && Number(groups[index].after) === Number(groups[penultimateRoundIndex].round)) {
+      lastBetweenIndex = index
+      break
+    }
+  }
+  const endIndex = lastBetweenIndex >= 0 ? lastBetweenIndex - 1 : lastRoundIndex - 1
+  if (startIndex > endIndex) return groups
 
   const count = rounds.length
   const label = count === 3
     ? 'Rework cycle 1 (round 2)'
     : `Rework cycles 1 to ${count - 2} (rounds 2 to ${count - 1})`
   return [
-    ...groups.slice(0, firstBetweenIndex),
-    { kind: 'fold', label, groups: groups.slice(firstBetweenIndex, penultimateRoundIndex + 1) },
-    ...groups.slice(penultimateRoundIndex + 1, lastRoundIndex + 1),
-    ...groups.slice(lastRoundIndex + 1),
+    ...groups.slice(0, startIndex),
+    { kind: 'fold', label, groups: groups.slice(startIndex, endIndex + 1) },
+    ...groups.slice(endIndex + 1),
   ]
 }
 
@@ -830,30 +839,40 @@ function diffPath(header, prefix) {
   return value.startsWith(prefix) ? value.slice(prefix.length) : value
 }
 
+function diffGitPath(line) {
+  const match = line.match(/^diff --git ("(?:\\.|[^"])*"|\S+) ("(?:\\.|[^"])*"|\S+)$/)
+  return match ? diffPath(`+++ ${match[2]}`, 'b/') : null
+}
+
 function parseDiff(text) {
   const blocks = []
   let current = null
+  let inHunk = false
   for (const line of String(text || '').replace(/\r/g, '').split('\n')) {
     if (line.startsWith('diff --git ')) {
-      current = { path: null, added: 0, removed: 0, lines: [] }
+      current = { path: diffGitPath(line), added: 0, removed: 0, lines: [] }
       blocks.push(current)
+      inHunk = false
     }
     if (!current || !line) continue
+    if (line.startsWith('@@')) inHunk = true
+    const header = !inHunk && (line.startsWith('+++ ') || line.startsWith('--- '))
+    const type = line.startsWith('@@') ? 'hunk'
+      : line.startsWith('+') && !(header && line.startsWith('+++ ')) ? 'add'
+        : line.startsWith('-') && !(header && line.startsWith('--- ')) ? 'del'
+          : line.startsWith(' ') ? 'ctx' : 'meta'
     current.lines.push({
-      type: line.startsWith('@@') ? 'hunk'
-        : line.startsWith('+') && !line.startsWith('+++') ? 'add'
-          : line.startsWith('-') && !line.startsWith('---') ? 'del'
-            : line.startsWith(' ') ? 'ctx' : 'meta',
+      type,
       text: line,
     })
-    if (line.startsWith('+++ ')) {
+    if (header && line.startsWith('+++ ')) {
       const path = diffPath(line, 'b/')
       if (path !== null) current.path = path
-    } else if (line.startsWith('--- ') && current.path === null) {
+    } else if (header && line.startsWith('--- ') && current.path === null) {
       current.path = diffPath(line, 'a/')
     }
-    if (line.startsWith('+') && !line.startsWith('+++')) current.added++
-    if (line.startsWith('-') && !line.startsWith('---')) current.removed++
+    if (type === 'add') current.added++
+    if (type === 'del') current.removed++
   }
   return blocks
 }
@@ -1280,7 +1299,7 @@ function timelineFileContent(path, kind, noRecord) {
   return renderTimelineFile(path, detailFileCache.get(path), kind)
 }
 
-function detailToggleHtml({ key, label, kind, open, path = null, runId = null, taskId = null }, body, buttonClass = 'run-toggle', labelHtml = null, contentClass = 'run-toggle-content') {
+function detailToggleMarkup({ key, label, kind, open, path = null, runId = null, taskId = null }, body, buttonClass = 'run-toggle', labelHtml = null, contentClass = 'run-toggle-content') {
   const attrs = [
     `class="${buttonClass}"`,
     'type="button"',
@@ -1291,7 +1310,15 @@ function detailToggleHtml({ key, label, kind, open, path = null, runId = null, t
   if (path !== null) attrs.push(`data-file-path="${escapeHtml(path)}"`)
   if (runId !== null) attrs.push(`data-run-id="${escapeHtml(runId)}"`)
   if (taskId !== null) attrs.push(`data-task-id="${escapeHtml(taskId)}"`)
-  return `<button ${attrs.join(' ')}>${labelHtml === null ? escapeHtml(label) : labelHtml}</button><div class="${contentClass}" data-detail-content="${escapeHtml(key)}"${open ? '' : ' hidden'}>${body}</div>`
+  return {
+    button: `<button ${attrs.join(' ')}>${labelHtml === null ? escapeHtml(label) : labelHtml}</button>`,
+    content: `<div class="${contentClass}" data-detail-content="${escapeHtml(key)}"${open ? '' : ' hidden'}>${body}</div>`,
+  }
+}
+
+function detailToggleHtml(...args) {
+  const { button, content } = detailToggleMarkup(...args)
+  return `${button}${content}`
 }
 
 function renderTaskFile(run, file) {
@@ -1302,10 +1329,12 @@ function renderTaskFile(run, file) {
   const taskDiff = detailTaskDiffCache.get(String(run.task))
   if (taskDiff) {
     const entry = taskDiff.files.find((item) => item.path === file.path)
-    body = entry ? diffFilesHtml([entry], taskDiff.truncated, 'No diff output for this file.')
-      : '<p class="detail-message">No diff output for this file.</p>'
+    body = entry ? diffFilesHtml([entry], false, 'No diff output for this file.')
+      : taskDiff.truncated
+        ? '<p class="detail-message">Not shown: the diff was truncated at 2 MB</p>'
+        : '<p class="detail-message">No diff output for this file.</p>'
   }
-  return detailToggleHtml({ key, label: file.path, kind: 'task-file', open, taskId: run.task }, body,
+  return detailToggleHtml({ key, label: file.path, kind: 'task-file', open, path: file.path, runId: run.id, taskId: run.task }, body,
     'run-file-toggle', `<span class="run-file-path">${escapeHtml(file.path)}</span><span class="run-file-count">${counts}</span>`, 'detail-file-diff')
 }
 
@@ -1315,8 +1344,10 @@ function renderChangesContent(run) {
   const taskId = String(run.task)
   if (!Object.hasOwn(detailChanges, taskId)) return '<p class="detail-message">Task commits are no longer available for this job</p>'
   const files = Array.isArray(detailChanges[taskId]?.files) ? detailChanges[taskId].files : []
-  if (!files.length) return '<p class="detail-message">none</p>'
-  return `<div class="run-file-list">${files.map((file) => renderTaskFile(run, file)).join('')}</div>`
+  const truncated = detailTaskDiffCache.get(taskId)?.truncated
+  const warning = truncated ? '<p class="diff-truncated">Diff truncated at 2 MB</p>' : ''
+  if (!files.length) return `${warning}<p class="detail-message">none</p>`
+  return `${warning}<div class="run-file-list">${files.map((file) => renderTaskFile(run, file)).join('')}</div>`
 }
 
 function renderRun(run) {
@@ -1332,22 +1363,22 @@ function renderRun(run) {
   const changesKey = `${run.id}:changes`
   const promptOpen = detailOpenToggles.has(promptKey)
   const outputOpen = detailOpenToggles.has(outputKey)
-  const prompt = detailToggleHtml({ key: promptKey, label: 'Prompt', kind: 'prompt', open: promptOpen, path: run.prompt, runId: run.id },
+  const prompt = detailToggleMarkup({ key: promptKey, label: 'Prompt', kind: 'prompt', open: promptOpen, path: run.prompt, runId: run.id },
     promptOpen ? timelineFileContent(run.prompt, 'prompt', 'No prompt recorded for this run') : '')
-  const output = detailToggleHtml({ key: outputKey, label: 'Output', kind: 'output', open: outputOpen, path: run.output, runId: run.id },
+  const output = detailToggleMarkup({ key: outputKey, label: 'Output', kind: 'output', open: outputOpen, path: run.output, runId: run.id },
     outputOpen ? timelineFileContent(run.output, 'output', 'No output recorded') : '')
   const toggles = [prompt, output]
   if (run.stage === 'build' && run.task) {
     const changesOpen = detailOpenToggles.has(changesKey)
-    toggles.push(detailToggleHtml({ key: changesKey, label: 'Changes', kind: 'changes', open: changesOpen, runId: run.id, taskId: run.task },
+    toggles.push(detailToggleMarkup({ key: changesKey, label: 'Changes', kind: 'changes', open: changesOpen, runId: run.id, taskId: run.task },
       changesOpen ? renderChangesContent(run) : ''))
   }
-  return `<article class="timeline-run">${meta}<div class="run-toggle-list">${toggles.join('')}</div></article>`
+  return `<article class="timeline-run">${meta}<div class="run-toggle-list">${toggles.map(({ button }) => button).join('')}</div>${toggles.map(({ content }) => content).join('')}</article>`
 }
 
-function renderTimelineNote(note, index) {
+function renderTimelineNote(note) {
   const path = typeof note.path === 'string' ? note.path : ''
-  const key = `note:${path}:${index}:output`
+  const key = `note:${path}:output`
   const open = detailOpenToggles.has(key)
   const toggle = detailToggleHtml({ key, label: 'Output', kind: 'note-output', open, path },
     open ? timelineFileContent(path, 'output', 'No output recorded') : '')
@@ -1374,7 +1405,7 @@ function renderTimelineGroup(group, groupIndex) {
   const runs = Array.isArray(group.runs) ? group.runs : []
   const notes = Array.isArray(group.notes) ? group.notes : []
   let content = runs.map((run) => renderRun(run)).join('')
-  content += notes.map((note, index) => renderTimelineNote(note, `${groupIndex}-${index}`)).join('')
+  content += notes.map((note) => renderTimelineNote(note)).join('')
   if (!runs.length && !notes.length && (group.kind === 'spec' || group.kind === 'plan') && group.output) {
     const key = `group:${group.kind}:${group.output}:output`
     const open = detailOpenToggles.has(key)
@@ -1385,9 +1416,31 @@ function renderTimelineGroup(group, groupIndex) {
   return `<section class="timeline-group"><h3 class="timeline-heading">${escapeHtml(title)}</h3>${content}</section>`
 }
 
+function findTimelineRun(groups, id) {
+  for (const group of Array.isArray(groups) ? groups : []) {
+    if (group.kind === 'fold') {
+      const nested = findTimelineRun(group.groups, id)
+      if (nested) return nested
+    }
+    const run = (Array.isArray(group.runs) ? group.runs : []).find((item) => String(item.id) === String(id))
+    if (run) return run
+  }
+  return null
+}
+
+function refreshOpenChanges(runId) {
+  const run = findTimelineRun(detailTimeline, runId)
+  if (!run) return
+  const button = [...$('d-runs').querySelectorAll('[data-toggle-kind="changes"][aria-expanded="true"]')]
+    .find((item) => item.dataset.runId === String(runId))
+  if (!button) return
+  const content = detailToggleContent(button.dataset.detailToggle)
+  if (content) updateHtml(content, renderChangesContent(run))
+}
+
 function renderTimeline(groups, id, generation) {
   if (!Array.isArray(groups)) {
-    setDetailHtml('d-runs', '<p class="detail-message error" role="alert">Could not load agent runs: invalid response</p>')
+    setDetailHtml('d-runs', '<h2>Agent runs</h2><p class="detail-message error" role="alert">Could not load agent runs: invalid response</p>')
     return
   }
   if (!groups.length) {
@@ -1401,7 +1454,7 @@ function renderTimeline(groups, id, generation) {
         button.dataset.toggleKind === 'group-output' || button.dataset.toggleKind === 'note-output') {
       loadTimelineFile(id, button.dataset.filePath || null, button.dataset.detailToggle, button.dataset.toggleKind, generation)
     } else if (button.dataset.toggleKind === 'task-file') {
-      loadTaskDiff(id, button.dataset.taskId, button.dataset.filePath, button.dataset.detailToggle, generation)
+      loadTaskDiff(id, button.dataset.taskId, button.dataset.filePath, button.dataset.detailToggle, generation, button.dataset.runId)
     }
   }
 }
@@ -1439,7 +1492,7 @@ async function loadTimelineFile(id, path, key, kind, generation) {
   }
 }
 
-async function loadTaskDiff(id, taskId, path, key, generation) {
+async function loadTaskDiff(id, taskId, path, key, generation, runId = null) {
   if (!detailIsCurrent(id, generation)) return
   const target = detailToggleContent(key)
   if (!target || target.hidden) return
@@ -1447,8 +1500,10 @@ async function loadTaskDiff(id, taskId, path, key, generation) {
   if (detailTaskDiffCache.has(task)) {
     const result = detailTaskDiffCache.get(task)
     const file = result.files.find((item) => item.path === path)
-    updateHtml(target, file ? diffFilesHtml([file], result.truncated, 'No diff output for this file.')
-      : '<p class="detail-message">No diff output for this file.</p>')
+    updateHtml(target, file ? diffFilesHtml([file], false, 'No diff output for this file.')
+      : result.truncated
+        ? '<p class="detail-message">Not shown: the diff was truncated at 2 MB</p>'
+        : '<p class="detail-message">No diff output for this file.</p>')
     return
   }
   target.dataset.loading = 'true'
@@ -1464,10 +1519,16 @@ async function loadTaskDiff(id, taskId, path, key, generation) {
     if (!detailIsCurrent(id, generation)) return
     const parsed = { files: parseDiff(result.text), truncated: result.truncated }
     detailTaskDiffCache.set(task, parsed)
+    if (runId) {
+      refreshOpenChanges(runId)
+      return
+    }
     if (target.hidden) return
     const file = parsed.files.find((item) => item.path === path)
-    updateHtml(target, file ? diffFilesHtml([file], result.truncated, 'No diff output for this file.')
-      : '<p class="detail-message">No diff output for this file.</p>')
+    updateHtml(target, file ? diffFilesHtml([file], false, 'No diff output for this file.')
+      : parsed.truncated
+        ? '<p class="detail-message">Not shown: the diff was truncated at 2 MB</p>'
+        : '<p class="detail-message">No diff output for this file.</p>')
   } catch (error) {
     if (!detailIsCurrent(id, generation) || target.hidden) return
     updateHtml(target, `<p class="detail-message error">${escapeHtml(`Could not load task diff: ${error.message}`)}</p>`)
@@ -1491,7 +1552,10 @@ function toggleDetailSection(button) {
   if (kind === 'prompt' || kind === 'output' || kind === 'group-output' || kind === 'note-output') {
     loadTimelineFile(detailId, button.dataset.filePath || null, key, kind, detailGeneration)
   } else if (kind === 'task-file') {
-    loadTaskDiff(detailId, button.dataset.taskId, button.dataset.filePath, key, detailGeneration)
+    loadTaskDiff(detailId, button.dataset.taskId, button.dataset.filePath, key, detailGeneration, button.dataset.runId)
+  } else if (kind === 'changes') {
+    const run = findTimelineRun(detailTimeline, button.dataset.runId)
+    if (content) updateHtml(content, run ? renderChangesContent(run) : '<p class="detail-message">Task commits are no longer available for this job</p>')
   }
 }
 
@@ -1631,7 +1695,7 @@ async function requestPanelData(id, firstLoad) {
       if (!detailIsCurrent(id, generation)) return
       detailTimeline = []
       setDetailMessage('d-criteria-status', `Could not load acceptance criteria: ${error.message}`, true)
-      setDetailHtml('d-runs', `<p class="detail-message error" role="alert">${escapeHtml(`Could not load agent runs: ${error.message}`)}</p>`)
+      setDetailHtml('d-runs', `<h2>Agent runs</h2><p class="detail-message error" role="alert">${escapeHtml(`Could not load agent runs: ${error.message}`)}</p>`)
     })
   const changesRequest = fetchJson(`/api/changes?job=${encodeURIComponent(id)}`)
     .then((result) => {

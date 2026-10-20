@@ -10,6 +10,8 @@ VIEW_HARNESS='const fs = require("fs"), vm = require("vm"); const html = fs.read
 v() { node -e "$VIEW_HARNESS" "$1"; }
 PAGE_HARNESS='const fs = require("fs"); const html = fs.readFileSync(process.env.DASHBOARD_HTML, "utf8"); process.stdout.write(JSON.stringify(Function("html", "return (" + process.argv[1] + ")")(html)));'
 p() { node -e "$PAGE_HARNESS" "$1"; }
+APP_VIEW_HARNESS='const fs = require("fs"), vm = require("vm"); const html = fs.readFileSync(process.env.DASHBOARD_HTML, "utf8"); const view = html.match(/<script id="view">([\s\S]*?)<\/script>/)?.[1]; const app = html.match(/<script>\n([\s\S]*?)<\/script>/)?.[1]; if (!view || !app) throw new Error("missing dashboard scripts"); const context = vm.createContext({detailOpenToggles:new Set(),detailTaskDiffCache:new Map(),detailFileCache:new Map(),detailChanges:{},detailChangesError:null}); context.testContent = {hidden:true,innerHTML:""}; context.detailToggleContent = () => context.testContent; context.updateHtml = (target, value) => { target.innerHTML = value }; vm.runInContext(view, context); const extract = (name) => { const start = app.indexOf("function " + name + "("); if (start < 0) throw new Error("missing function " + name); const end = app.indexOf("\nfunction ", start + 1); return app.slice(start, end < 0 ? app.length : end); }; vm.runInContext(["runRole","runTime","runTokenText","timelineFileContent","detailToggleMarkup","detailToggleHtml","renderTaskFile","renderChangesContent","renderRun","renderTimelineNote","findTimelineRun","toggleDetailSection"].map(extract).join("\n"), context); const value = vm.runInContext(process.argv[1], context); process.stdout.write(JSON.stringify(value));'
+a() { node -e "$APP_VIEW_HARNESS" "$1"; }
 
 BOARD_FIXTURE='({models:{"spec-writer":{model:"opus"},planner:{model:"sonnet"},builder:{model:"gpt-6-luna"}},jobs:[{id:"001-a",bead:"demo-1",feature:"Write the spec",stage:"spec",usage:[]},{id:"002-b",feature:"Build the task",stage:"build",tasks:[{id:"t1",status:"in_progress"},{id:"t2",status:"open"}],usage:[{input:7,output:8}],usage_derived:true},{id:"003-c",feature:"Review changes",stage:"review",round:3,reviews:{security:"PASS",code:"CHANGES"},usage:[]},{id:"004-d",feature:"Plan blocked",stage:"needs-human",situation:"plan-blocked",round:1,reviews:{}},{id:"005-e",feature:"Finished",stage:"merged",tasks:[],pr:"https://example.com/pull/5",usage:[]}]})'
 board() { v "renderBoard($BOARD_FIXTURE)"; }
@@ -174,6 +176,38 @@ test_detail_runs_slot_is_empty_for_task_seven() {
   assert_eq true "$(p 'html.includes(`<div id="d-runs" class="detail-runs"></div>`)')" "runs column stays empty until Task 7"
 }
 
+test_changes_toggle_renders_on_open_by_run_id_and_refreshes_on_changes_response() {
+  assert_eq true "$(p '(() => { const script = html.split("<script>")[1]?.split("</script>")[0] || ""; const toggle = script.slice(script.indexOf("function toggleDetailSection("), script.indexOf("\nasync function loadJobDiff", script.indexOf("function toggleDetailSection("))); const changes = script.slice(script.indexOf("const changesRequest = fetchJson("), script.indexOf("const runsRequest = fetchJson(", script.indexOf("const changesRequest = fetchJson("))); return toggle.includes("findTimelineRun(detailTimeline, button.dataset.runId)") && toggle.includes("renderChangesContent(run)") && changes.includes("renderTimeline(detailTimeline, id, generation)") })()')" "Changes fills on open and re-renders after changes load"
+}
+
+test_changes_toggle_populates_open_content() {
+  assert_eq '["true",false,true]' "$(a '(() => { detailTimeline=[{kind:"build",runs:[{id:"r1",task:"t1"}]}]; detailChanges={t1:{files:[]}}; const button={dataset:{detailToggle:"r1:changes",toggleKind:"changes",runId:"r1"},attrs:{"aria-expanded":"false"},getAttribute(name){return this.attrs[name]},setAttribute(name,value){this.attrs[name]=value}}; toggleDetailSection(button); return [button.attrs["aria-expanded"],testContent.hidden,testContent.innerHTML.includes("none")] })()')" "opening Changes renders the matching run content"
+}
+
+test_task_file_toggle_carries_file_path() {
+  assert_eq true "$(a 'renderTaskFile({id:"r1",task:"t1"},{path:"src/a.js",added:2,removed:1}).includes(`data-file-path="src/a.js"`)')" "task-file button exposes its path"
+}
+
+test_run_toggle_buttons_precede_all_content_blocks() {
+  assert_eq true "$(a '(() => { const keys = ["r1:prompt","r1:output","r1:changes"]; for (const key of keys) detailOpenToggles.add(key); detailChanges = {t1:{files:[]}}; const html = renderRun({id:"r1",key:"builder",stage:"build",task:"t1",prompt:null,output:null}); const start = html.indexOf(`<div class="run-toggle-list">`); const end = html.indexOf(`</div>`, start); const row = html.slice(start, end); const contents = [...html.matchAll(/data-detail-content=/g)].map((match) => match.index); return (row.match(/data-toggle-kind=/g) || []).length === 3 && contents.length === 3 && contents.every((index) => index > end) })()')" "run buttons render before their content blocks"
+}
+
+test_run_toggle_buttons_use_one_grid_row() {
+  assert_eq true "$(p 'html.includes(".run-toggle-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; margin-top: 2px; }")')" "all three run toggles fit one row"
+}
+
+test_changes_truncation_message_appears_once_above_file_list() {
+  assert_eq true "$(a '(() => { detailChanges={t1:{files:[{path:"src/a.js",added:1,removed:0},{path:"src/b.js",added:1,removed:0}]}}; detailTaskDiffCache.set("t1", {truncated:true,files:[{path:"src/a.js",added:1,removed:0,lines:[{type:"add",text:"+new"}]},{path:"src/b.js",added:1,removed:0,lines:[{type:"add",text:"+other"}]}]}); const html = renderChangesContent({id:"r1",task:"t1"}); return (html.match(/Diff truncated at 2 MB/g) || []).length === 1 && html.indexOf("Diff truncated at 2 MB") < html.indexOf("src/a.js") && (html.match(/class="diff-truncated"/g) || []).length === 1 })()')" "truncation is shown once before task files"
+}
+
+test_fully_truncated_file_says_not_shown() {
+  assert_eq true "$(a '(() => { detailChanges = {t1:{files:[{path:"src/missing.js",added:1,removed:0}]}}; detailTaskDiffCache.set("t1", {truncated:true,files:[]}); return renderTaskFile({id:"r1",task:"t1"},{path:"src/missing.js",added:1,removed:0}).includes("Not shown: the diff was truncated at 2 MB") })()')" "file omitted at truncation has a specific message"
+}
+
+test_note_toggle_key_uses_path_only() {
+  assert_eq true "$(a 'renderTimelineNote({path:".runs/note.md"},"moved-group").includes(`data-detail-toggle="note:.runs/note.md:output"`)')" "note toggle key is stable when its group moves"
+}
+
 test_detail_desktop_reserves_space_for_panel() {
   assert_eq true "$(p 'html.includes("body.detail-open:not(.detail-expanded) > header.wrap") && html.includes("body.detail-open:not(.detail-expanded) > main.wrap") && html.includes("body.detail-open:not(.detail-expanded) > footer.wrap") && html.includes("width: min(calc(100% - var(--detail-panel-width)), 1440px);") && html.includes("classList.toggle(\u0027detail-open\u0027") && html.includes("classList.toggle(\u0027detail-expanded\u0027, expanded)")')" "desktop panel leaves the board beside it"
 }
@@ -222,6 +256,12 @@ test_fold_eight_rounds_keeps_last_between_visible() {
   assert_eq '"Rework cycles 1 to 6 (rounds 2 to 7)"' "$(v "foldTimeline($g)[1].label")" "eight-round fold label"
 }
 
+test_fold_four_rounds_without_between_groups() {
+  local g='[{"kind":"round","round":1},{"kind":"round","round":2},{"kind":"round","round":3},{"kind":"round","round":4}]'
+  assert_eq '["round","fold","round"]' "$(v "foldTimeline($g).map(x=>x.kind)")" "four rounds fold even when gaps are absent"
+  assert_eq '"Rework cycles 1 to 2 (rounds 2 to 3)"' "$(v "foldTimeline($g)[1]?.label ?? null")" "four-round label remains stable without gaps"
+}
+
 test_parse_diff() {
   local d; d=$(printf 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n ctx\n+<b>new</b>\n' | jq -Rs .)
   assert_eq '["x",1,0]' "$(v "(p=>[p.path,p.added,p.removed])(parseDiff($d)[0])")" "one file, one added line"
@@ -233,13 +273,33 @@ test_parse_diff_deletion_uses_old_path_and_escapes_rendered_lines() {
   assert_eq true "$(v "(() => { const html = diffHtml($d, true); return html.includes('Diff truncated at 2 MB') && html.includes('class=\"diff-line del\">-&lt;script&gt;') && !html.includes('<script>') })()")" "diff lines are escaped and truncation is visible"
 }
 
+test_parse_diff_tracks_hunks_before_recognizing_headers() {
+  local d; d=$(printf 'diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1,2 @@\n----\n++ x\n' | jq -Rs .)
+  assert_eq '["file.txt",1,1,"del"]' "$(v "(p=>[p.path,p.added,p.removed,p.lines.find(x=>x.text==='----').type])(parseDiff($d)[0])")" "removed --- line is content inside the hunk"
+  assert_eq '"file.txt"' "$(v "parseDiff($d)[0].path")" "added ++ line does not become a file header"
+}
+
+test_parse_diff_falls_back_to_b_path_without_file_headers() {
+  local d; d=$(printf 'diff --git "a/old name.txt" "b/new name.txt"\nsimilarity index 100%%\nrename from old name.txt\nrename to new name.txt\n' | jq -Rs .)
+  assert_eq '"new name.txt"' "$(v "parseDiff($d)[0].path")" "rename without --- and +++ uses b path"
+}
+
+test_parse_diff_binary_and_mode_only_paths_fall_back_to_b() {
+  local d; d=$(printf 'diff --git a/image.png b/image.png\nindex 12..34\nBinary files a/image.png and b/image.png differ\ndiff --git a/script.js b/script.js\nold mode 100644\nnew mode 100755\n' | jq -Rs .)
+  assert_eq '["image.png","script.js"]' "$(v "parseDiff($d).map(file=>file.path)")" "binary and mode-only changes keep their b paths"
+}
+
 test_plan_tasks() {
   assert_eq '"- `1.1` Add guard (covers 1, 2)"' \
     "$(v 'planTasks({tasks:[{key:"1.1",title:"Add guard",covers:[1,2]}]})')" "plan tasks use keys, titles and coverage"
 }
 
 test_detail_open_board_uses_two_by_two_lanes_and_panel_width() {
-  assert_eq true "$(p 'html.includes("body.detail-open { --detail-panel-width: min(640px, 48vw); }") && html.includes("body.detail-open:not(.detail-expanded) .lanes { grid-template-columns: repeat(2, minmax(0, 1fr));") && html.includes("#detail-panel {") && html.includes("width: min(640px, 48vw); min-width: 0;")')" "open detail keeps a readable two by two board"
+  assert_eq true "$(p '(() => { const start = html.indexOf("@media (min-width: 900px)"); const end = html.indexOf("@media (max-width: 899px)", start); const media = html.slice(start, end); return html.includes("body.detail-open { --detail-panel-width: min(640px, 48vw); }") && media.includes("body.detail-open:not(.detail-expanded) .lanes { grid-template-columns: repeat(2, minmax(0, 1fr));") && html.includes("#detail-panel {") && html.includes("width: min(640px, 48vw); min-width: 0;") })()')" "open detail keeps a readable two by two board"
+}
+
+test_invalid_timeline_has_agent_runs_heading() {
+  assert_eq true "$(p '(() => { const script = html.split("<script>")[1]?.split("</script>")[0] || ""; return script.includes(`<h2>Agent runs</h2><p class="detail-message error" role="alert">Could not load agent runs: invalid response</p>`) })()')" "invalid timeline has the Agent runs heading"
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
