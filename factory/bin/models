@@ -5,7 +5,9 @@
 #   factory/bin/models <preset>         copy factory/presets/<preset>.json to models.json
 #   factory/bin/models <preset> --force the same, even over a custom models.json
 #
-# Presets: mixed (Claude and OpenAI models, the default), claude (Claude
+# Presets: mixed (Claude and OpenAI models, the default), lean (mixed with
+# lower builder and autopilot effort and Sonnet for the importer and briefer,
+# to spend less quota), claude (Claude
 # models only; no Codex CLI or Codex plugin needed) and openai (OpenAI models
 # only, through the Codex CLI; no Claude subagents, so roles use no Claude
 # quota, though the orchestrator session is still Claude Code). A models.json that matches

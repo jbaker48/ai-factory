@@ -41,12 +41,20 @@ models, a reasoning effort. Edit it to move any role to any model, or pick
 a preset from `factory/presets/` to match the subscriptions you have:
 
 ```bash
-factory/bin/models          # print the active preset: mixed, claude, openai or custom
+factory/bin/models          # print the active preset: mixed, lean, claude, openai or custom
 factory/bin/models mixed    # Claude and OpenAI (Codex) models, the default
+factory/bin/models lean     # mixed, spending less quota
 factory/bin/models claude   # Claude models only
 factory/bin/models openai   # OpenAI models only, through the Codex CLI
 ```
 
+- **`lean`** is `mixed` with less thinking where the output is long and the
+  judgement is not. Reasoning counts as output, so the builder (the role that
+  writes the most) drops from `xhigh` to `high` effort, and the escalation
+  builder catches the tasks that turn out hard. Autopilot drops to `high` too.
+  The importer and briefer, which turn files into beads or summaries, move from
+  Opus to Sonnet. The spec-writer and planner stay on Opus: their output is
+  short and every later stage follows it.
 - **`claude`** runs every role as a Claude subagent: Sonnet builds and
   reviews, Opus takes the spec, plan, escalation, security, adversarial,
   approver and autopilot roles. It needs neither the Codex CLI nor the Codex
@@ -275,7 +283,7 @@ the retros help.
   agents/factory-agent.md        runs any role on a Claude model
 factory/
   models.json                    role → provider, model, effort
-  presets/                       mixed.json, claude.json, openai.json: models.json presets
+  presets/                       mixed.json, lean.json, claude.json, openai.json: models.json presets
   autopilot-policy.md            what the autopilot may decide alone
   AGENTS.template.md             starting point for your repo's AGENTS.md
   agents/                        one instruction file per role, for any provider

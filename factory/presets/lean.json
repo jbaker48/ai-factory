@@ -1,0 +1,16 @@
+{
+  "spec-writer":        { "provider": "anthropic", "model": "opus" },
+  "planner":            { "provider": "anthropic", "model": "opus" },
+  "builder":            { "provider": "openai",    "model": "gpt-6-luna",  "effort": "high",   "network": true },
+  "builder-escalation": { "provider": "openai",    "model": "gpt-6.1-sol", "effort": "high",   "network": true, "agent": "builder" },
+  "reviewer-security":  { "provider": "openai",    "model": "gpt-6-astra", "effort": "medium" },
+  "reviewer-code":      { "provider": "anthropic", "model": "sonnet" },
+  "reviewer-ux":        { "provider": "anthropic", "model": "sonnet" },
+  "reviewer-ui":        { "provider": "anthropic", "model": "sonnet" },
+  "reviewer-adversarial": { "provider": "codex-plugin", "model": "gpt-6.1-sol", "block_on": ["critical", "high"], "min_confidence": 0.6 },
+  "approver":           { "provider": "openai",    "model": "gpt-6-astra", "effort": "high" },
+  "autopilot":          { "provider": "openai",    "model": "gpt-6-astra", "effort": "high" },
+  "importer":           { "provider": "anthropic", "model": "sonnet" },
+  "briefer":            { "provider": "anthropic", "model": "sonnet" },
+  "retro":              { "provider": "anthropic", "model": "sonnet" }
+}
