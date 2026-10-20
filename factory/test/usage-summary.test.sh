@@ -17,6 +17,15 @@ job() {
   [ $# -gt 0 ] && printf '%s\n' "$@" >"$R/factory/jobs/$id/usage.jsonl"
 }
 
+# jobj <id> <job json> [<usage line>...]: a job folder with exactly that job.json.
+jobj() {
+  local id=$1 json=$2
+  shift 2
+  mkdir -p "$R/factory/jobs/$id"
+  echo "$json" >"$R/factory/jobs/$id/job.json"
+  [ $# -gt 0 ] && printf '%s\n' "$@" >"$R/factory/jobs/$id/usage.jsonl"
+}
+
 # ul <stage> <input> <cached> <output> [<ts>] [<quota json>]: one usage line.
 ul() {
   jq -n -c --arg s "$1" --argjson i "$2" --argjson c "$3" --argjson o "$4" \
@@ -54,12 +63,73 @@ test_finished_jobs_no_line() {
   job 003-c dropped "$(ul build 1000000 0 0)"
   out=$(run)
   assert_eq "001-a review: 1.0M in (0% cached), 0k out, 1 runs
+trend (last 1 merged): first-pass 1/1, median rounds 0.0, median reworks+respecs 0.0, median tokens 1.0M
 quota: no data
 claude: tokens only" "$out" "only the unfinished job, then quota and claude"
   fresh
   job 002-b merged "$(ul build 1000000 0 0)"
-  assert_eq "quota: no data
+  assert_eq "trend (last 1 merged): first-pass 1/1, median rounds 0.0, median reworks+respecs 0.0, median tokens 1.0M
+quota: no data
 claude: tokens only" "$(run)" "all finished: quota and claude lines only"
+}
+
+test_trend_line() {
+  fresh
+  jobj 001-a '{"id":"001-a","stage":"merged","updated":"2026-10-01","round":1,"reworks":0,"respecs":0,"human_decision":null,"tasks":[{"runs":1}]}' "$(ul build 1000000 0 0)"
+  jobj 002-b '{"id":"002-b","stage":"merged","updated":"2026-10-02","round":3,"reworks":1,"respecs":0}' "$(ul build 3000000 0 0)"
+  jobj 003-c '{"id":"003-c","stage":"merged","updated":"2026-10-03","round":8,"reworks":2,"respecs":1}'
+  assert_contains "$(run)" "trend (last 3 merged): first-pass 1/3, median rounds 3.0, median reworks+respecs 1.0, median tokens 2.0M" "trend"
+}
+
+test_trend_newest_by_id() {
+  fresh
+  # Unpadded ids, so a string sort puts 10-x before 2-x. 1-x and 2-x are the
+  # oldest and not first-pass, but a later retro re-stamped their updated.
+  for i in $(seq 1 12); do
+    if [ "$i" -le 2 ]; then
+      jobj "$i-x" "{\"stage\":\"merged\",\"updated\":\"2026-12-$(printf '%02d' "$i")\",\"round\":4}"
+    else
+      jobj "$i-x" "{\"stage\":\"merged\",\"updated\":\"2026-10-$(printf '%02d' "$i")\",\"round\":1}"
+    fi
+  done
+  assert_contains "$(run)" "trend (last 10 merged): first-pass 10/10, median rounds 1.0" "trend window is the 10 highest ids, not the newest updated"
+}
+
+test_trend_excludes_retro_tokens() {
+  fresh
+  jobj 001-a '{"id":"001-a","stage":"merged","round":1}' "$(ul build 1000000 0 0)" "$(ul retro 5000000 0 0 | jq -c '.role = "retro"')"
+  jobj 002-b '{"id":"002-b","stage":"merged","round":1}' "$(ul retro 4000000 0 0 | jq -c '.role = "retro"')"
+  assert_contains "$(run)" "median tokens 1.0M" "retro rows left out of trend tokens"
+}
+
+test_trend_no_usage() {
+  fresh
+  jobj 001-a '{"id":"001-a","stage":"merged","updated":"2026-10-01","round":1,"reworks":0,"respecs":0}'
+  assert_eq "trend (last 1 merged): first-pass 1/1, median rounds 1.0, median reworks+respecs 0.0, median tokens n/a
+quota: no data
+claude: tokens only" "$(run)" "trend without usage"
+}
+
+test_trend_caps_at_ten() {
+  fresh
+  for i in $(seq 1 12); do
+    jobj "$(printf '%03d' "$i")-x" "{\"stage\":\"merged\",\"updated\":\"2026-10-$(printf '%02d' "$i")\",\"round\":1}"
+  done
+  assert_contains "$(run)" "trend (last 10 merged)" "capped at ten"
+}
+
+test_trend_first_pass_blockers() {
+  fresh
+  jobj 001-a '{"stage":"merged","round":1,"human_decision":"approve"}'
+  jobj 002-b '{"stage":"merged","round":1,"tasks":[{"runs":2}]}'
+  jobj 003-c '{"stage":"dropped","round":1}'
+  assert_contains "$(run)" "trend (last 2 merged): first-pass 0/2" "human decision and task reruns block first-pass"
+}
+
+test_no_merged_no_trend() {
+  fresh
+  job 001-a build "$(ul build 1 0 0)"
+  case $(run) in *trend*) _fail "no trend without merged jobs" "$(run)" ;; *) _pass ;; esac
 }
 
 test_null_tokens_count_as_runs() {

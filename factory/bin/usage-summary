@@ -6,9 +6,15 @@
 # Run from the repo root. Reads factory/jobs/*/usage.jsonl and job.json and
 # prints one line per unfinished job (not at merged or dropped) that has usage:
 #   <job-id> <stage>: <input>M in (<cached%> cached), <output>k out, <runs> runs[, FLAG <stage> <x>× median ...]
-# then "quota: codex <window> <after>% (resets <date>)" from the newest usage
+# then "trend (last <n> merged): first-pass <x>/<n>, median rounds <r>,
+# median reworks+respecs <w>, median tokens <t>M" over up to 10 merged jobs
+# (newest = highest numeric id prefix, not .updated, which a retro re-stamps;
+# first-pass = round <= 1, no reworks/respecs/human decision, no task run
+# twice; tokens leave out role "retro" rows and are "n/a" if no job has other
+# usage; omitted with no merged jobs), then
+# "quota: codex <window> <after>% (resets <date>)" from the newest usage
 # record with quota data ("quota: no data" if none), then "claude: tokens only".
-# With no usage files at all it prints just "quota: no data".
+# With no usage files and no merged jobs it prints just "quota: no data".
 #
 # Tokens are input + output (input already includes cached); null counts as 0
 # but a run with null tokens is still a run. A job is flagged for a usage
@@ -17,17 +23,15 @@
 # information only. Lines that are not JSON objects are skipped. Always exits 0.
 set -uo pipefail
 
-files=()
-for f in factory/jobs/*/usage.jsonl; do [ -f "$f" ] && files+=("$f"); done
-if [ ${#files[@]} -eq 0 ]; then echo "quota: no data"; exit 0; fi
-
-# Each usage.jsonl is paired with its sibling job.json (stage); one jq program
-# reads them all, grouping records by file name.
+# Every job folder with a job.json or a usage.jsonl is an input; one jq program
+# reads them all, grouping lines by folder.
 inputs=()
-for f in "${files[@]}"; do
-  inputs+=("$f")
-  [ -f "${f%usage.jsonl}job.json" ] && inputs+=("${f%usage.jsonl}job.json")
+for d in factory/jobs/*/; do
+  d=${d%/}
+  [ -f "$d/job.json" ] && inputs+=("$d/job.json")
+  [ -f "$d/usage.jsonl" ] && inputs+=("$d/usage.jsonl")
 done
+if [ ${#inputs[@]} -eq 0 ]; then echo "quota: no data"; exit 0; fi
 
 jq -n -R -r '
   def n: . // 0;
@@ -38,9 +42,9 @@ jq -n -R -r '
   | [ $dirs[]
       | ((map(select(.f | endswith("job.json")).v) | join("\n") | fromjson? | select(type == "object")) // {}) as $j
       | (map(select(.f | endswith("usage.jsonl")).v | fromjson? | select(type == "object"))) as $u
-      | select($u | length > 0)
-      | { id: (.[0].f | split("/") | .[-2]), stage: ($j.stage // "?"), u: $u,
-          finished: (($j.stage // "") | IN("merged", "dropped")) } ] as $jobs
+      | { id: (.[0].f | split("/") | .[-2]), j: $j, stage: ($j.stage // "?"), u: $u,
+          finished: (($j.stage // "") | IN("merged", "dropped")) } ] as $all
+  | ($all | map(select(.u | length > 0))) as $jobs
   | ($jobs | map(. + {
         by: (.u | group_by(.stage) | map({key: (.[0].stage // "?"), value: (map((.input|n) + (.output|n)) | add)}) | from_entries)
       })) as $jobs
@@ -52,9 +56,16 @@ jq -n -R -r '
             | select(.n >= 3 and .med > 0 and $e.value >= 2 * .med)
             | ", FLAG \($e.key) \($e.value / .med | r1)× median" ] | join("") ) as $flags
       | "\(.id) \(.stage): \($in / 1e6 | r1)M in (\(if $in > 0 then ($ca / $in * 100 | round) else 0 end)% cached), \(($out / 1e3) | round)k out, \(.u | length) runs\($flags)" ),
+    ( [ $all[] | select(.stage == "merged") ]
+      | sort_by([(.id | capture("^(?<n>[0-9]+)").n | tonumber) // -1, .id]) | reverse | .[:10]
+      | select(length > 0) | length as $n
+      | map(select((.j.round // 0) <= 1 and (.j.reworks // 0) == 0 and (.j.respecs // 0) == 0
+                   and .j.human_decision == null and all((.j.tasks // [])[]; (.runs // 0) <= 1))) as $fp
+      | [ .[] | [.u[] | select(.role != "retro") | (.input|n) + (.output|n)] | select(length > 0) | add ] as $tok
+      | "trend (last \($n) merged): first-pass \($fp | length)/\($n), median rounds \(map(.j.round // 0) | median | r1), median reworks+respecs \(map((.j.reworks // 0) + (.j.respecs // 0)) | median | r1), median tokens \(if ($tok | length) == 0 then "n/a" else ($tok | median / 1e6 | r1) + "M" end)" ),
     ( [ $jobs[].u[] | select(.quota != null) ] | sort_by(.ts) | last
       | if . == null then "quota: no data"
         else "quota: codex \(.quota.window // "quota") \(.quota.after | if type != "number" then "?" else round end)% (resets \(.quota.resets_at | if type != "number" then "?" else (try (todate | .[0:10]) catch "?") end))" end ),
-    "claude: tokens only"
+    ( if ($jobs | length) > 0 or ($all | any(.stage == "merged")) then "claude: tokens only" else empty end )
 ' "${inputs[@]}"
 exit 0

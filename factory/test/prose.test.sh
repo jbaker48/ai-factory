@@ -33,6 +33,13 @@ test_dashboard_reads_usage() {
   assert_eq "0" "$?" "dashboard reads usage.jsonl"
 }
 
+test_dashboard_retro() {
+  local h; h=$(cat "$ROOT/factory/dashboard.html")
+  assert_contains "$h" 'retro_pr' "dashboard reads retro_pr"
+  assert_contains "$h" 'retro_factory_pr' "dashboard reads retro_factory_pr"
+  assert_contains "$h" "'retro.md'" "dashboard ranks retro.md"
+}
+
 test_briefer_role() {
   local f="$ROOT/factory/agents/briefer.md" t
   t=$(cat "$f" 2>/dev/null)
@@ -157,6 +164,55 @@ test_import_conflict_queues_only_free_beads() {
   local s
   s=$(section "$ROOT/.claude/skills/factory/SKILL.md" '/factory review' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" 'if the bead is `in_progress` or assigned to someone else, only `bd update <bead> --remove-label needs-human`' "import conflicts are queued only when nobody has the bead"
+}
+
+test_retro_role() {
+  local t n
+  t=$(tr '\n' ' ' <"$ROOT/factory/agents/retro.md" 2>/dev/null | tr -s ' ')
+  for n in 'RETRO: <n> fixes' 'RETRO: nothing to change' \
+    '## Cost' '## What each extra attempt was for' '## Fixes' '## Repeats' '## Drafted beads' \
+    '`spec`, `plan`, `build`, `review-signal`, `review-batching`, `review-coverage`, `environment`, `flaky`, `external-knowledge`, `owner-scope`' \
+    '## Lessons from factory jobs' 'retro-rejected.md' 'retro-factory-prs.json' 'retro-stale.txt' 'retro-comment-' \
+    'never commit' \
+    '1. Before anything else, `AGENTS.md` (or `CLAUDE.md`) in the retro worktree' \
+    'Whole, never cut short with `head`, `tail`, `-c` or a line limit: `job.json`, `spec.md`, `plan.json`, `build.md`, and every `decision*.md`, `autopilot-*.md`, `human-*.md`, `human-brief-*.md` and `rework-*.md`' \
+    'with every cause that applies (one or more)' \
+    'Each distinct cause you found gets an entry in `## Fixes`, or a `- No fix for <cause>: <why>.` line' \
+    'That includes every `environment` attempt' \
+    'An `external-knowledge` fact that would bite again in this repo is a `repo` lesson' \
+    'For each review lens, count the rounds where it had nothing to review or found nothing' \
+    'A lens idle on most rounds is `review-coverage`' \
+    'leaving out `role: "retro"` rows' \
+    'Each entry starts `<k>. kind: repo.`, `<k>. kind: factory.` or `<k>. kind: work.` exactly'; do
+    assert_contains "$t" "$n" "retro role mentions $n"
+  done
+  case $t in *'Facts that only matter to this job stay out'*) _fail "retro role drops the old job-only facts rule" ;; *) _pass ;; esac
+  case $t in *SQS* | *CDK* | *garmin*) _fail "retro role is not tuned to one job" ;; *) _pass ;; esac
+  assert_eq "sonnet" "$(jq -r '.retro.model // empty' "$ROOT/factory/models.json")" "models.json has retro on sonnet"
+}
+
+test_retro_wiring() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" t s n
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  assert_contains "$(sed -n 3p "$f")" '/factory retro' "description lists /factory retro"
+  s=$(section "$f" '/factory retro <job-id>' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" '## /factory retro <job-id>' "SKILL.md has /factory retro <job-id>"
+  assert_contains "$s" 'skip `retro-due`' "/factory retro skips retro-due"
+  assert_contains "$s" 'If `job.json` `retro_worktree` is not null and `retro.md`'"'"'s first line passes step 4, a publish was cut off: run only step 5 and step 6 (`factory/bin/retro-publish <job folder>`), not prep or the role.' "/factory retro finishes a cut-off publish alone"
+  assert_contains "$t" 'It prints three lines: `repo <path>`, `factory <path> <kind>`, then `base <ref>`.' "Retro step names prep's three lines"
+  assert_contains "$t" 'and `<ref>` from the `base` line as `<paths>`'"'"' Base' "Retro step uses the base line for <paths>' Base"
+  for n in 'factory/bin/retro-due <job folder>' 'factory/bin/retro-prep <job folder>' \
+    'factory/bin/retro-publish <job folder>' 'usage-record claude <job folder> retro' \
+    'A retro never changes `stage` or `situation`' 'retro_pr'; do
+    assert_contains "$t" "$n" "SKILL.md mentions $n"
+  done
+  s=$(awk '/^### Merge$/ {on = 1} on && /^- \*\*0\*\*/ {b = 1} on && /^- \*\*6\*\*/ {exit} b' "$f")
+  assert_contains "$(printf '%s' "$s" | tr '\n' ' ' | tr -s ' ')" '**Retro**, then `factory/bin/usage-record session <job folder>`' "Merge exit 0 runs the Retro before usage-record session"
+  s=$(awk '/^ *- \*\*DROP\*\*/ {b = 1} b && /^6\. / {exit} b' "$f")
+  assert_contains "$(printf '%s' "$s" | tr '\n' ' ' | tr -s ' ')" '**Retro**, then `factory/bin/usage-record session <job folder>`' "resume DROP runs the Retro before usage-record session"
+  assert_contains "$t" 'stop the retro; `/factory retro <job-id>` finishes it later. The job stays where it is, and a drain' "a failed retro stops only the retro"
+  assert_contains "$(cat "$ROOT/README.md")" 'factory_source' "README documents factory_source"
+  assert_contains "$(cat "$ROOT/INSTALL.md")" 'factory_source' "INSTALL documents factory_source"
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done

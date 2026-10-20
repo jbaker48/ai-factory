@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# Publishes a retro that retro-prep set up and the retro role filled in.
+#
+#   factory/bin/retro-publish <job folder>
+#
+# <repo> is two levels above this script, <id> job.json's .id, <n> the count
+# on retro.md's first line ("RETRO: <n> fixes", 0 for "RETRO: nothing to
+# change"). <r> and <f> count the "<k>. kind: repo." and "<k>. kind:
+# factory." entries under retro.md's ## Fixes (both <n> when it has no kind
+# entries). Repo worktree (retro_worktree): commits any changes as "Retro
+# <id>: <r> lessons"; with land "pr" pushes the branch and, when retro_pr is
+# null, opens a factory-retro PR with retro-pr-repo.md and records its url,
+# or, when it is set, updates that PR's body if retro-pr-repo.md differs;
+# with land "local" commits only. Factory worktree, kind "source" (in the
+# factory_source checkout): the same, always as a PR titled "Retro <name>
+# <id>: <f> fixes" (<name> is <repo>'s basename), with retro-pr-factory.md,
+# recorded in retro_factory_pr; then posts each retro-comment-<number>.md as
+# a comment on PR <number> and renames it to retro-comment-<number>.posted.md.
+# Kind "installed": writes any changes to <job>/retro-factory.patch (removing
+# any old one first). Both PR bodies are checked before anything is
+# committed. A branch whose push or PR failed earlier is pushed and opened on
+# a re-run. Finally removes both worktrees, deletes a retro branch that has
+# no PR and nothing beyond its base (so the next retro-prep reuses its name),
+# and sets retro_worktree and retro_factory_worktree to null. On any failure
+# nothing is removed, so a re-run can finish the job.
+#
+# stdout: "retro <id>: <n> fixes, <repo part>, <factory part>", where the
+# repo part is the PR url (whenever there is one, even with nothing new),
+# "branch <name>" or "no repo changes", and the factory part is the PR url,
+# "patch <path>" or "no factory changes".
+# Exit: 0 ok, 1 failure (bad retro.md first line, missing PR body, git or gh
+# failed), 2 usage error or unreadable job.json.
+set -uo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: retro-publish <job folder>" >&2
+  exit 2
+fi
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo=$(cd "$here/../.." && pwd)
+job=$(cd "$1" 2>/dev/null && pwd) && [ -f "$job/job.json" ] || {
+  echo "retro-publish: no job.json in $1" >&2
+  exit 2
+}
+id=$(jq -er '.id | strings' "$job/job.json" 2>/dev/null) || {
+  echo "retro-publish: cannot read .id from $job/job.json" >&2
+  exit 2
+}
+field() { jq -r --arg k "$1" '.[$k] // "null"' "$job/job.json"; }
+repo_wt=$(field retro_worktree) factory_wt=$(field retro_factory_worktree)
+kind=$(field retro_factory_kind)
+repo_pr=$(field retro_pr) factory_pr=$(field retro_factory_pr)
+land=$("$here/settings" land) || exit 1
+base=$("$here/settings" base) || exit 1
+src=$("$here/settings" factory_source) || exit 1
+
+first=$(head -n1 "$job/retro.md" 2>/dev/null)
+if [ "$first" = "RETRO: nothing to change" ]; then
+  n=0
+elif [[ $first =~ ^RETRO:\ ([0-9]+)\ fixes$ ]]; then
+  n=${BASH_REMATCH[1]}
+else
+  echo "retro-publish: $job/retro.md must start with 'RETRO: <n> fixes' or 'RETRO: nothing to change'" >&2
+  exit 1
+fi
+# kinds <kind>: the "<k>. kind: <kind>." entries in retro.md's ## Fixes.
+kinds() {
+  awk -v k="$1" '/^## / {on = ($0 == "## Fixes")} on && $0 ~ "^[0-9]+\\. kind: " k "\\." {c++} END {print c + 0}' "$job/retro.md"
+}
+repo_n=$(kinds repo) factory_n=$(kinds factory)
+if [ $((repo_n + factory_n + $(kinds work))) -eq 0 ]; then
+  repo_n=$n factory_n=$n
+fi
+title="Retro $id: $repo_n lessons"
+factory_title="Retro $(basename "$repo") $id: $factory_n fixes"
+
+# has_wt <path>: true when <path> is set and is a directory.
+has_wt() { [ "$1" != null ] && [ -d "$1" ]; }
+
+# commits <git-dir> <range>: prints the commits in <range>; exits 1 when git
+# fails.
+commits() {
+  local out
+  out=$(git -C "$1" rev-list "$2") || exit 1
+  printf '%s' "$out"
+}
+
+# publish_one <git-dir> <worktree> <branch> <pr-url|null> <title> <body-file>
+# <push:yes|no> <base-ref>: commits the worktree's changes; with push "yes"
+# pushes anything not yet on origin and, when <pr-url> is null and the branch
+# has commits beyond <base-ref>, opens a PR into <base-ref>'s branch (main);
+# when <pr-url> is set and <body-file> differs from its body, updates the
+# body. Prints the PR url (existing or new; "branch <name>" when push is "no"
+# and there were changes), or nothing when there is no PR and no changes.
+publish_one() {
+  local dir=$1 wt=$2 branch=$3 pr=$4 title=$5 body=$6 push=$7 ref=$8
+  local dirty changed=no up url new old
+  dirty=$(git -C "$wt" status --porcelain) || exit 1
+  if [ -n "$dirty" ]; then
+    git -C "$wt" add -A && git -C "$wt" commit -q -m "$title" || exit 1
+    changed=yes
+  fi
+  if [ "$push" = no ]; then
+    [ "$changed" = yes ] && echo "branch $branch"
+    return 0
+  fi
+  up=$ref
+  git -C "$wt" rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null && up="origin/$branch"
+  new=$(commits "$wt" "$up..HEAD") || exit 1
+  if [ -n "$new" ]; then
+    git -C "$wt" push -q -u origin "$branch" || {
+      echo "retro-publish: push of $branch failed in $dir" >&2
+      exit 1
+    }
+  fi
+  if [ "$pr" = null ]; then
+    new=$(commits "$wt" "$ref..HEAD") || exit 1
+    [ -n "$new" ] || return 0
+    url=$(cd "$dir" && gh label create factory-retro --force >/dev/null &&
+      gh pr create --base "${ref#origin/}" --head "$branch" --label factory-retro \
+        --title "$title" --body-file "$body" | tail -n1) && [ -n "$url" ] || {
+      echo "retro-publish: gh pr create failed for $branch in $dir" >&2
+      exit 1
+    }
+    echo "$url"
+    return 0
+  fi
+  if [ -f "$body" ]; then
+    old=$(cd "$dir" && gh pr view "$pr" --json body -q .body) || {
+      echo "retro-publish: gh pr view $pr failed" >&2
+      exit 1
+    }
+    if [ "$old" != "$(cat "$body")" ]; then
+      (cd "$dir" && gh pr edit "$pr" --body-file "$body" >/dev/null) || {
+        echo "retro-publish: gh pr edit $pr failed" >&2
+        exit 1
+      }
+    fi
+  fi
+  echo "$pr"
+}
+
+# check_body <worktree> <pr-url|null> <base-ref> <body-file>: exits 1 when a
+# PR will be opened (no PR yet, and changes or commits beyond <base-ref>) but
+# <body-file> is missing.
+check_body() {
+  local wt=$1 pr=$2 ref=$3 body=$4 dirty new
+  [ "$pr" = null ] && [ ! -f "$body" ] || return 0
+  dirty=$(git -C "$wt" status --porcelain) || exit 1
+  new=$(commits "$wt" "$ref..HEAD") || exit 1
+  if [ -n "$dirty" ] || [ -n "$new" ]; then
+    echo "retro-publish: missing PR body $body" >&2
+    exit 1
+  fi
+}
+
+push=yes
+[ "$land" = local ] && push=no
+if has_wt "$repo_wt"; then
+  repo_branch=$(git -C "$repo_wt" branch --show-current) && [ -n "$repo_branch" ] || exit 1
+  [ "$push" = yes ] && check_body "$repo_wt" "$repo_pr" "$base" "$job/retro-pr-repo.md"
+fi
+if [ "$kind" = source ] && has_wt "$factory_wt"; then
+  src=$(cd "$src" && pwd) || exit 1
+  factory_branch=$(git -C "$factory_wt" branch --show-current) && [ -n "$factory_branch" ] || exit 1
+  check_body "$factory_wt" "$factory_pr" origin/main "$job/retro-pr-factory.md"
+fi
+
+# Repo worktree.
+repo_part="no repo changes"
+if has_wt "$repo_wt"; then
+  out=$(publish_one "$repo" "$repo_wt" "$repo_branch" "$repo_pr" "$title" \
+    "$job/retro-pr-repo.md" "$push" "$base") || exit 1
+  if [ -n "$out" ]; then
+    repo_part=$out
+    if [ "$push" = yes ] && [ "$repo_pr" = null ]; then
+      repo_pr=$out
+      # shellcheck disable=SC2016 # $u is a jq variable
+      "$here/job-set" "$job/job.json" '.retro_pr = $u' --arg u "$out" || exit 1
+    fi
+  fi
+fi
+
+# Factory worktree.
+factory_part="no factory changes"
+if [ "$kind" = source ] && has_wt "$factory_wt"; then
+  out=$(publish_one "$src" "$factory_wt" "$factory_branch" "$factory_pr" "$factory_title" \
+    "$job/retro-pr-factory.md" yes origin/main) || exit 1
+  if [ -n "$out" ]; then
+    factory_part=$out
+    if [ "$factory_pr" = null ]; then
+      factory_pr=$out
+      # shellcheck disable=SC2016 # $u is a jq variable
+      "$here/job-set" "$job/job.json" '.retro_factory_pr = $u' --arg u "$out" || exit 1
+    fi
+  fi
+elif [ "$kind" = installed ] && has_wt "$factory_wt"; then
+  rm -f "$job/retro-factory.patch" || exit 1
+  # -N so new files show up in the diff.
+  git -C "$factory_wt" add -A -N || exit 1
+  if [ -n "$(git -C "$factory_wt" status --porcelain)" ]; then
+    {
+      echo "# Against the factory installed in $repo, not ai-factory's main."
+      git -C "$factory_wt" diff --no-color --no-ext-diff
+    } >"$job/retro-factory.patch" || exit 1
+    factory_part="patch $job/retro-factory.patch"
+  fi
+fi
+
+# Comments on existing ai-factory PRs.
+if [ "$kind" = source ] && [ -n "$src" ]; then
+  for f in "$job"/retro-comment-*.md; do
+    [[ $(basename "$f") =~ ^retro-comment-([0-9]+)\.md$ ]] || continue
+    num=${BASH_REMATCH[1]}
+    (cd "$src" && gh pr comment "$num" --body-file "$f" >/dev/null) || {
+      echo "retro-publish: gh pr comment $num failed" >&2
+      exit 1
+    }
+    mv "$f" "${f%.md}.posted.md" || exit 1
+  done
+fi
+
+# remove_wt <git-dir> <worktree> <branch> <pr-url|null> <base-ref>: removes the
+# worktree, and the branch too when it has no PR and nothing beyond <base-ref>.
+remove_wt() {
+  local dir=$1 wt=$2 branch=$3 pr=$4 ref=$5 new
+  git -C "$dir" worktree remove --force "$wt" || exit 1
+  [ "$pr" = null ] || return 0
+  new=$(commits "$dir" "$ref..refs/heads/$branch") || exit 1
+  if [ -z "$new" ]; then
+    git -C "$dir" branch -q -D "$branch" || exit 1
+  fi
+}
+
+# Cleanup.
+if has_wt "$repo_wt"; then
+  remove_wt "$repo" "$repo_wt" "$repo_branch" "$repo_pr" "$base"
+fi
+if [ "$kind" = source ] && has_wt "$factory_wt"; then
+  remove_wt "$src" "$factory_wt" "$factory_branch" "$factory_pr" origin/main
+elif [ "$kind" = installed ] && [ "$factory_wt" = "$job/.retro-factory" ]; then
+  rm -rf "$factory_wt" || exit 1
+fi
+"$here/job-set" "$job/job.json" '.retro_worktree = null | .retro_factory_worktree = null' || exit 1
+
+echo "retro $id: $n fixes, $repo_part, $factory_part"

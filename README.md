@@ -197,6 +197,7 @@ two REWORKs and one RESPEC per job, never push.
 /factory approve <job-id>        resubmit a needs-human job to be merged
 /factory rework <job-id> <note>  resubmit a needs-human job to the builder with a note
 /factory resume <job-id>         pick up a job whose session ended mid-step
+/factory retro <job-id>          run a retro on one job by hand
 ```
 
 ## Human review
@@ -217,6 +218,28 @@ and they don't count toward the autopilot's rework and respec limits. A
 dropped job closes its PR and bead and ends at `dropped`. `/factory review`
 also clears import conflicts labelled `needs-human` by asking you about each.
 
+## Retros
+
+When a job that needed extra attempts (more than one review round, a rework
+or respec, a builder rerun, an escalation, or an autopilot or owner
+decision) merges or is dropped, the orchestrator runs a `retro` agent on it,
+headless drains included. It works out what each extra attempt was for, writes `retro.md`,
+and drafts the fixes that would have saved them:
+
+- **Repo lessons** go into `AGENTS.md` in a PR labelled `factory-retro`,
+  titled `Retro <job-id>: <n> lessons` (with `land: "local"`, a kept branch
+  `factory/retro-<job-id>` instead).
+- **Factory fixes**, such as changes to role files, `SKILL.md` or scripts,
+  go to ai-factory itself when `factory_source` in `factory/settings.json`
+  names a local ai-factory checkout: a PR there titled `Retro <repo> <job-id>: <n> fixes`. Without it
+  they land in the job folder as `retro-factory.patch`.
+
+Nothing merges by itself; you review the PRs. `/factory retro <job-id>` runs
+one by hand on any job, and running it again updates the open PRs.
+`/factory status` prints a trend line over the last 10 merged jobs
+(first-pass rate, median rounds, reworks and tokens), so you can see whether
+the retros help.
+
 ## Layout
 
 ```
@@ -230,11 +253,12 @@ factory/
   agents/                        one instruction file per role, for any provider
     spec-writer.md  planner.md  builder.md
     reviewer-security.md  reviewer-code.md  reviewer-ux.md  reviewer-ui.md
-    approver.md  autopilot.md  importer.md  briefer.md
+    approver.md  autopilot.md  importer.md  briefer.md  retro.md
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
   bin/job-set                    updates a job.json field with jq, quietly
   bin/autopilot                  drains the queue, one headless session per job
+  bin/retro-due, retro-prep, retro-publish   decide, set up and publish a retro
   dashboard.html                 the visual board
   jobs/                          one folder per job (runtime state)
   imports/                       one folder per PRD import (runtime state)
