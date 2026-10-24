@@ -23,11 +23,11 @@ shipped factory/jev/
 shipped factory/presets/
 shipped factory/role-preamble.md
 shipped factory/settings.example.json
+shipped factory/AGENTS.template.md
 
 owned factory/models.json
 owned factory/autopilot-policy.md
 owned factory/settings.json
 owned factory/jobs/.gitkeep
 
-source factory/AGENTS.template.md
 source factory/test/

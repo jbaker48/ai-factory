@@ -233,6 +233,7 @@ two REWORKs and one RESPEC per job, never push.
 /factory rework <job-id> <note>  resubmit a needs-human job to the builder with a note
 /factory resume <job-id>         pick up a job whose session ended mid-step
 /factory retro <job-id>          run a retro on one job by hand
+/factory setup                   set up Beads and AGENTS.md; re-run to update AGENTS.md
 ```
 
 ## Human review
@@ -280,14 +281,14 @@ the retros help.
 ```
 .claude/
   skills/factory/SKILL.md        the orchestrator: runs the loop, writes job.json and Beads
-  skills/factory/import.md  adopt.md  review.md  retro.md  resume.md
+  skills/factory/import.md  adopt.md  review.md  retro.md  resume.md  setup.md
                                  rarer subcommands, read only when SKILL.md points there
   agents/factory-agent.md        runs any role on a Claude model
 factory/
   models.json                    role → provider, model, effort
   presets/                       mixed.json, lean.json, claude.json, openai.json: models.json presets
   autopilot-policy.md            what the autopilot may decide alone
-  AGENTS.template.md             starting point for your repo's AGENTS.md
+  AGENTS.template.md             starting point for your repo's AGENTS.md, read by /factory setup
   agents/                        one instruction file per role, for any provider
     spec-writer.md  planner.md  builder.md
     reviewer-security.md  reviewer-code.md  reviewer-ux.md  reviewer-ui.md
@@ -295,6 +296,7 @@ factory/
     approver.md  autopilot.md  importer.md  briefer.md  retro.md
   manifest                       which files an install ships, which the user owns
   bin/install                    installs or upgrades the factory in a repo
+  bin/agents-md                  merges factory sections into AGENTS.md; checks its commands
   bin/models                     shows or switches the models.json preset
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
@@ -334,9 +336,12 @@ the decisions. By hand:
    writes `factory/VERSION` (the commit it installed from).
 3. Run `bd init` in the repo if it has no Beads workspace yet. If it has one,
    keep it: see **Brownfield** above, and start with `/factory import <prd>`.
-4. Write your `AGENTS.md` from this checkout's `factory/AGENTS.template.md`
-   (the install leaves it here), and make
-   `CLAUDE.md` the one line `@AGENTS.md`. The agents carry nothing
+4. Write your `AGENTS.md` from `factory/AGENTS.template.md` (the install
+   copies it), keeping its section markers, and make
+   `CLAUDE.md` the one line `@AGENTS.md`. `/factory setup` in the repo does
+   steps 3 and 4 for you and proves every command in a fresh worktree; run it
+   again later to refresh the factory's sections without touching your own.
+   The agents carry nothing
    repo-specific: they get setup for a fresh worktree, the dev server on a
    given port, validation commands and conventions from this file. The
    template's header comment lists the conditions those commands must work

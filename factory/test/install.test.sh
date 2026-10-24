@@ -24,7 +24,8 @@ test_install_passes_done_when() {
   assert_eq "yes" "$([ -f "$t/.claude/agents/factory-agent.md" ] && echo yes)" "agent copied"
   assert_eq "yes" "$([ -f "$t/factory/dashboard.html" ] && [ -f "$t/factory/dashboard/runs.js" ] && echo yes)" "dashboard copied"
   assert_eq "yes" "$([ -f "$t/factory/agents/builder.md" ] && echo yes)" "roles copied"
-  assert_eq "" "$([ -e "$t/factory/AGENTS.template.md" ] && echo present)" "template stays in the source"
+  assert_eq "yes" "$([ -f "$t/factory/AGENTS.template.md" ] && echo yes)" "template copied for /factory setup"
+  assert_eq "yes" "$([ -x "$t/factory/bin/agents-md" ] && [ -f "$t/.claude/skills/factory/setup.md" ] && echo yes)" "setup subcommand and its script copied"
   mkdir -p "$t/factory/jobs/j1" && echo x >"$t/factory/jobs/j1/job.json"
   assert_eq "factory/jobs/.gitkeep" "$(git -C "$t" status --porcelain -uall | awk '{print $2}' | grep '^factory/jobs/')" "git status shows only jobs/.gitkeep under factory/jobs"
 }
