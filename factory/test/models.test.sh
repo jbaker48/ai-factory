@@ -61,5 +61,14 @@ test_presets_cover_same_roles() {
   if [ -f "$FACTORY_SRC/agents/reviewer-adversarial.md" ]; then _pass; else _fail "adversarial role file exists"; fi
 }
 
+test_builder_tiers() {
+  setup
+  local p
+  for p in mixed lean claude openai; do
+    assert_eq "builder builder" "$(jq -r '[."builder-light".agent, ."builder-standard".agent] | join(" ")' "$FACTORY_SRC/presets/$p.json")" "$p tiers use the builder role file"
+  done
+  assert_eq "medium high" "$(jq -r '[."builder-light".effort, ."builder-standard".effort] | join(" ")' "$FACTORY_SRC/presets/mixed.json")" "mixed tier efforts"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

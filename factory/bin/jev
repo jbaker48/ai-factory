@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Asks TypeSafe (Jev) to answer multiple-choice questions about a task.
+#
+#   factory/bin/jev <questions-file> <state-file>
+#
+# <questions-file> is a JSON object of questions, each
+#   {"type":"choice","criteria":{<option>:<what>|{"what","not_for"}},"instructions":{...}}
+# <state-file> is the plain-text state sent as context. It is redacted (keys,
+# tokens, email addresses, URLs with credentials become [redacted]) and capped
+# at 12000 characters before it leaves the machine.
+# Reads JEV_KEY from the environment, and "send" and "model" from
+# `factory/bin/settings jev` merged over the defaults (send off, model
+# jev-latest). JEV_URL overrides the endpoint (tests).
+# The whole call has a 1.5 s deadline; one retry after 300 ms on 429, 5xx or a
+# dropped connection, only if the deadline allows. The key goes to curl in a
+# mode-600 header file, never argv. Error bodies are never logged.
+#
+# Prints one compact JSON line on success:
+#   {"model","state","answers":{<key>:{"choice","p","probabilities"}},"latency_ms","input_tokens"}
+# "p" is the chosen option's probability, or 0 when the response has none (so the confidence floor fails closed).
+# Exit: 0 ok, 1 call failed or no usable answer (one stderr line), 2 usage or
+# config error, 3 send is off.
+set -uo pipefail
+
+if [ $# -ne 2 ]; then
+  echo "usage: jev <questions-file> <state-file>" >&2
+  exit 2
+fi
+qfile=$1 sfile=$2
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+[ -f "$qfile" ] && [ -f "$sfile" ] || { echo "jev: missing input file" >&2; exit 2; }
+jq -e 'type == "object" and length > 0' "$qfile" >/dev/null 2>&1 || { echo "jev: questions must be a non-empty object" >&2; exit 2; }
+
+defaults='{"send":"off","model":"jev-latest"}'
+cfg=$("$here/settings" jev) || exit 2
+cfg=$(jq -cn --argjson d "$defaults" --arg c "${cfg:-{\}}" '$d + ($c | fromjson? // {})') || exit 2
+send=$(jq -r '.send' <<<"$cfg")
+model=$(jq -r '.model' <<<"$cfg")
+case $send in
+  metadata | summary) ;;
+  *) echo "jev: off" >&2; exit 3 ;;
+esac
+[ -n "${JEV_KEY:-}" ] || { echo "jev: no JEV_KEY" >&2; exit 2; }
+url=${JEV_URL:-https://api.typesafe.ai/v1/systemone}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/jev.XXXXXX") || exit 2
+trap 'rm -rf "$tmp"' EXIT
+hdr="$tmp/hdr" req="$tmp/req" body="$tmp/body"
+(umask 077; printf 'Authorization: Bearer %s\n' "$JEV_KEY" >"$hdr")
+
+# Redact first, then cap, so a secret is never cut in half and left readable.
+# shellcheck disable=SC2016
+jq -n --arg model "$model" --rawfile state "$sfile" --slurpfile q "$qfile" '
+  def redact:
+    gsub("-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?(-----END [A-Z ]*PRIVATE KEY-----|\\z)"; "[redacted]")
+    |     gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s/@]+@[^\\s/]+"; "[redacted]")
+    | gsub("(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}"; "[redacted]")
+    | gsub("(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"; "[redacted]")
+    | gsub("(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}"; "[redacted]")
+    | gsub("Bearer\\s+[A-Za-z0-9._~+/=-]+"; "[redacted]")
+    | gsub("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"; "[redacted]")
+    | gsub("(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)?"; "[redacted]")
+    | gsub("(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,}"; "[redacted]")
+    | gsub("(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}"; "[redacted]")
+    | gsub("(?i:(token|secret|password|passwd|api[_-]?key|access[_-]?key))[\"'"'"']?\\s*[=:]\\s*[\"'"'"']?[^\\s\"'"'"',;]{6,}"; "[redacted]");
+  {model: $model, state: ($state | redact | .[0:12000]), questions: $q[0]}' >"$req" || exit 2
+
+deadline=1.5 elapsed=0 attempt=0 code=000 fail=
+while :; do
+  attempt=$((attempt + 1))
+  left=$(awk -v d="$deadline" -v e="$elapsed" 'BEGIN{printf "%.2f", int((d - e) * 100) / 100}')
+  : >"$body"
+  res=$(curl -sS -o "$body" -w '%{http_code} %{time_total}' --max-time "$left" \
+    -H "@$hdr" -H 'Content-Type: application/json' --data-binary "@$req" "$url" 2>/dev/null)
+  code=${res%% *} t=${res#* }
+  case $code in [0-9][0-9][0-9]) ;; *) code=000 ;; esac
+  case $t in '' | *[!0-9.]*) t=$left ;; esac
+  elapsed=$(awk -v e="$elapsed" -v t="$t" 'BEGIN{printf "%.3f", e + t}')
+  case $code in
+    2??) fail=; break ;;
+    000) fail="can't reach the server" ;;
+    *) fail="HTTP $code" ;;
+  esac
+  case $code in 000 | 429 | 5??) ;; *) break ;; esac
+  [ "$attempt" -lt 2 ] || break
+  elapsed=$(awk -v e="$elapsed" 'BEGIN{printf "%.3f", e + 0.3}')
+  awk -v d="$deadline" -v e="$elapsed" 'BEGIN{exit !(d - e >= 0.05)}' || break
+  sleep 0.3
+done
+if [ -n "$fail" ]; then
+  echo "jev: $fail" >&2
+  exit 1
+fi
+
+jq -e '.answers | type == "object"' "$body" >/dev/null 2>&1 || { echo "jev: no answers" >&2; exit 1; }
+latency=$(awk -v e="$elapsed" 'BEGIN{printf "%d", e * 1000 + 0.5}')
+# shellcheck disable=SC2016
+out=$(jq -c --slurpfile q "$qfile" --slurpfile r "$req" --argjson lat "$latency" '
+  . as $resp
+  | ($q[0] | to_entries) as $qs
+  | ([$qs[] | select(
+        ($resp.answers[.key].choice // null) as $c
+        | ($c | type) != "string" or ((.value.criteria // {}) | has($c) | not)
+      ) | .key] | first) as $bad
+  | if $bad != null then {bad: $bad}
+    else {
+      model: ($resp.model // $r[0].model),
+      state: $r[0].state,
+      answers: ($qs | map(
+        .key as $k | $resp.answers[$k] as $a
+        | {key: $k, value: {choice: $a.choice,
+            p: ($a.probabilities[$a.choice] // 0),
+            probabilities: ($a.probabilities // {})}}) | from_entries),
+      latency_ms: $lat,
+      input_tokens: ($resp.usage.input_tokens // null)
+    } end' "$body") || { echo "jev: no answers" >&2; exit 1; }
+bad=$(jq -r '.bad // empty' <<<"$out")
+if [ -n "$bad" ]; then
+  echo "jev: no usable answer for $bad" >&2
+  exit 1
+fi
+printf '%s\n' "$out"

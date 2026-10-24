@@ -31,7 +31,7 @@ feature ─► spec-writer ─► planner ─► Beads tasks ─► builder, one
 | --------- | -------------------------------- | -------------------------------------------- |
 | spec      | `spec-writer`                    | `spec.md`                                    |
 | plan      | `planner`                        | `plan.json` (you file it as Beads tasks)     |
-| build     | `builder` / `builder-escalation` | `build/<task-id>.md`, `build.md` (you commit) |
+| build     | `builder` / `builder-light` / `builder-standard` / `builder-escalation` | `build/<task-id>.md`, `build.md` (you commit) |
 | review    | `reviewer-security`              | `round-N/review-security.md`                 |
 |           | `reviewer-code`                  | `round-N/review-code.md`                     |
 |           | `reviewer-ux`                    | `round-N/review-ux.md`                       |
@@ -152,6 +152,17 @@ When a job reaches `merged`, `needs-human` or `dropped`, run
 `factory/bin/usage-record session <job folder>`. It records your own
 session's tokens for the job (once per session) and prints nothing.
 
+### Jev
+
+Jev answers three quick choices through `factory/bin/jev-decide`: which
+builder a task gets (**Build** step 2), which reviewers a round can skip
+(**Review round N** step 2) and which review Notes are worth a fix
+(**Triage**). `jev` in `factory/settings.json` configures it, and it is off
+unless `send` is `metadata` or `summary`. Its one output line is all you read.
+You never call `factory/bin/jev` yourself, never send Jev anything, and never
+override a `jev-decide` result with your own judgement. It always exits 0 and
+falls back to today's behaviour when anything fails.
+
 ## Keep your context small
 
 A job is dozens of steps, and everything you read stays in your context until
@@ -205,6 +216,7 @@ state that never lands in a commit.
 ```
 <repo>/factory/models.json                     role → provider, model, effort
 <repo>/factory/autopilot-policy.md             what the autopilot may decide alone
+<repo>/factory/jev/<decision>.json             Jev's questions
 <repo>/factory/agents/<role>.md                one instruction file per role
 <repo>/factory/jobs/<job-id>/job.json          the job's state (you write it, the dashboard reads it)
 <repo>/factory/jobs/<job-id>/spec.md
@@ -215,6 +227,8 @@ state that never lands in a commit.
 <repo>/factory/jobs/<job-id>/human-brief-<k>.md the briefer's brief for the owner, from /factory review
 <repo>/factory/jobs/<job-id>/human-<k>.md      the owner's decision, binding on every later role
 <repo>/factory/jobs/<job-id>/round-<N>/review-{security,code,ux,ui,adversarial}.md
+<repo>/factory/jobs/<job-id>/round-<N>/triage.{md,json}  Jev's sort of the Notes of an all-PASS round
+<repo>/factory/jobs/<job-id>/jev.jsonl         every Jev call
 <repo>/factory/jobs/<job-id>/decision.md
 <repo>/factory/jobs/<job-id>/autopilot-<k>.md
 <repo>/factory/jobs/<job-id>/.runs/            Codex and Claude prompts, Codex logs
@@ -242,8 +256,8 @@ state that never lands in a commit.
   "worktree": "/Users/you/code/my-app-factory/003-rate-limiting",
   "stage": "review", "round": 2, "reworks": 0, "respecs": 0, "situation": null,
   "tasks": [
-    { "id": "app-k2f.1", "title": "Add limiter middleware", "status": "closed", "model": "gpt-6-luna", "runs": 1 },
-    { "id": "app-k2f.2", "title": "Verify all acceptance criteria", "status": "closed", "model": "gpt-6-luna", "runs": 2, "final": true }
+    { "id": "app-k2f.1", "title": "Add limiter middleware", "status": "closed", "model": "gpt-6-luna", "role": "builder-light", "runs": 1 },
+    { "id": "app-k2f.2", "title": "Verify all acceptance criteria", "status": "closed", "model": "gpt-6-luna", "role": "builder-escalation", "runs": 2, "final": true }
   ],
   "reviews": { "security": "CHANGES", "code": "PASS", "ux": "PASS", "ui": "pending", "adversarial": "PASS" },
   "updated": "2026-10-19T04:12:09Z" }
@@ -259,10 +273,11 @@ state that never lands in a commit.
   the `job-set` that starts it sets `round_base` to the current `round`, so
   the run gets `MAX_ROUNDS` rounds of its own.
 - `tasks` mirrors the job bead's children: `open`, `in_progress`, `closed` or
-  `blocked`, the model that last built each, and `runs`, how many builder runs
-  it has started. Append fix tasks as you file them.
-- `reviews` holds the current round only. Each value is `pending`, `PASS` or
-  `CHANGES`. Earlier rounds live in their `round-<N>/` folders, which the
+  `blocked`, the model that last built each, `role`, the `models.json` key that
+  last built it, and `runs`, how many builder runs it has started. Append fix
+  tasks as you file them, with `fix: true`.
+- `reviews` holds the current round only. Each value is `pending`, `PASS`,
+  `CHANGES` or `SKIPPED`. Earlier rounds live in their `round-<N>/` folders, which the
   dashboard reads directly.
 - `reworks` and `respecs` count autopilot REWORK and RESPEC decisions. Owner
   decisions don't count toward them.
@@ -370,11 +385,14 @@ Repeat until no task under the bead is open:
    If none is ready but open tasks remain, they are blocked on something
    outside the plan: stop and tell the user, quoting
    `bd ready --parent <bead> --explain`.
-2. Pick the model: `builder`, except `builder-escalation` when the task's
-   `runs` is already 1 or more, and for fix tasks when the round `N` being
-   built for has `N - round_base = MAX_ROUNDS`. `bd update <task> --claim`, then in one `job-set` set
-   `stage: "build"` and mark the task `in_progress` with that model and `runs`
-   plus one. If `build/<task-id>.md` exists from an earlier run, move it to
+2. Pick the role. Use `builder-escalation` when the task's `runs` is already
+   1 or more, and for fix tasks when the round `N` being built for has
+   `N - round_base = MAX_ROUNDS`; don't route those. Otherwise run
+   `factory/bin/jev-decide route <job folder> <task-id>` and use the first word
+   of its line as the role key. `bd update <task> --claim`, then in one
+   `job-set` set `stage: "build"` and mark the task `in_progress` with that
+   key as `role`, `model` from that key's `models.json` entry, and `runs` plus
+   one. Include the line's parenthesis in the **Reporting** line. If `build/<task-id>.md` exists from an earlier run, move it to
    `build/<task-id>.run-<earlier runs>.md`, so a report at the plain path is
    always this run's.
 3. Run that role with the task `Build task <task-id>. Port: <port>.`
@@ -407,12 +425,15 @@ starts the next review round; anything else is `build-blocked`.
    main` so reviewers diff against the current `origin/main`. Then set
    `reviewed_base` to `git rev-parse <base>` (`<base>` is
    `factory/bin/settings base`).
-2. Run all five reviewers **in one message**, so they run in parallel. Each
+2. Run `factory/bin/jev-decide reviewers <job folder> <N>`. It writes
+   `review-<lens>.md` (`VERDICT: SKIPPED`) for each lens a change gives
+   nothing to review. Write `SKIPPED` to `job.json` for each of those. Then run
+   the other reviewers **in one message**, so they run in parallel. Each
    gets the task `Review round N.`, plus a port for `reviewer-ux` and
    `reviewer-ui`; on `codex-plugin`, `reviewer-adversarial` gets `N` as
    `run-adversarial`'s third argument instead.
 3. **WAIT FOR ALL.** Each time a reviewer finishes, read the first line of its
-   file (`VERDICT: PASS` or `VERDICT: CHANGES`) and write that verdict to
+   file (`VERDICT: PASS`, `VERDICT: CHANGES` or `VERDICT: SKIPPED`) and write that verdict to
    `job.json` straight away, so the dashboard chips fill in as they land. The
    round is done only when all five `review-*.md` files exist in `round-<N>/`.
    Never start a fix mid-round.
@@ -421,7 +442,9 @@ starts the next review round; anything else is `build-blocked`.
    the user. Untracked caches from their checks are fine; delete them with
    `git -C <worktree> clean -fdq` (it keeps gitignored files).
 5. Decide:
-   - **All PASS**: go to **Approve**.
+   - **All PASS** (`SKIPPED` counts as `PASS` here) with at least one Note line
+     across the reviews, and `N - round_base < MAX_ROUNDS`: go to **Triage**.
+   - **Otherwise, all PASS**: go to **Approve**.
    - **Any CHANGES, `N - round_base < MAX_ROUNDS`**: for each CHANGES review, file a fix
      task, then one new final task that depends on all of them:
      ```bash
@@ -438,6 +461,29 @@ starts the next review round; anything else is `build-blocked`.
      `ESCALATE`, then a blank line, then
      `Review rounds exhausted. Outstanding CHANGES in round-<N>/ from: <reviewers>.`
      Go to **Needs human** with situation `rounds-exhausted`.
+
+### Triage
+
+Run `factory/bin/jev-decide triage <job folder> <N>`. It writes
+`round-<N>/triage.json` and `triage.md`, and prints a summary line. If it
+prints `off`, or `round-<N>/triage.json` doesn't exist, go to **Approve**.
+
+1. For each `.follow_up[]` in `round-<N>/triage.json`, file a bead unless an
+   open bead already has its title (the dedupe query in **/factory review**
+   step 3):
+   ```bash
+   bd create "<title>" --type=feature -p 2 -l factory,queued \
+     --deps discovered-from:<bead> \
+     -d "<text>\n\nFrom round <N> review Notes of factory/<job-id>." --silent
+   ```
+2. With `.fix_now` non-empty, file `Fix round N notes`
+   (`-l factory,fix`, `-d "Address every Note under ## Fix now in factory/jobs/<job-id>/round-<N>/triage.md."`)
+   and the usual `Verify all acceptance criteria (round N+1)` final task
+   depending on it, exactly as a CHANGES round does. Before each `bd create`
+   here, look for an open child of the job bead with the same title (the check
+   **Spec and Beads** requires), and reuse it. Then go to **Build**. This
+   counts as a round, and skips the approver and autopilot.
+3. Otherwise go to **Approve**.
 
 ### Approve
 
@@ -547,7 +593,7 @@ Every stop that needs a decision comes here with a situation: `plan-blocked`,
    `bd comment <bead> "autopilot-<k>: <decision>, <confidence> confidence"`.
 4. Enforce the limits, turning a decision that breaks one into **PARK**:
    - **MERGE** needs situation `escalated` or `merge-blocked`, confidence
-     `high` or `medium`, all five final-round reviews `PASS`, and
+     `high` or `medium`, every final-round review `PASS` or `SKIPPED`, and
      `git merge-tree --write-tree <base> factory/<job-id>` clean (after
      `git fetch -q origin main` with `land: "pr"`).
    - **REWORK** needs `reworks < 2`. **RESPEC** needs `respecs < 1`. Owner
@@ -781,7 +827,7 @@ unpublished retro branch.
 
 A shortcut for a `/factory review` that ends in APPROVE, with no brief. The
 job must be in `needs-human` with situation `escalated` or `merge-blocked`,
-every review in `job.json` `PASS` and every task closed; otherwise say so and point at
+every review in `job.json` `PASS` or `SKIPPED` and every task closed; otherwise say so and point at
 `/factory review <job-id>`. With `k` as in **/factory review**, write
 `factory/jobs/<job-id>/human-<k>.md` yourself: `APPROVE`, a blank line,
 `## Owner answers`, `/factory approve <job-id>`. Then resubmit it as in
@@ -866,8 +912,12 @@ the job folder; don't read more of the job than the step below needs.
      set the task back to `open` with `runs` minus one, and go to **Build**.
      With no `in_progress` task, go to **Build**.
    - **review**: for each lens whose `round-<N>/review-<lens>.md` exists with a
-     valid first line, write its verdict to `job.json`. Run the missing
-     reviewers as in **Review round N** step 2, then continue from step 3.
+     valid first line (`VERDICT: SKIPPED` is one), write its verdict to
+     `job.json`. Run the missing reviewers as in **Review round N** step 2, then
+     continue from step 3. With all reviews in and a `triage.md` present,
+     don't run the triage command again: continue from **Triage** step 1 with
+     the existing `triage.json`. Every `bd create` there is title-checked, so
+     nothing is filed twice.
    - **approve**: if `decision.md` is newer than every file in `round-<N>/`,
      use it as in **Approve**. Otherwise run **Approve** again.
    - **autopilot**: if `decision_file` exists with a valid first line, continue

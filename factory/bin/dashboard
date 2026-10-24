@@ -64,7 +64,7 @@ function pastRounds(dir, round) {
     const v = {}
     for (const k of REVIEWERS) {
       try {
-        const m = firstLine(read(path.join(dir, `round-${n}`, `review-${k}.md`))).match(/^VERDICT:\s*(PASS|CHANGES)$/)
+        const m = firstLine(read(path.join(dir, `round-${n}`, `review-${k}.md`))).match(/^VERDICT:\s*(PASS|CHANGES|SKIPPED)$/)
         v[k] = m ? m[1] : 'invalid'
       } catch {
         v[k] = 'missing'

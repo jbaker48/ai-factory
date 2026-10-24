@@ -84,6 +84,12 @@ test_empty_tokens_are_not_zero() {
   assert_eq true "$(v 'usageMarkdown([{input:null,cached:null,output:null,reasoning:null}]).includes("| tokens not recorded |")')" "all-null usage rows say tokens are not recorded"
 }
 
+test_skipped_chip() {
+  assert_contains "$(v 'reviewBoxes({ux:"SKIPPED"})')" "reviewer skipped" "skipped reviewer gets the skipped state"
+  assert_contains "$(v 'reviewBoxes({ux:"SKIPPED"})')" ">skipped<" "skipped reviewer says skipped"
+  assert_contains "$(v 'reviewRoundLine({stage:"review",round:1,reviews:{security:"PASS",ux:"SKIPPED"}})')" "1 skipped" "round line counts skipped"
+}
+
 test_review_uses_current_round() {
   assert_eq true "$(v '(() => { const result = reviewData({stage:"review",round:3,reviews:{},past:[{security:"PASS"}]}); return result.number === 3 && result.verdicts.security === undefined && reviewBoxes(result.verdicts).includes("pending") })()')" "review cards show pending current round"
 }

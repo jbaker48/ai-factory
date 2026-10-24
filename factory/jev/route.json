@@ -1,0 +1,19 @@
+{
+  "route": {
+    "type": "choice",
+    "criteria": {
+      "light": "Mechanical: a rename, a config value, a doc edit, one small test",
+      "standard": "Ordinary: clear change in a few files with an obvious test",
+      "thorough": "Fiddly: several files, edge cases, or unfamiliar code",
+      "strong": {
+        "what": "Likely to defeat the default builder: hard reasoning, a past BLOCKED in the same area, cross-cutting change",
+        "not_for": "a task that is merely long but straightforward"
+      }
+    },
+    "instructions": {
+      "question": "How much model capability does this build task need?",
+      "about": "A single build task in a software repo: its label, the files it touches with line counts, and how earlier tasks in the same directories went.",
+      "judge_by": "The files named, their size, the label, and the history of tasks in the same directories (especially any that went BLOCKED). Pick the cheapest option that will still get the task done."
+    }
+  }
+}

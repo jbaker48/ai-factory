@@ -12,7 +12,8 @@
 # only, through the Codex CLI; no Claude subagents, so roles use no Claude
 # quota, though the orchestrator session is still Claude Code). A models.json that matches
 # no preset is "custom", and switching away from it needs --force so hand edits
-# aren't lost. Takes effect from the next role the orchestrator runs.
+# aren't lost. Every preset also has builder-light and builder-standard tier keys
+# (both use builder.md). Takes effect from the next role the orchestrator runs.
 # Exit: 0 ok, 1 refused or unknown preset, 2 usage.
 set -uo pipefail
 

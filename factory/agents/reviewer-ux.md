@@ -24,7 +24,7 @@ section lists the tasks the builder worked through.
    branch touches.
 2. `<job folder>/spec.md` and `<job folder>/build.md`.
 3. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
-4. From round 2 on, your own `round-<N-1>/review-ux.md`. Check whether each
+4. From round 2 on, your own `round-<N-1>/review-ux.md` (if it reads `VERDICT: SKIPPED`, use your latest review that doesn't). Check whether each
    finding was fixed.
 
 ## Look at it

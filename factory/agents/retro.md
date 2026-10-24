@@ -36,7 +36,7 @@ job (an open retro PR's branch): revise or replace them, don't add to them.
 2. Whole, never cut short with `head`, `tail`, `-c` or a line limit:
    `job.json`, `spec.md`, `plan.json`, `build.md`, and every `decision*.md`,
    `autopilot-*.md`, `human-*.md`, `human-brief-*.md` and `rework-*.md`.
-   Total `usage.jsonl` (if any) per stage with `jq`, leaving out
+   `jev.jsonl` (if any), whole. Total `usage.jsonl` (if any) per stage with `jq`, leaving out
    `role: "retro"` rows.
 3. Of each `round-<N>/review-*.md`, only the first line, `## Findings` and
    `## Notes`:
@@ -61,7 +61,8 @@ RETRO: <n> fixes
 ## Cost
 Rounds, reworks, respecs, human decisions, builder reruns, and tokens
 (input + output) per stage from usage.jsonl without `role: "retro"` rows,
-or `no usage data`.
+or `no usage data`; and the job's share of the weekly cap, the first
+`quota.before` to the last `quota.after` over its codex rows.
 
 ## What each extra attempt was for
 - round 3 (`review-batching`, `external-knowledge`): <why>. `round-3/review-adversarial.md` ## Findings
@@ -88,13 +89,17 @@ upgraded with `INSTALL.md`.
 
 **Attempts.** One line per extra round (each after the first), rework,
 respec and task run beyond the first, citing the file and round that shows
-it, with every cause that applies (one or more) from `spec`, `plan`, `build`, `review-signal`, `review-batching`, `review-coverage`, `environment`, `flaky`, `external-knowledge`, `owner-scope`.
+it, with every cause that applies (one or more) from `spec`, `plan`, `build`, `review-signal`, `review-batching`, `review-coverage`, `environment`, `flaky`, `external-knowledge`, `owner-scope`, `jev`.
 `review-signal`: the verdict didn't match the real problem.
 `review-batching`: findings arrived one round at a time. `review-coverage`: a
 lens had nothing to review, or missed something. `external-knowledge`: a
 platform, library, cloud-service or tool behaviour no agent knew, which a
 reviewer, approver, autopilot or owner had to explain. `owner-scope`: the
-owner changed the scope.
+owner changed the scope. `jev`: a Jev decision cost an attempt: a routed task
+that went BLOCKED, a `fix-now` Note whose fix task's `## Findings addressed`
+changed nothing, a Fine or Follow-up Note the approver escalated on, or a
+skipped lens whose next round found something. Its fix is a `factory` edit to
+`factory/jev/<decision>.json`.
 
 **Lenses.** For each review lens, count the rounds where it had nothing to
 review or found nothing, and give it one line under

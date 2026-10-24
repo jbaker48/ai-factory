@@ -1,0 +1,62 @@
+{
+  "review.ux": {
+    "type": "choice",
+    "criteria": {
+      "run": "The change touches user-facing screens, flows or copy, so a UX review has something to check",
+      "skip": {
+        "what": "The change has no user-facing surface, so a UX review would find nothing",
+        "not_for": "a change that might alter what this reviewer checks"
+      }
+    },
+    "instructions": {
+      "question": "Does the UX reviewer have anything to review in this round's change?",
+      "about": "The files changed on a job branch in a software repo, and which of them are UI files.",
+      "judge_by": "The UI files named in the ux line of the state. Skip only when nothing in the change could affect how a person uses the product."
+    }
+  },
+  "review.ui": {
+    "type": "choice",
+    "criteria": {
+      "run": "The change touches markup, styles, components or other visual code, so a UI review has something to check",
+      "skip": {
+        "what": "The change has no visual code, so a UI review would find nothing",
+        "not_for": "a change that might alter what this reviewer checks"
+      }
+    },
+    "instructions": {
+      "question": "Does the UI reviewer have anything to review in this round's change?",
+      "about": "The files changed on a job branch in a software repo, and which of them are UI files.",
+      "judge_by": "The UI files named in the ui line of the state. Skip only when nothing in the change could affect what is rendered."
+    }
+  },
+  "review.security": {
+    "type": "choice",
+    "criteria": {
+      "run": "The change could affect authentication, secrets, input handling, permissions or dependencies, or the last review was not clean",
+      "skip": {
+        "what": "The last security review passed cleanly and the fixes since touched nothing security-relevant",
+        "not_for": "a change that might alter what this reviewer checks"
+      }
+    },
+    "instructions": {
+      "question": "Does the security reviewer have anything to review in this round's change?",
+      "about": "The files changed on a job branch in a software repo, the security reviewer's previous verdict and the files its fix tasks changed.",
+      "judge_by": "The security line of the state: the previous verdict, its counts and the files changed since. Skip only when the fixes cannot have introduced a security problem."
+    }
+  },
+  "review.code": {
+    "type": "choice",
+    "criteria": {
+      "run": "The change adds or alters logic, or the last review was not clean",
+      "skip": {
+        "what": "The last code review passed cleanly and the fixes since only touched text, comments or docs",
+        "not_for": "a change that might alter what this reviewer checks"
+      }
+    },
+    "instructions": {
+      "question": "Does the code reviewer have anything to review in this round's change?",
+      "about": "The files changed on a job branch in a software repo, the code reviewer's previous verdict and the files its fix tasks changed.",
+      "judge_by": "The code line of the state: the previous verdict, its counts and the files changed since. Skip only when the fixes cannot have introduced a defect."
+    }
+  }
+}

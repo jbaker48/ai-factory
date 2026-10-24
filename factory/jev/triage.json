@@ -1,0 +1,27 @@
+{
+  "note": {
+    "type": "choice",
+    "criteria": {
+      "fix-now": "A real defect against the spec or acceptance criteria; the approver would escalate on it",
+      "follow-up": "Real but outside this job's spec; worth a bead, not a round",
+      "fine": "Style, preference, or already handled"
+    },
+    "instructions": {
+      "question": "What should happen to this reviewer Note?",
+      "about": "Note <n> in the state",
+      "judge_by": "The lens, severity and confidence, the file path, whether earlier rounds raised a Note on the same path, and the Note text when it is given. Choose fix-now only for a defect the approver would escalate."
+    }
+  },
+  "note-metadata": {
+    "type": "choice",
+    "criteria": {
+      "fine": "Style, preference, or already handled",
+      "approver": "Might be a real defect or out of scope; leave it for the approver to read"
+    },
+    "instructions": {
+      "question": "Can this reviewer Note be settled without the approver?",
+      "about": "Note <n> in the state",
+      "judge_by": "Only the lens, severity, confidence, file path and whether earlier rounds raised a Note on the same path; the Note text is not given. Choose fine only when the metadata clearly points to a low-value Note; otherwise choose approver."
+    }
+  }
+}

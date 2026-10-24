@@ -35,7 +35,7 @@ orchestrator's snapshot, taken just before you started.
 1. `factory/autopilot-policy.md` in the main checkout. It is binding.
 2. `AGENTS.md` (or `CLAUDE.md`).
 3. Everything in the job folder: `spec.md`, `plan.json`, `build.md`,
-   `build/*.md`, `decision.md`, every `round-*/review-*.md`, and earlier
+   `build/*.md`, `decision.md`, every `round-*/review-*.md`, `round-<N>/triage.md` when it exists, and earlier
    `rework-*.md`, `autopilot-*.md` and `human-*.md` files. Earlier autopilot
    files show what you already tried; don't repeat a move that failed. Each
    `human-<k>.md` is the owner's own decision (`human-brief-*.md` files are
@@ -47,14 +47,14 @@ orchestrator's snapshot, taken just before you started.
 
 ## Decide
 
-The final round has five reviews. `review-adversarial.md` comes from the
+The final round has five reviews, each `VERDICT: PASS`, `CHANGES` or `SKIPPED` (not reviewed this round, not a reason to hold back). `review-adversarial.md` comes from the
 adversarial reviewer (the Codex plugin or Claude): weigh its Notes, which hold findings
 below its blocking threshold, as well as its Findings.
 
 Pick exactly one:
 
 - **MERGE**: merge the branch as it is. Only for `escalated` or
-  `merge-blocked` when the final review round is all PASS, every acceptance
+  `merge-blocked` when every review in the final round is `PASS` or `SKIPPED`, every acceptance
   criterion is met, and the escalation reason is something you can responsibly
   accept under the policy. For `merge-blocked`, only when the cause was
   transient (for example, the main checkout was busy) and

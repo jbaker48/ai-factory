@@ -2,6 +2,8 @@
   "spec-writer":        { "provider": "anthropic", "model": "opus" },
   "planner":            { "provider": "anthropic", "model": "opus" },
   "builder":            { "provider": "openai",    "model": "gpt-6-luna",  "effort": "high",   "network": true },
+  "builder-light":      { "provider": "openai",    "model": "gpt-6-luna",  "effort": "medium", "network": true, "agent": "builder" },
+  "builder-standard":   { "provider": "openai",    "model": "gpt-6-luna",  "effort": "high",   "network": true, "agent": "builder" },
   "builder-escalation": { "provider": "openai",    "model": "gpt-6.1-sol", "effort": "high",   "network": true, "agent": "builder" },
   "reviewer-security":  { "provider": "openai",    "model": "gpt-6-astra", "effort": "medium" },
   "reviewer-code":      { "provider": "anthropic", "model": "sonnet" },

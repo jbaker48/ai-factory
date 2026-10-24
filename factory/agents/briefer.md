@@ -46,7 +46,7 @@ taken just before you started. Beads itself is not available to you.
 1. `AGENTS.md` (or `CLAUDE.md`).
 2. Everything in the job folder: `job.json`, `spec.md`, `plan.json`,
    `build.md`, every `build/*.md`, every `decision*.md`, `autopilot-*.md`,
-   `rework-*.md` and `human-*.md`, and every `round-*/review-*.md`. Earlier
+   `rework-*.md` and `human-*.md`, and every `round-*/review-*.md`. Notes that a round's `triage.md` lists under Fine or Follow-up are settled. Earlier
    `human-*.md` files are the owner's own past decisions: their scope and
    "must not change" lines still bind, and a question they already answered
    is not asked again.
@@ -91,7 +91,7 @@ does next:
 - **DROP**: the PR is closed, the branch deleted and the bead closed.
 
 Offer APPROVE only when all of these hold: the situation is `escalated` or
-`merge-blocked`, every review in the final round is `VERDICT: PASS`, and
+`merge-blocked`, every review in the final round is `VERDICT: PASS` or `VERDICT: SKIPPED` (not reviewed this round, not a reason to hold back), and
 every task under Children in `beads.md` is closed. REWORK, RESPEC and DROP
 may be offered in any situation.
 
