@@ -566,11 +566,11 @@ Every stop that needs a decision comes here with a situation: `plan-blocked`,
    - **REWORK**: file one fix task
      (`"Autopilot rework k"`, `-d "Address every instruction in factory/jobs/<job-id>/autopilot-<k>.md."`)
      and a new final task depending on it, exactly as a review round does.
-     Then increment `reworks`, clear `situation`, and go to **Build**.
+     In that same `job-set`, clear `situation`; then go to **Build**.
    - **RESPEC**: run `spec-writer` with the task
      `Amend: read autopilot-<k>.md and revise spec.md.` Close every open task
      under the bead with `--reason "Superseded by respec autopilot-<k>"`, then
-     increment `respecs`, clear `situation`, and go to **Plan**.
+     clear `situation` in that same `job-set` and go to **Plan**.
    - **PARK**: set `stage: "needs-human"`, add the `needs-human` label, run
      `factory/bin/usage-record session <job folder>`, and tell
      the user what the autopilot says a human must decide, quoting its

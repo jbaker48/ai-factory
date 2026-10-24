@@ -312,6 +312,8 @@ worker() {
     while [ "$stage" != merged ] && [ "$stage" != needs-human ] && [ "$stage" != dropped ]; do
       if [ "$resumes" -ge "$MAX_RESUMES" ]; then
         say "$bead still at $stage after $resumes resumes (session $sid). Giving up on it. /factory resume $job runs Beads as $actor." >&2
+        # Under --watch it may still be resubmitted; don't claim it again.
+        echo "$job" >>"$run/skipped"
         release
         rm -f "$inflight"
         note_failure "$job" || return 1

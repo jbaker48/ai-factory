@@ -152,6 +152,18 @@ test_claim_removed_on_resume_cap() {
   cd - >/dev/null || return
 }
 
+test_watch_resume_cap_not_reclaimed() {
+  setup
+  mkjob 001-a bead-a resubmitted
+  # every session leaves the job resubmitted, so the resumes run out
+  STUB_STAGE=resubmitted STUB_SLEEP=0 factory/bin/autopilot --watch >/dev/null 2>&1 &
+  pid=$!
+  sleep 2 # several polls
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  assert_eq 3 "$(wc -l <"$STUBS/claude.calls" | tr -d ' ')" "one session and two resumes, then left alone"
+  cd - >/dev/null || return
+}
+
 test_claim_removed_on_term() {
   setup
   mkjob 001-a bead-a resubmitted
