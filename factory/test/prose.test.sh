@@ -357,5 +357,22 @@ test_install_guide_points_at_script() {
   case $s in *rsync*) _fail "INSTALL step 3 no longer copies by hand" ;; *) _pass ;; esac
 }
 
+test_code_review_traceable() {
+  local f="$ROOT/factory/agents/reviewer-code.md" t
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  assert_contains "$t" 'Every CHANGES finding cites its source' "code review findings cite a source"
+  assert_contains "$t" 'an acceptance-criterion number from spec.md' "code review cites a criterion number"
+  assert_contains "$t" 'a rule in AGENTS.md' "code review cites an AGENTS.md rule"
+  assert_contains "$(section "$f" 'What to look for')" '**Scope creep**' "scope creep is its own check"
+  assert_contains "$t" 'cites the spec.md section it goes beyond' "scope creep cites the spec section"
+  local smells
+  smells=$(section "$f" 'Smell baseline')
+  assert_eq "12" "$(grep -cE '^- \*\*[^*]+\*\*: .+ Fix: .+' <<<"$smells")" "smell baseline lists 12 smells, each with its fix"
+  smells=$(tr '\n' ' ' <<<"$smells" | tr -s ' ')
+  assert_contains "$smells" 'A smell goes under Notes, never under Findings' "smells go to Notes only"
+  assert_contains "$smells" 'never makes the verdict CHANGES' "a smell never blocks on its own"
+  assert_contains "$smells" 'A rule documented in AGENTS.md overrides this baseline' "a repo rule overrides the baseline"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish
