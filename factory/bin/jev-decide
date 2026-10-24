@@ -2,6 +2,7 @@
 # Asks Jev (factory/bin/jev) for the factory's routing decisions.
 #
 #   factory/bin/jev-decide route <job-folder> <task-id>
+#   factory/bin/jev-decide triage <job-folder> <round>
 #
 # Subcommands are dispatched by name from main. They share three helpers:
 # cfg (the jev settings over their defaults), ask (one call to jev) and
@@ -20,6 +21,19 @@
 # The state sent is facts about the task: label, round, files named with line
 # counts, a history line for their top-level directories and, in summary mode
 # only, the title and description. Never code, diffs or logs. jev redacts it.
+#
+# triage: sorts the Notes of an all-PASS round. Reads every
+# round-<N>/review-<lens>.md (security, code, ux, ui, adversarial) and writes
+# round-<N>/triage.json ({fix_now, follow_up, fine, approver}, items {n, lens,
+# path, title, text, p, why}) and triage.md, then prints "triage round <N>: <a>
+# fix-now, <b> follow-up, <c> fine, <d> for the approver" ("off" with send off
+# or triage false, writing nothing). Security Notes and Notes on a path matching
+# jev/park-paths.txt or jev.park_paths are never sent: approver, why guardrail.
+# The rest go to Jev as note.1 .. note.<k> (jev/triage.json holds the question
+# templates; round-<N>/triage.json is the result). An answer under min_confidence
+# is approver/low-confidence; a failed call, a missing answer or a choice the
+# question did not offer is approver/error; metadata mode offers only fine or
+# approver, and approver is why "jev".
 #
 # jev is ${JEV_BIN:-<factory>/bin/jev}. A jev failure prints its stderr line
 # once and falls back to builder. Every subcommand always exits 0.
@@ -49,9 +63,23 @@ ask() {
   "$jev_bin" "$2" "$3"
 }
 
+# try_ask <decision> <questions-file> <state-file>: ask, and fail too when what
+# came back is not JSON. Prints jev's JSON.
+try_ask() {
+  local out
+  out=$(ask "$@") && jq -e . >/dev/null 2>&1 <<<"$out" || return 1
+  printf '%s\n' "$out"
+}
+
 # log_line <job-folder> <json>: appends the object as one compact line.
 log_line() {
   jq -c . <<<"$2" >>"$1/jev.jsonl" 2>/dev/null || echo "jev-decide: could not write $1/jev.jsonl" >&2
+}
+
+# log_error <job-folder> <decision> <task> <round> <send> <outcome-json>: the
+# line for a call that failed (jev down, no key, bad reply): no state, no answers.
+log_error() {
+  log_line "$1" "$(make_line "$2" "$3" "$4" "$5" "" "$6")"
 }
 
 # make_line <decision> <task> <round> <send> <jev-json|""> <outcome-json>
@@ -181,9 +209,9 @@ cmd_route() {
 
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/jev-decide.XXXXXX") || { echo "builder (fallback error)"; return; }
   route_state "$job" "$id" "$send" >"$tmp/state" 2>/dev/null
-  if ! out=$(ask route "$factory/jev/route.json" "$tmp/state") || ! jq -e . >/dev/null 2>&1 <<<"$out"; then
-    log_line "$job" "$(make_line route "$id" "$round" "$send" "" \
-      '{"route":{"used":false,"why":"error","did":"ran as builder"}}')"
+  if ! out=$(try_ask route "$factory/jev/route.json" "$tmp/state"); then
+    log_error "$job" route "$id" "$round" "$send" \
+      '{"route":{"used":false,"why":"error","did":"ran as builder"}}'
     rm -rf "$tmp"
     echo "builder (fallback error)"
     return
@@ -218,6 +246,193 @@ cmd_route() {
   echo "$line"
 }
 
+# notes_of <review-file>: the Notes in its "## Notes" section, one per line:
+# bullets stripped, "None." and the "Suggested next steps:" tail dropped.
+notes_of() {
+  awk '/^## /{ n = ($0 ~ /^## Notes[ \t]*$/); next }
+    n && /^Suggested next steps:/{ n = 0; next }
+    n && NF { print }' "$1" 2>/dev/null |
+    sed -E 's/^[[:space:]]*([-*]|[0-9]+\.)[[:space:]]+//; s/^[[:space:]]+//; s/[[:space:]]+$//' |
+    grep -viE '^none\.?$' || true
+}
+
+# path_of "<note>": its first token that looks like a path (a "/" in it, or a
+# ".<ext>" end, or a Dockerfile/Makefile-style name), with backticks and a ":line" suffix stripped. Prints nothing
+# when there is none.
+path_of() {
+  printf '%s\n' "$1" | awk -v q="'" '{
+    for (i = 1; i <= NF; i++) {
+      t = $i
+      if (t ~ /:\/\//) continue
+      gsub(/`/, "", t)
+      sub("^[(\"" q "]+", "", t)
+      sub("[],;)\"" q ".]+$", "", t)
+      sub(/:[0-9]+(:[0-9]+)?$/, "", t)
+      if (t != "" && (t ~ /\// || t ~ /\.[A-Za-z][A-Za-z0-9]*$/ || t ~ /^(Dockerfile|Makefile|Gemfile|Rakefile|Procfile)[A-Za-z0-9._-]*$/)) { print t; exit }
+    } }'
+}
+
+# parked <path> <glob>...: true when the path matches a glob, as it is or as ./path.
+parked() {
+  local p=$1 g
+  shift
+  for g in "$@"; do
+    # shellcheck disable=SC2053 # the glob is meant as a pattern
+    if [[ $p == $g || ./$p == $g ]]; then return 0; fi
+  done
+  return 1
+}
+
+# triage_state <items-json> <send>: the state text, one line per Note that is
+# not guarded, numbered from 1 in the order of the questions.
+triage_state() {
+  jq -r --arg send "$2" '
+    [ .[] | select(.guarded | not) ] | to_entries[]
+    | "Note \(.key + 1): lens \(.value.lens)"
+      + (if .value.severity then "; severity \(.value.severity)" else "" end)
+      + (if .value.confidence then "; confidence \(.value.confidence)" else "" end)
+      + "; path \(.value.path // "none"); raised before: \(if .value.seen then "yes" else "no" end)"
+      + (if $send == "summary" then "; text: \(.value.text)" else "" end)' <<<"$1"
+}
+
+# triage_questions <send> <count>: note.1 .. note.<count> from jev/triage.json.
+triage_questions() {
+  local tpl='note'
+  if [ "$1" = metadata ]; then tpl='note-metadata'; fi
+  jq --arg t "$tpl" --argjson c "$2" '
+    .[$t] as $q
+    | [range(1; $c + 1) as $i | {key: "note.\($i)", value: ($q | .instructions.about = "Note \($i) in the state")}]
+    | from_entries' "$factory/jev/triage.json"
+}
+
+# triage_sort <items-json> <answers-json|null> <send> <min>: prints
+# {result: {fix_now, follow_up, fine, approver}, outcome: {<key>: {used, why, did}}}.
+# A missing answer, or a choice the question did not offer, counts as an error.
+triage_sort() {
+  jq -c --argjson a "$2" --arg send "$3" --argjson min "$4" '
+    (if $send == "metadata" then ["fine", "approver"] else ["fix-now", "follow-up", "fine"] end) as $ok
+    | [ foreach .[] as $it (0; if $it.guarded then . else . + 1 end; [$it, .]) ]
+    | map(. as [$it, $k]
+        | ($a["note.\($k)"]) as $r
+        | (if $it.guarded then {b: "approver", why: "guardrail", p: null}
+           elif $r == null or ($r.choice as $c | $ok | any(. == $c) | not) then {b: "approver", why: "error", p: null}
+           elif $r.p < $min then {b: "approver", why: "low-confidence", p: $r.p}
+           elif $r.choice == "approver" then {b: "approver", why: "jev", p: $r.p}
+           else {b: $r.choice, why: null, p: $r.p} end)
+        + {it: $it, key: (if $it.guarded then "guarded.\($it.n)" else "note.\($k)" end)}) as $rows
+    | def item: {n: .it.n, lens: .it.lens, path: .it.path, title: .it.title, text: .it.text, p: .p}
+        + (if .b == "approver" then {why: .why} else {} end);
+      { result: {
+          fix_now: [$rows[] | select(.b == "fix-now") | item],
+          follow_up: [$rows[] | select(.b == "follow-up") | item],
+          fine: [$rows[] | select(.b == "fine") | item],
+          approver: [$rows[] | select(.b == "approver") | item] },
+        outcome: ($rows | map({key, value: {
+          used: (.why == null or .why == "jev"),
+          why: (if .why == "jev" then null else .why end),
+          did: (if .why == "guardrail" then "guarded; left for the approver"
+                elif .why == "error" then "no usable answer; left for the approver"
+                elif .why == "low-confidence" then "p=\(.p) is below \($min); left for the approver"
+                elif .why == "jev" then "Jev left it for the approver"
+                else "triaged as \(.b)" end)}}) | from_entries) }' <<<"$1"
+}
+
+# triage_md <result-json>: the text of triage.md.
+triage_md() {
+  jq -r '
+    def line: "- [\(.lens)] \(.text)" + (if .p != null then " (p=\(.p))" else "" end) + (if .why then " — \(.why)" else "" end);
+    def sec($h; $a): "\n## \($h)\n" + (if ($a | length) == 0 then "None." else ($a | map(line) | join("\n")) end);
+    "TRIAGE: \(.fix_now | length) fix-now, \(.follow_up | length) follow-up, \(.fine | length) fine, \(.approver | length) approver"
+    + sec("Fix now"; .fix_now) + "\n" + sec("Follow-up"; .follow_up) + "\n" + sec("Fine"; .fine)
+    + "\n" + sec("For the approver"; .approver)' <<<"$1"
+}
+
+cmd_triage() {
+  local job=$1 n=$2 conf send min dir tmp out answers lens f note path text sev cf title guarded seen m earlier=""
+  local sevre='\[([A-Za-z]+),[[:space:]]*confidence[[:space:]]+([0-9.]+)\]' globs=() g state qs res
+  conf=$(cfg)
+  send=$(jq -r '.send' <<<"$conf")
+  if [ "$(jq -r '.triage' <<<"$conf")" = false ]; then send=off; fi
+  case $send in metadata | summary) ;; *) echo "triage round $n: off"; return ;; esac
+  min=$(jq -r '.min_confidence' <<<"$conf")
+  dir=$job/round-$n
+  mkdir -p "$dir" || { echo "triage round $n: off"; return; }
+
+  while IFS= read -r g; do [ -n "$g" ] && globs+=("$g"); done <"$factory/jev/park-paths.txt"
+  while IFS= read -r g; do [ -n "$g" ] && globs+=("$g"); done < <(jq -r '.park_paths[]? | strings' <<<"$conf")
+
+  # The paths earlier rounds' Notes named, one per line.
+  for ((m = 1; m < n; m++)); do
+    for lens in security code ux ui adversarial; do
+      while IFS= read -r note; do
+        [ -n "$note" ] && earlier="$earlier$(path_of "$note")
+"
+      done < <(notes_of "$job/round-$m/review-$lens.md")
+    done
+  done
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/jev-decide.XXXXXX") || { echo "triage round $n: off"; return; }
+  : >"$tmp/items"
+  local count=0
+  for lens in security code ux ui adversarial; do
+    f=$dir/review-$lens.md
+    [ -f "$f" ] || continue
+    while IFS= read -r text; do
+      [ -n "$text" ] || continue
+      count=$((count + 1))
+      path=$(path_of "$text")
+      sev='' cf=''
+      if [[ $text =~ $sevre ]]; then sev=${BASH_REMATCH[1]} cf=${BASH_REMATCH[2]}; fi
+      if [ "$lens" = adversarial ] && [ -n "$sev" ]; then
+        title=${text#*\] }; title=${title%%. *}; title=${title%.}
+      else
+        title=${text%%. *}; title=${title%.}; title=${title:0:80}
+      fi
+      guarded=false
+      if [ "$lens" = security ] || { [ -n "$path" ] && parked "$path" ${globs[@]+"${globs[@]}"}; }; then guarded=true; fi
+      seen=false
+      if [ -n "$path" ]; then case "
+$earlier" in *"
+$path
+"*) seen=true ;; esac; fi
+      jq -nc --argjson n "$count" --arg lens "$lens" --arg path "$path" --arg title "$title" --arg text "$text" \
+        --arg sev "$sev" --arg cf "$cf" --argjson guarded "$guarded" --argjson seen "$seen" \
+        '{n: $n, lens: $lens, path: (if $path == "" then null else $path end), title: $title, text: $text,
+          severity: (if $sev == "" then null else $sev end), confidence: (if $cf == "" then null else $cf end),
+          guarded: $guarded, seen: $seen}' >>"$tmp/items"
+    done < <(notes_of "$f")
+  done
+  local items
+  items=$(jq -sc . "$tmp/items")
+
+  state=$(triage_state "$items" "$send")
+  answers=null
+  local outline
+  if [ -z "$state" ]; then
+    res=$(triage_sort "$items" '{}' "$send" "$min")
+    log_line "$job" "$(make_line triage "round-$n" "$n" "$send" "" "$(jq -c .outcome <<<"$res")")"
+  else
+    printf '%s\n' "$state" >"$tmp/state"
+    qs=$(triage_questions "$send" "$(grep -c '^Note ' "$tmp/state")")
+    printf '%s\n' "$qs" >"$tmp/questions"
+    if out=$(try_ask triage "$tmp/questions" "$tmp/state"); then
+      answers=$(jq -c '.answers // {}' <<<"$out")
+      res=$(triage_sort "$items" "$answers" "$send" "$min")
+      log_line "$job" "$(make_line triage "round-$n" "$n" "$send" "$out" "$(jq -c .outcome <<<"$res")")"
+    else
+      res=$(triage_sort "$items" null "$send" "$min")
+      log_error "$job" triage "round-$n" "$n" "$send" "$(jq -c .outcome <<<"$res")"
+    fi
+  fi
+  rm -rf "$tmp"
+
+  res=$(jq -c .result <<<"$res")
+  jq . <<<"$res" >"$dir/triage.json"
+  triage_md "$res" >"$dir/triage.md"
+  outline=$(jq -r '"\(.fix_now | length) fix-now, \(.follow_up | length) follow-up, \(.fine | length) fine, \(.approver | length) for the approver"' <<<"$res")
+  echo "triage round $n: $outline"
+}
+
 main() {
   local sub=${1:-}
   case $sub in
@@ -230,7 +445,16 @@ main() {
       if [ ! -f "$2/job.json" ]; then echo "jev-decide: no $2/job.json" >&2; echo "builder (fallback error)"; return 0; fi
       cmd_route "$2" "$3"
       ;;
-    *) echo "usage: jev-decide route ..." >&2 ;;
+    triage)
+      if [ $# -lt 3 ]; then
+        echo "usage: jev-decide triage <job-folder> <round>" >&2
+        echo "triage round ${3:-?}: off"
+        return 0
+      fi
+      if [ ! -d "$2" ] || ! [[ $3 =~ ^[0-9]+$ ]]; then echo "jev-decide: bad job folder or round" >&2; echo "triage round $3: off"; return 0; fi
+      cmd_triage "$2" "$3"
+      ;;
+    *) echo "usage: jev-decide route|triage ..." >&2 ;;
   esac
   return 0
 }

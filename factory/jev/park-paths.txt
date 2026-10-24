@@ -1,0 +1,11 @@
+**/.env*
+**/*secret*
+**/auth/**
+**/migrations/**
+.github/**
+**/*.tf
+infra/**
+**/cdk*/**
+**/Dockerfile*
+**/package.json
+**/*.lock

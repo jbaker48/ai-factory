@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for factory/bin/jev-decide (route).
+# Tests for factory/bin/jev-decide (route, triage).
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -192,6 +192,142 @@ test_route_history_ignores_prose_bullets() {
   printf 'STATUS: DONE\n\n## Commit\nMessage: x\nFiles:\n- lib/bar.sh\n\n## Changes\n- touched src/ in passing\n- src/foo.sh mentioned\n\n## Evidence\n- src/z\n' >"$R/factory/jobs/j0/build/a.1.md"
   route >/dev/null
   assert_eq "History: no earlier tasks touched src/." "$(grep '^History:' "$TEST_TMP/state.sent")" "prose bullets are not files"
+}
+
+# triage_fixture: round 1 reviews. Security has a Note, Code has none, and
+# Adversarial has three Notes then next steps.
+triage_fixture() {
+  mkdir -p "$J/round-1"
+  printf 'VERDICT: PASS\n\n## Findings\nNone.\n\n## Notes\n- src/x.ts:4 token compare is not constant time.\n' >"$J/round-1/review-security.md"
+  printf 'VERDICT: PASS\n\n## Findings\nNone.\n\n## Notes\nNone.\n' >"$J/round-1/review-code.md"
+  printf 'VERDICT: PASS\n\n## Findings\nNone.\n\n## Notes\n%s\n%s\n%s\n\nSuggested next steps:\n- run tests\n\n## Evidence\n- src/zzz.ts\n' \
+    '- src/api.ts:12 [medium, confidence 0.7] Off by one. The loop skips the last row. Fix: use <=.' \
+    '- package.json:3 [low, confidence 0.5] Pin it. Version floats. Fix: pin.' \
+    '- docs/a.md:1 [low, confidence 0.4] Typo. Says teh. Fix: the.' >"$J/round-1/review-adversarial.md"
+}
+# tanswer <note.k=choice:p>...: what the fake jev prints for triage.
+tanswer() {
+  jq -cn '{model: "jev-2", state: "st", answers: ([$ARGS.positional[] | capture("^(?<k>[^=]+)=(?<c>[^:]+):(?<p>.*)$")
+      | {(.k): {choice: .c, p: (.p | tonumber), probabilities: {}}}] | add), latency_ms: 80, input_tokens: 150}' \
+    --args "$@" >"$TEST_TMP/jev.out"
+}
+triage() { "$R/factory/bin/jev-decide" triage "$J" "${1:-1}" 2>"$TEST_TMP/err"; }
+tj() { jq -c "$1" "$J/round-1/triage.json"; }
+
+test_note_parsing() {
+  setup; triage_fixture; tanswer note.1=fine:0.9 note.2=fine:0.9
+  triage >/dev/null
+  assert_eq 4 "$(tj '[.fix_now, .follow_up, .fine, .approver] | map(length) | add')" "four Notes"
+  case $(cat "$J/round-1/triage.json") in *"run tests"* | *'"None.'*) _fail "next steps or None leaked" ;; *) _pass ;; esac
+  assert_eq src/api.ts "$(tj '.fine[0].path' | tr -d '"')" "path without line"
+  assert_eq "Off by one" "$(tj '.fine[0].title' | tr -d '"')" "adversarial title"
+  assert_eq adversarial "$(tj '.fine[0].lens' | tr -d '"')" "lens"
+  assert_eq 0.9 "$(tj '.fine[0].p')" "p"
+}
+
+test_park_root_files() {
+  setup; triage_fixture
+  printf 'VERDICT: PASS\n\n## Findings\nNone.\n\n## Notes\n- package.json:3 [low, confidence 0.5] Pin it. x.\n- .env:1 [low, confidence 0.9] Leaks.\n- Dockerfile:2 [low, confidence 0.9] Old base.\n- docs/a.md:1 [low, confidence 0.4] Typo. x.\n' >"$J/round-1/review-adversarial.md"
+  tanswer note.1=fine:0.9
+  triage >/dev/null
+  assert_eq 4 "$(tj '[.approver[] | select(.why == "guardrail")] | length')" "security, package.json, .env, Dockerfile"
+  assert_eq 1 "$(tj '.fine | length')" "docs note settled"
+  assert_eq '"package.json"' "$(tj '[.approver[] | select(.lens == "adversarial")][0].path')" "package.json parked"
+}
+
+test_guarded_not_sent() {
+  setup; triage_fixture; tanswer note.1=fine:0.9 note.2=fine:0.9
+  triage >/dev/null
+  case $(cat "$TEST_TMP/state.sent") in *"Pin it"* | *"constant time"*) _fail "guarded Note in state" ;; *) _pass ;; esac
+  assert_eq '["note.1","note.2"]' "$(jq -c 'keys' "$TEST_TMP/questions.sent")" "two questions"
+  assert_contains "$(jq -r '.["note.2"].instructions.about' "$TEST_TMP/questions.sent")" "Note 2 in the state" "about"
+  assert_contains "$(cat "$TEST_TMP/state.sent")" "Off by one" "summary state has text"
+}
+
+test_triage_outcomes() {
+  setup; triage_fixture; tanswer note.1=fix-now:0.8 note.2=follow-up:0.75
+  assert_eq "triage round 1: 1 fix-now, 1 follow-up, 0 fine, 2 for the approver" "$(triage)" "output"
+  assert_eq "TRIAGE: 1 fix-now, 1 follow-up, 0 fine, 2 approver" "$(head -n 1 "$J/round-1/triage.md")" "md first line"
+  assert_eq Typo "$(tj '.follow_up[0].title' | tr -d '"')" "title"
+  md=$(cat "$J/round-1/triage.md")
+  for h in '## Fix now' '## Follow-up' '## Fine' '## For the approver'; do assert_contains "$md" "$h" "$h"; done
+  assert_contains "$md" "- [adversarial] src/api.ts:12 [medium, confidence 0.7] Off by one." "fix-now item"
+  assert_contains "$md" "(p=0.8)" "p shown"
+  assert_contains "$md" "— guardrail" "why shown"
+  assert_contains "$md" "None." "empty section"
+  l=$(logline)
+  assert_eq triage "$(jq -r .decision <<<"$l")" "decision"
+  assert_eq 1 "$(jq -r .round <<<"$l")" "round"
+  assert_eq st "$(jq -r .state <<<"$l")" "state logged"
+  assert_eq true "$(jq -r '.outcome["note.1"].used' <<<"$l")" "outcome used"
+  assert_eq guardrail "$(jq -r '[.outcome[] | select(.why == "guardrail")][0].why' <<<"$l")" "guardrail outcome"
+}
+
+test_triage_earlier_round_path() {
+  setup; triage_fixture; tanswer note.1=fine:0.9 note.2=fine:0.9
+  jq '.round = 2' "$J/job.json" >"$J/p" && mv "$J/p" "$J/job.json"
+  mkdir -p "$J/round-2"; cp "$J/round-1"/review-*.md "$J/round-2/"
+  triage 2 >/dev/null
+  assert_contains "$(cat "$TEST_TMP/state.sent")" "src/api.ts" "path in state"
+  assert_contains "$(cat "$TEST_TMP/state.sent")" "raised before: yes" "earlier round noted"
+  rm -rf "$J/round-1"; tanswer note.1=fine:0.9 note.2=fine:0.9; triage 2 >/dev/null
+  assert_contains "$(cat "$TEST_TMP/state.sent")" "raised before: no" "none earlier"
+}
+
+test_triage_low_confidence() {
+  setup; triage_fixture; tanswer note.1=fix-now:0.5 note.2=fine:0.9
+  triage >/dev/null
+  assert_eq 0 "$(tj '.fix_now | length')" "not fix-now"
+  assert_eq low-confidence "$(tj '[.approver[] | select(.title == "Off by one")][0].why' | tr -d '"')" "why"
+  assert_eq 1 "$(tj '.fine | length')" "other settled"
+}
+
+test_triage_metadata() {
+  setup '{"jev":{"send":"metadata"}}'; triage_fixture; tanswer note.1=fine:0.9 note.2=approver:0.9
+  assert_eq "triage round 1: 0 fix-now, 0 follow-up, 1 fine, 3 for the approver" "$(triage)" "output"
+  assert_eq '["approver","fine"]' "$(jq -c '.["note.1"].criteria | keys' "$TEST_TMP/questions.sent")" "options"
+  case $(cat "$TEST_TMP/state.sent") in *"Off by one"*) _fail "text leaked in metadata" ;; *) _pass ;; esac
+  assert_contains "$(cat "$TEST_TMP/state.sent")" "medium" "severity sent"
+  assert_eq jev "$(tj '[.approver[] | select(.title == "Typo")][0].why' | tr -d '"')" "jev chose approver"
+  tanswer note.1=fix-now:0.9 note.2=fine:0.9
+  triage >/dev/null
+  assert_eq 0 "$(tj '.fix_now | length')" "fix-now not offered"
+  assert_eq error "$(tj '[.approver[] | select(.title == "Off by one")][0].why' | tr -d '"')" "unoffered choice is an error"
+}
+
+test_triage_park_extend() {
+  setup '{"jev":{"send":"summary","park_paths":["docs/**"]}}'; triage_fixture; tanswer note.1=fine:0.9
+  triage >/dev/null
+  assert_eq guardrail "$(tj '[.approver[] | select(.title == "Typo")][0].why' | tr -d '"')" "docs parked"
+  assert_eq '["note.1"]' "$(jq -c keys "$TEST_TMP/questions.sent")" "one question"
+}
+
+test_triage_error() {
+  setup; triage_fixture; tanswer note.1=fine:0.9 note.2=fine:0.9; export JEV_RC=1
+  triage >/dev/null
+  assert_eq 4 "$(tj '.approver | length')" "all to approver"
+  assert_eq 2 "$(tj '[.approver[] | select(.why == "error")] | length')" "two errors"
+  if [ -f "$J/round-1/triage.md" ]; then _pass; else _fail "triage.md written"; fi
+  assert_eq error "$(jq -r '.outcome["note.1"].why' <<<"$(logline)")" "logged error"
+  unset JEV_RC
+}
+
+test_triage_all_guarded() {
+  setup; triage_fixture
+  printf 'VERDICT: PASS\n\n## Notes\n- package.json:1 [low, confidence 0.9] x.\n' >"$J/round-1/review-adversarial.md"
+  rm -rf "$STUBS/fakejev.calls"
+  assert_eq "triage round 1: 0 fix-now, 0 follow-up, 0 fine, 2 for the approver" "$(triage)" "output"
+  if [ -e "$STUBS/fakejev.calls" ]; then _fail "jev called"; else _pass; fi
+  assert_eq null "$(jq -c .state <<<"$(logline)")" "state null"
+}
+
+test_triage_off() {
+  setup '{}'; triage_fixture
+  assert_eq "triage round 1: off" "$(triage)" "off"
+  if [ -e "$J/round-1/triage.json" ]; then _fail "wrote triage.json"; else _pass; fi
+  setup '{"jev":{"send":"summary","triage":false}}'; triage_fixture
+  assert_eq "triage round 1: off" "$(triage)" "triage false"
+  if [ -e "$J/round-1/triage.json" ]; then _fail "wrote triage.json"; else _pass; fi
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
