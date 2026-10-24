@@ -369,5 +369,43 @@ test_user_invoked_only() {
   assert_contains "$t" "use only the factory's own roles and scripts" "the orchestrator stays in the factory loop"
 }
 
+# The builder writes a failing test first for behaviour-changing tasks (issue #15).
+test_builder_test_first() {
+  local b ev
+  b=$(tr '\n' ' ' <"$ROOT/factory/agents/builder.md" | tr -s ' ')
+  assert_contains "$b" 'write a test that fails' "builder writes a failing test first"
+  assert_contains "$b" 'before you write the code' "builder writes the test before the code"
+  assert_contains "$b" 'docs, config and the final check' "builder names the exempt tasks"
+  assert_contains "$b" '`factory/testing.md`' "builder points at the testing reference"
+  ev=$(awk '/^## Evidence/ {on = 1; next} on && /^## / {exit} on' "$ROOT/factory/agents/builder.md" | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$ev" 'failing run' "Evidence shows the failing run"
+  case $ev in *'failing run'*'passing run'*) _pass ;; *) _fail "Evidence puts the failing run before the passing run" ;; esac
+}
+
+test_testing_reference() {
+  local r
+  r=$(tr '\n' ' ' <"$ROOT/factory/testing.md" 2>/dev/null | tr -s ' ')
+  assert_contains "$r" 'through the public interface' "reference: test behaviour through the public interface"
+  assert_contains "$r" 'Mock only at system boundaries' "reference: mock only at system boundaries"
+  assert_contains "$r" 'independent source' "reference: expected values from an independent source"
+  assert_contains "$r" 'Implementation-coupled' "reference names implementation-coupled tests"
+  assert_contains "$r" 'Tautological' "reference names tautological tests"
+}
+
+test_code_reviewer_checks_tests() {
+  local r
+  r=$(tr '\n' ' ' <"$ROOT/factory/agents/reviewer-code.md" | tr -s ' ')
+  assert_contains "$r" '`factory/testing.md`' "code reviewer points at the testing reference"
+  assert_contains "$r" 'coupled to the implementation' "code reviewer flags implementation-coupled tests"
+  assert_contains "$r" 'tautological' "code reviewer flags tautological tests"
+}
+
+test_spec_writer_asks_for_tests() {
+  local s
+  s=$(tr '\n' ' ' <"$ROOT/factory/agents/spec-writer.md" | tr -s ' ')
+  assert_contains "$s" 'If the repo has a test runner, ask for tests' "spec-writer asks for tests whenever there is a runner"
+  case $s in *'Ask for new tests only if'*) _fail "spec-writer no longer makes tests optional" ;; *) _pass ;; esac
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

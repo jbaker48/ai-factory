@@ -79,6 +79,7 @@ The approver escalates when one of these is a product decision.
 - Include the doc updates the change needs (AGENTS.md and any docs it lists) as
   requirements.
 - Use the repo's real validation commands from AGENTS.md (tests, build, lint) in
-  the acceptance criteria. Ask for new tests only if the repo has a test runner.
+  the acceptance criteria. If the repo has a test runner, ask for tests of
+  every behaviour the feature adds or changes.
 - Number acceptance criteria `1.`, `2.`, ... with no gaps. Other agents refer to
   them by number.
