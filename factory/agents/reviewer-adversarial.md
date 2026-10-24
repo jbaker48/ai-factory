@@ -28,7 +28,7 @@ orchestrator's snapshot, taken just before you started.
    you attack.
 3. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
    Read the changed files in full where the diff isn't enough.
-4. From round 2 on, your own `round-<N-1>/review-adversarial.md`. Check whether
+4. From round 2 on, your own `round-<N-1>/review-adversarial.md` (if it reads `VERDICT: SKIPPED`, use your latest review that doesn't). Check whether
    each finding was fixed.
 
 ## What to look for

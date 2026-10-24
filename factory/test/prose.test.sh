@@ -189,7 +189,7 @@ test_retro_role() {
   t=$(tr '\n' ' ' <"$ROOT/factory/agents/retro.md" 2>/dev/null | tr -s ' ')
   for n in 'RETRO: <n> fixes' 'RETRO: nothing to change' \
     '## Cost' '## What each extra attempt was for' '## Fixes' '## Repeats' '## Drafted beads' \
-    '`spec`, `plan`, `build`, `review-signal`, `review-batching`, `review-coverage`, `environment`, `flaky`, `external-knowledge`, `owner-scope`' \
+    '`spec`, `plan`, `build`, `review-signal`, `review-batching`, `review-coverage`, `environment`, `flaky`, `external-knowledge`, `owner-scope`, `jev`' \
     '## Lessons from factory jobs' 'retro-rejected.md' 'retro-factory-prs.json' 'retro-stale.txt' 'retro-comment-' \
     'never commit' \
     '1. Before anything else, `AGENTS.md` (or `CLAUDE.md`) in the retro worktree' \
@@ -231,6 +231,29 @@ test_retro_wiring() {
   assert_contains "$t" 'stop the retro; `/factory retro <job-id>` finishes it later. The job stays where it is, and a drain' "a failed retro stops only the retro"
   assert_contains "$(cat "$ROOT/README.md")" 'factory_source' "README documents factory_source"
   assert_contains "$(cat "$ROOT/INSTALL.md")" 'factory_source' "INSTALL documents factory_source"
+}
+
+test_jev_wiring() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" t s n a
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  for n in 'factory/bin/jev-decide route <job folder> <task-id>' 'factory/bin/jev-decide reviewers <job folder> <N>' \
+    'factory/bin/jev-decide triage <job folder> <N>' '### Triage' 'Fix round N notes' 'discovered-from:<bead>' \
+    '`PASS` or `SKIPPED`'; do
+    assert_contains "$t" "$n" "SKILL.md mentions $n"
+  done
+  s=$(awk '/^### Jev$/ {on = 1; print; next} on && /^##/ {exit} on' "$f" | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" 'never override' "Jev section says never override"
+  assert_contains "$(cat "$ROOT/factory/agents/approver.md")" 'triage.md' "approver reads triage.md"
+  assert_contains "$(cat "$ROOT/factory/agents/approver.md")" 'VERDICT: SKIPPED' "approver accepts SKIPPED"
+  for a in autopilot briefer; do
+    assert_contains "$(cat "$ROOT/factory/agents/$a.md")" 'SKIPPED' "$a mentions SKIPPED"
+  done
+  for a in security code ux ui adversarial; do
+    assert_contains "$(cat "$ROOT/factory/agents/reviewer-$a.md")" 'VERDICT: SKIPPED' "reviewer-$a mentions SKIPPED"
+  done
+  assert_contains "$(cat "$ROOT/factory/agents/retro.md")" 'jev.jsonl' "retro reads jev.jsonl"
+  assert_contains "$(cat "$ROOT/INSTALL.md")" 'JEV_KEY' "INSTALL documents JEV_KEY"
+  assert_contains "$(cat "$ROOT/README.md")" 'bin/jev-decide' "README lists bin/jev-decide"
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done

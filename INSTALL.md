@@ -147,6 +147,16 @@ Show the user each of these and record their answer:
   absolute path of a local ai-factory checkout (`<source>` works if it is
   one), where retros open PRs with factory fixes; leave it `""` to get them
   as a patch file in the job folder instead.
+- **`jev` in `factory/settings.json`**: Jev (TypeSafe) picks the builder tier,
+  skips reviewers a change gives nothing to review, and sorts review Notes.
+  It is off (`"send": "off"`). `metadata` sends facts about the work (file
+  names, counts, labels); `summary` adds task titles and descriptions. Suggest
+  `summary` for personal repos and `metadata` anywhere else, and tell them to
+  check TypeSafe's terms before using `summary` on anything sensitive. Either
+  needs the key in the environment: `export JEV_KEY=<key>`. `route`, `triage`
+  and `reviewers` turn each decision off; `min_confidence` (0.7) and
+  `sol_ceiling` (0.8) are the other knobs; `park_paths` adds globs whose Notes
+  always go to the approver.
 - **Commit**: the factory reads `AGENTS.md` from worktrees branched off
   `main`, so the install only works once it is committed on `main`. Offer to
   commit it as one commit. With `land: "pr"` worktrees branch from
@@ -154,7 +164,7 @@ Show the user each of these and record their answer:
   landed through a PR) before any job runs; say so, and offer to push it or
   open the PR.
 
-**Done when** the user has answered all four.
+**Done when** the user has answered all five.
 
 ## 7. Report
 

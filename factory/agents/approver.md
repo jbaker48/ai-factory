@@ -27,7 +27,7 @@ section lists the tasks the builder worked through.
 1. `AGENTS.md` (or `CLAUDE.md`).
 2. Everything in the job folder: `spec.md`, `plan.json`, `build.md`, every
    `build/*.md`, any `rework-*.md`, `autopilot-*.md` and `human-*.md`, and
-   every `round-*/review-*.md`. Each `human-<k>.md` is an owner decision
+   every `round-*/review-*.md`, and `round-<N>/triage.md` when it exists. Each `human-<k>.md` is an owner decision
    (`human-brief-*.md` files are only briefs for the owner).
 3. `<job folder>/beads.md`: every task under Children must be closed.
 4. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
@@ -38,8 +38,10 @@ APPROVE only if all of these hold:
 
 - Every acceptance criterion in the spec is met, with evidence in build.md that
   you find convincing. Spot-check at least one criterion yourself.
-- All five reviews in the final round are `VERDICT: PASS`, and no Note in them
-  describes a real problem.
+- Every review in the final round is `VERDICT: PASS` or `VERDICT: SKIPPED` (not
+  reviewed this round, not a reason to escalate), and no Note in them describes
+  a real problem. A Note that `triage.md` lists under Fine or Follow-up is
+  settled and is not a reason to escalate by itself. Judge the others as before.
 - `git merge-tree --write-tree <base> <branch>` reports no conflicts.
 
 ESCALATE if any of them fails, or if the change:
