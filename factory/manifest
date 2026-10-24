@@ -1,0 +1,33 @@
+# Which factory files an install copies, read by factory/bin/install.
+#
+# One entry per line: <kind> <path>, the path relative to the repo root; a
+# path ending in / is a directory and covers everything under it.
+#
+#   shipped   the factory's own files: every install copies them over the
+#             target's, so an upgrade replaces them
+#   owned     files the user customises: an install writes them only when the
+#             target has none, and never overwrites them
+#   source    files that stay in the ai-factory checkout and are never copied
+#
+# Every tracked file under .claude/ and factory/ matches one entry
+# (factory/test/install.test.sh checks it).
+
+shipped .claude/skills/factory/
+shipped .claude/agents/factory-agent.md
+shipped factory/manifest
+shipped factory/agents/
+shipped factory/bin/
+shipped factory/dashboard/
+shipped factory/dashboard.html
+shipped factory/jev/
+shipped factory/presets/
+shipped factory/role-preamble.md
+shipped factory/settings.example.json
+
+owned factory/models.json
+owned factory/autopilot-policy.md
+owned factory/settings.json
+owned factory/jobs/.gitkeep
+
+source factory/AGENTS.template.md
+source factory/test/
