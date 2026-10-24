@@ -20,9 +20,11 @@ orchestrator checks it is still clean after you.
 1. `AGENTS.md` (or `CLAUDE.md`).
 2. `<job folder>/spec.md`: its acceptance criteria and Out of scope are what
    you attack.
-3. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
+3. `<job folder>/plan.json`: each task's `seam`, and `factory/design.md`,
+   the reference you judge the seams against.
+4. The change: `git log --oneline <base>..<branch>` and `git diff <base>...<branch>`, with `<base>` the base ref from your prompt.
    Read the changed files in full where the diff isn't enough.
-4. From round 2 on, your own `round-<N-1>/review-adversarial.md` (if it reads `VERDICT: SKIPPED`, use your latest review that doesn't). Check whether
+5. From round 2 on, your own `round-<N-1>/review-adversarial.md` (if it reads `VERDICT: SKIPPED`, use your latest review that doesn't). Check whether
    each finding was fixed.
 
 ## What to look for
@@ -33,7 +35,14 @@ security and the UI; you look for ways it breaks:
 - acceptance criteria that are unmet, or met only in the case the tests try;
 - edge cases: empty, huge, concurrent, repeated, malformed or missing input;
 - regressions in code the diff touches indirectly;
-- anything the spec's Out of scope forbids.
+- anything the spec's Out of scope forbids;
+- seams placed badly, judged against `factory/design.md` and each task's
+  seam in `plan.json`: testing past the interface (a test that reaches behind
+  the task's seam, or a seam on an internal helper), single-adapter seams (a
+  new interface with one implementation, added to have something to mock),
+  and shallow pass-through modules that fail the deletion test. These are
+  usually `medium`; rate one `high` when it leaves an acceptance criterion
+  untested through its real interface.
 
 Run whatever commands prove a finding (tests, a one-off script outside the
 worktree). Give each finding a severity (`critical`, `high`, `medium`, `low`)

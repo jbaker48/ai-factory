@@ -298,6 +298,7 @@ factory/
     reviewer-adversarial.md      (claude and openai presets)
     approver.md  autopilot.md  importer.md  briefer.md  retro.md
   testing.md                     what a good test is, read by the builder and code reviewer
+  design.md                      where seams go, read by the planner and adversarial reviewer
   manifest                       which files an install ships, which the user owns
   bin/install                    installs or upgrades the factory in a repo
   bin/upgrade                    checks an installed repo against this checkout; --apply upgrades it

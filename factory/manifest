@@ -23,6 +23,7 @@ shipped factory/jev/
 shipped factory/presets/
 shipped factory/role-preamble.md
 shipped factory/testing.md
+shipped factory/design.md
 shipped factory/settings.example.json
 shipped factory/AGENTS.template.md
 

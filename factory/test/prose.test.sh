@@ -562,5 +562,40 @@ test_code_review_traceable() {
   assert_contains "$smells" 'A rule documented in AGENTS.md overrides this baseline' "a repo rule overrides the baseline"
 }
 
+# Seam choices get checked against a shipped design reference (issue #19).
+test_design_reference() {
+  local r
+  r=$(tr '\n' ' ' <"$ROOT/factory/design.md" 2>/dev/null | tr -s ' ')
+  assert_contains "$r" 'deep modules' "design reference: deep modules"
+  assert_contains "$r" 'deletion test' "design reference: the deletion test"
+  assert_contains "$r" 'One adapter is a hypothetical seam; two make it real' "design reference: one adapter is hypothetical"
+  assert_contains "$r" 'The interface is the test surface' "design reference: the interface is the test surface"
+}
+
+test_planner_reads_design_reference() {
+  local p
+  p=$(tr '\n' ' ' <"$ROOT/factory/agents/planner.md" | tr -s ' ')
+  assert_contains "$p" 'choose each seam with `factory/design.md`' "planner points at the design reference when choosing seams"
+}
+
+test_adversarial_checks_seams() {
+  local f="$ROOT/factory/agents/reviewer-adversarial.md" t
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  assert_contains "$t" '`factory/design.md`' "adversarial reviewer points at the design reference"
+  assert_contains "$t" '`plan.json`' "adversarial reviewer reads the planned seams"
+  t=$(section "$f" 'What to look for' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$t" 'testing past the interface' "adversarial reviewer flags tests past the interface"
+  assert_contains "$t" 'single-adapter seams' "adversarial reviewer flags single-adapter seams"
+  assert_contains "$t" 'shallow pass-through modules' "adversarial reviewer flags shallow pass-through modules"
+}
+
+test_escalation_lists_seams() {
+  local a b
+  a=$(tr '\n' ' ' <"$ROOT/factory/agents/approver.md" | tr -s ' ')
+  assert_contains "$a" "each task's seam" "approver's escalation brief lists each task's seam"
+  b=$(tr '\n' ' ' <"$ROOT/factory/agents/briefer.md" | tr -s ' ')
+  assert_contains "$b" "each task's seam" "briefer's brief lists each task's seam"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish
