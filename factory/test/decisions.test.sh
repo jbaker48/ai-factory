@@ -61,6 +61,21 @@ test_committed_not_pushed() {
   assert_eq "committed and pushed" "$(line commit)" "pr mode: pushed"
 }
 
+# The install commit is on the branch checked out, whatever it is called, and
+# jobs branch from the base (origin/main in pr mode), so that is the check.
+test_commit_checked_on_current_branch() {
+  R=$(mkrepo)
+  git -C "$R" checkout -q -b setup-factory
+  printf '%s' '{"land":"pr"}' >"$R/factory/settings.json"
+  git -C "$R" add -A && git -C "$R" commit -q -m settings
+  OUT=$(D)
+  assert_eq "committed, not pushed" "$(line commit)" "a commit on another branch is not on the base, though main is"
+  git -C "$R" push -q origin setup-factory:main 2>/dev/null && git -C "$R" fetch -q origin
+  git -C "$R" branch -q -D main
+  OUT=$(D)
+  assert_eq "committed and pushed" "$(line commit)" "pushed to the base with no local main branch"
+}
+
 test_reads_another_repo_and_rejects_bad_settings() {
   local other
   R=$(mkrepo)

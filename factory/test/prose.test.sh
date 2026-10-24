@@ -14,6 +14,8 @@ test_no_literal_main_diffs() {
   local hits
   hits=$(cd "$ROOT" && grep -nE '(main\.\.|main\.\.\.|merge-tree --write-tree (origin/)?main|--base main)' factory/agents/*.md factory/bin/* .claude/skills/factory/*.md)
   assert_eq "" "$hits" "no role file or script diffs against a literal main"
+  hits=$(cd "$ROOT" && grep -nE '(merge-base|--is-ancestor|rev-list|log) ([^ ]+ )*(origin/)?main( |\)|$|\.)' factory/bin/*)
+  assert_eq "" "$hits" "no script checks ancestry against a literal main"
 }
 
 test_prompt_has_base() {

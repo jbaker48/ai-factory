@@ -15,7 +15,8 @@
 #   jev.send         metadata, summary or off
 #   commit           uncommitted (the factory's files differ from HEAD),
 #                    committed (land local), or in pr mode committed and pushed /
-#                    committed, not pushed (main is not on origin/main)
+#                    committed, not pushed (HEAD, the branch checked out, is
+#                    not on the base jobs branch from: settings base)
 # Exit: 0 ok, 1 unreadable settings or not a git repo, 2 usage.
 set -uo pipefail
 
@@ -58,7 +59,8 @@ if [ -n "$(git -C "$repo" status --porcelain -- .claude factory AGENTS.md CLAUDE
   echo "commit: uncommitted"
 elif [ "$(get .land pr)" = local ]; then
   echo "commit: committed"
-elif git -C "$repo" merge-base --is-ancestor main origin/main 2>/dev/null; then
+elif base=$(FACTORY_SETTINGS=$f/settings.json "$here/settings" base) &&
+  git -C "$repo" merge-base --is-ancestor HEAD "$base" 2>/dev/null; then
   echo "commit: committed and pushed"
 else
   echo "commit: committed, not pushed"
