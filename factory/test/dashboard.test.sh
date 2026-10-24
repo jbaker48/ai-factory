@@ -19,6 +19,7 @@ mkdir -p "$J/round-1" "$J/.runs" "$F/jobs/002-b" "$F/jobs/003-c/.runs" "$F/jobs/
 echo '{"id":"001-a","feature":"A","stage":"review","round":2,"reviews":{}}' >"$J/job.json"
 printf 'VERDICT: CHANGES\n' >"$J/round-1/review-code.md"
 printf 'VERDICT: PASS\n' >"$J/round-1/review-security.md"
+printf 'VERDICT: SKIPPED\n' >"$J/round-1/review-ux.md"
 printf '# Spec\n' >"$J/spec.md"
 echo '{"status":"READY","tasks":[]}' >"$J/plan.json"
 printf '{"stage":"build","input":10,"output":2}\nnot json\n' >"$J/usage.jsonl"
@@ -135,13 +136,13 @@ test_state() {
   assert_eq 8 "$(jq '.jobs | length' <<<"$s")" "skips the job with bad json and includes detail fixtures"
   assert_eq '["jobs/002-b/job.json is not valid JSON"]' "$(jq -c .problems <<<"$s")" "reports bad json"
   assert_eq 1 "$(jq '.jobs[0].usage | length' <<<"$s")" "skips usage lines that don't parse"
-  assert_eq "CHANGES PASS missing" "$(jq -r '.jobs[0].past[0] | [.code, .security, .ux] | join(" ")' <<<"$s")" "past round verdicts"
+  assert_eq "CHANGES PASS SKIPPED" "$(jq -r '.jobs[0].past[0] | [.code, .security, .ux] | join(" ")' <<<"$s")" "past round verdicts"
   assert_eq builder "$(jq -r '.models.builder.agent // "builder"' <<<"$s")" "includes models.json"
 }
 
 test_files() {
   local f; f=$(get '/api/files?job=001-a')
-  assert_eq "plan.json round-1/review-code.md round-1/review-security.md spec.md usage.jsonl" \
+  assert_eq "plan.json round-1/review-code.md round-1/review-security.md round-1/review-ux.md spec.md usage.jsonl" \
     "$(jq -r '[.[].path] | sort | join(" ")' <<<"$f")" "lists only servable files, no dot folders or links out"
   assert_eq "STATUS: READY" "$(jq -r '.[] | select(.path == "plan.json") | .first' <<<"$f")" "plan headline"
   assert_eq "# Spec" "$(get '/api/file?job=001-a&path=spec.md')" "serves a file"
