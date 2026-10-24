@@ -2,6 +2,8 @@
   "spec-writer":        { "provider": "anthropic", "model": "opus" },
   "planner":            { "provider": "anthropic", "model": "opus" },
   "builder":            { "provider": "anthropic", "model": "sonnet" },
+  "builder-light":      { "provider": "anthropic", "model": "sonnet", "agent": "builder" },
+  "builder-standard":   { "provider": "anthropic", "model": "sonnet", "agent": "builder" },
   "builder-escalation": { "provider": "anthropic", "model": "opus",   "agent": "builder" },
   "reviewer-security":  { "provider": "anthropic", "model": "opus" },
   "reviewer-code":      { "provider": "anthropic", "model": "sonnet" },
