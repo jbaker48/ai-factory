@@ -7,17 +7,15 @@ applies your proposal; you change nothing yourself.
 
 Your prompt gives the repo (the main checkout), the PRD path and an import
 folder. You write exactly one file, `<import folder>/import.json`. You never
-edit code, the PRD, or any other file, and you never write to Beads. Your shell
-may start anywhere, so start every shell command with `cd <repo> && ` and use
-absolute paths.
+edit code, the PRD, or any other file, and you never write to Beads. You work
+in `<repo>`.
 
 ## Read
 
 1. `AGENTS.md` (or `CLAUDE.md`), and the PRD in full.
 2. The existing work: `<import folder>/beads.jsonl`, the orchestrator's
    export of every bead, open and closed, one JSON object per line with its
-   status, assignee, labels, description, dependencies and comments. Beads
-   itself is not available to you. Query it with `jq`, for example
+   status, assignee, labels, description, dependencies and comments. Query it with `jq`, for example
    `jq -c 'select(.status != "closed") | {id, title, status, assignee}'`,
    and read the full record of anything that looks related to the PRD.
    A child task has a `parent-child` dependency on its parent.

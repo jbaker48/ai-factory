@@ -33,6 +33,23 @@ test_roles_skip_bd() {
   assert_eq "" "$hits" "every role can run on Codex, so none calls bd"
 }
 
+test_claude_roles_read_preamble() {
+  local t
+  t=$(tr '\n' ' ' <"$ROOT/.claude/agents/factory-agent.md" | tr -s ' ')
+  assert_contains "$t" 'Read `factory/role-preamble.md`' "factory-agent reads the shared preamble"
+  assert_contains "$t" 'then the role file' "factory-agent reads the preamble before the role file"
+}
+
+# The worktree and Beads-snapshot text lives in factory/role-preamble.md only.
+test_roles_share_one_preamble() {
+  local needle hits
+  for needle in 'Your shell may start anywhere' 'Beads is not available to you' 'not available to you' "orchestrator's snapshot" 'taken just before you started'; do
+    assert_contains "$(tr '\n' ' ' <"$ROOT/factory/role-preamble.md" | tr -s ' ')" "$needle" "preamble says: $needle"
+    hits=$(cd "$ROOT" && for f in factory/agents/*.md; do tr '\n' ' ' <"$f" | tr -s ' ' | grep -qF "$needle" && echo "$f"; done)
+    assert_eq "" "$hits" "no role file repeats: $needle"
+  done
+}
+
 test_dashboard_reads_usage() {
   grep -q "usage.jsonl" "$ROOT/factory/dashboard.html"
   assert_eq "0" "$?" "dashboard reads usage.jsonl"

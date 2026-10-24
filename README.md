@@ -109,8 +109,8 @@ everything to `factory/jobs/<job-id>/.runs/`. The Codex sandbox keeps `.git`
 read-only, so no agent commits: builders list their files and a commit message,
 and the orchestrator commits each task as one commit tagged with its bead id
 (`Add limiter middleware (app-k2f.1)`). Both read the same
-`factory/agents/<role>.md`, so moving a role between providers is a one-line
-change.
+`factory/role-preamble.md` and `factory/agents/<role>.md`, so moving a role
+between providers is a one-line change.
 
 ## Beads
 

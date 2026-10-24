@@ -3,7 +3,7 @@
 #
 #   factory/bin/prompt-record <job-folder> <key> <prompt>
 #
-# Writes the role file followed by the exact prompt line to
+# Writes the shared role preamble, the role file and the exact prompt line to
 # <job-folder>/.runs/<timestamp>-<key>.prompt.md, matching run-codex. Prints
 # the path. Exit codes: 2 for usage, unknown keys or missing role files; 1 if
 # it cannot write.
@@ -23,11 +23,13 @@ entry=$(jq -e --arg k "$key" '.[$k]' "$cfg") || {
 }
 agent=$(jq -r --arg k "$key" '.[$k].agent // $k' "$cfg")
 role="$factory/agents/$agent.md"
+preamble="$factory/role-preamble.md"
 [ -f "$role" ] || { echo "prompt-record: missing $role" >&2; exit 2; }
+[ -f "$preamble" ] || { echo "prompt-record: missing $preamble" >&2; exit 2; }
 
 mkdir -p "$job/.runs" || { echo "prompt-record: could not create $job/.runs" >&2; exit 1; }
 log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key.prompt.md"
-{ cat "$role"; printf '\n\n---\n\n%s\n' "$prompt"; } >"$log" || {
+{ cat "$preamble"; printf '\n'; cat "$role"; printf '\n\n---\n\n%s\n' "$prompt"; } >"$log" || {
   echo "prompt-record: could not write $log" >&2
   exit 1
 }

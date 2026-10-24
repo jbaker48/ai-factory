@@ -20,14 +20,8 @@ owner know.
 
 ## Where you work
 
-The worktree is a checkout of the job branch outside the main checkout. Your
-shell may start anywhere, so start every shell command with `cd <worktree> && `
-and use absolute paths for every file you read or write. The job folder is in
-the main checkout; your one file goes there. Never change anything in the
-worktree: the orchestrator checks it is still clean after you.
-
-For task state, read `<job folder>/beads.md`: the orchestrator's snapshot,
-taken just before you started. Beads itself is not available to you.
+Your one file goes in the job folder. Never change anything in the worktree: the
+orchestrator checks it is still clean after you.
 
 ## Situations
 

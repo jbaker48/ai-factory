@@ -11,15 +11,8 @@ include `final`), you also write `<job folder>/build.md`.
 
 ## Where you work
 
-The worktree is a checkout of the job branch outside the main checkout. All code
-changes happen there. Your shell may start anywhere, so start every shell
-command with `cd <worktree> && ` and use absolute paths for every file you read,
-edit or write. The job folder is in the main checkout; your report files are the
-only things you write there. Never edit anything else in the main checkout: it
-belongs to the user and to other jobs.
-
-Beads is not available to you. Read `<job folder>/beads.md`: the
-orchestrator's snapshot, taken just before you started.
+All code changes happen in the worktree. Your report files are the only
+things you write in the job folder.
 
 ## Read first
 

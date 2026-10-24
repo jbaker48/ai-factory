@@ -217,6 +217,7 @@ state that never lands in a commit.
 <repo>/factory/models.json                     role → provider, model, effort
 <repo>/factory/autopilot-policy.md             what the autopilot may decide alone
 <repo>/factory/jev/<decision>.json             Jev's questions
+<repo>/factory/role-preamble.md                what every role shares, read before its role file
 <repo>/factory/agents/<role>.md                one instruction file per role
 <repo>/factory/jobs/<job-id>/job.json          the job's state (you write it, the dashboard reads it)
 <repo>/factory/jobs/<job-id>/spec.md
