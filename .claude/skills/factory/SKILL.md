@@ -392,7 +392,7 @@ Repeat until no task under the bead is open:
    of its line as the role key. `bd update <task> --claim`, then in one
    `job-set` set `stage: "build"` and mark the task `in_progress` with that
    key as `role`, `model` from that key's `models.json` entry, and `runs` plus
-   one. Include the line's parenthesis in the report line. If `build/<task-id>.md` exists from an earlier run, move it to
+   one. Include the line's parenthesis in the **Reporting** line. If `build/<task-id>.md` exists from an earlier run, move it to
    `build/<task-id>.run-<earlier runs>.md`, so a report at the plain path is
    always this run's.
 3. Run that role with the task `Build task <task-id>. Port: <port>.`
@@ -465,7 +465,8 @@ starts the next review round; anything else is `build-blocked`.
 ### Triage
 
 Run `factory/bin/jev-decide triage <job folder> <N>`. It writes
-`round-<N>/triage.json` and `triage.md`, and prints a summary line.
+`round-<N>/triage.json` and `triage.md`, and prints a summary line. If it
+prints `off`, or `round-<N>/triage.json` doesn't exist, go to **Approve**.
 
 1. For each `.follow_up[]` in `round-<N>/triage.json`, file a bead unless an
    open bead already has its title (the dedupe query in **/factory review**
@@ -478,7 +479,9 @@ Run `factory/bin/jev-decide triage <job folder> <N>`. It writes
 2. With `.fix_now` non-empty, file `Fix round N notes`
    (`-l factory,fix`, `-d "Address every Note under ## Fix now in factory/jobs/<job-id>/round-<N>/triage.md."`)
    and the usual `Verify all acceptance criteria (round N+1)` final task
-   depending on it, exactly as a CHANGES round does. Then go to **Build**. This
+   depending on it, exactly as a CHANGES round does. Before each `bd create`
+   here, look for an open child of the job bead with the same title (the check
+   **Spec and Beads** requires), and reuse it. Then go to **Build**. This
    counts as a round, and skips the approver and autopilot.
 3. Otherwise go to **Approve**.
 
@@ -912,7 +915,9 @@ the job folder; don't read more of the job than the step below needs.
      valid first line (`VERDICT: SKIPPED` is one), write its verdict to
      `job.json`. Run the missing reviewers as in **Review round N** step 2, then
      continue from step 3. With all reviews in and a `triage.md` present,
-     continue from **Triage**'s filing (it dedupes by title).
+     don't run the triage command again: continue from **Triage** step 1 with
+     the existing `triage.json`. Every `bd create` there is title-checked, so
+     nothing is filed twice.
    - **approve**: if `decision.md` is newer than every file in `round-<N>/`,
      use it as in **Approve**. Otherwise run **Approve** again.
    - **autopilot**: if `decision_file` exists with a valid first line, continue
