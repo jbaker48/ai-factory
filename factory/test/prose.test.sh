@@ -489,6 +489,31 @@ test_spec_writer_asks_for_tests() {
   case $s in *'Ask for new tests only if'*) _fail "spec-writer no longer makes tests optional" ;; *) _pass ;; esac
 }
 
+# Each task names its seam; the orchestrator files it and the builder tests there (issue #18).
+test_planner_names_seams() {
+  local p
+  p=$(tr '\n' ' ' <"$ROOT/factory/agents/planner.md" | tr -s ' ')
+  assert_contains "$p" '"seam": {' "plan format carries a seam field"
+  assert_contains "$p" '"interface":' "seam names the interface"
+  assert_contains "$p" '"catches":' "seam says what a test there catches"
+  assert_contains "$p" '"misses":' "seam says what a test there misses"
+  assert_contains "$p" 'Every task that changes behaviour names its `seam`' "planner requires a seam for behaviour-changing tasks"
+}
+
+test_orchestrator_files_seam() {
+  local s
+  s=$(skill_text | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" 'factory/bin/task-description <job folder>/plan.json <key>' "orchestrator builds the task description with task-description"
+  assert_contains "$s" 'a seam' "orchestrator check covers seam shape"
+}
+
+test_builder_tests_at_seam() {
+  local b
+  b=$(tr '\n' ' ' <"$ROOT/factory/agents/builder.md" | tr -s ' ')
+  assert_contains "$b" "at the task's seam" "builder writes its failing test at the seam"
+  assert_contains "$b" "can't be tested as given" "builder reports BLOCKED on an untestable seam"
+}
+
 test_code_review_traceable() {
   local f="$ROOT/factory/agents/reviewer-code.md" t
   t=$(tr '\n' ' ' <"$f" | tr -s ' ')

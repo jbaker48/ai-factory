@@ -367,18 +367,24 @@ gets `5102 + 10n`, appended as ` Port: <port>.`
    If `status` is `BLOCKED`, go to **Needs human** with situation `plan-blocked`.
 3. Check the plan with `jq` (and `grep` for the criterion numbers in
    `spec.md`): exactly one task has `"final": true`, every `depends_on` key
-   exists, every `bead` field names an open child of the job bead, and the union
+   exists, every `bead` field names an open child of the job bead, a task with
+   a seam gives it a non-empty `interface`, `catches` and `misses`, and the union
    of `covers` includes every acceptance criterion number in `spec.md`. If not, run `planner` once more with the task
    `Plan the spec. Your last plan.json failed this check: <what failed>.`, then
    treat a second failure as `plan-blocked`.
-4. File the tasks, in plan order, then their dependencies. A task with a
-   `bead` field already exists: don't create it, just
-   `bd update <id> --add-label factory`. Create the rest:
+4. File the tasks, in plan order, then their dependencies. Each task's bead
+   description is the output of
+   `factory/bin/task-description <job folder>/plan.json <key>`: the plan's
+   description, the task's seam (`Seam:`, `Catches:`, `Misses:` lines) and the
+   criteria it covers, so the builder finds the seam in `beads.md`. A task with
+   a `bead` field already exists: don't create it or edit its description, just
+   `bd update <id> --add-label factory`, and if it has a seam,
+   `bd comment <id> "$(factory/bin/task-description <job folder>/plan.json <key>)"`.
+   Create the rest:
    ```bash
    bd create "<title>" --type=task --parent <bead> -l factory[,final] \
-     --no-inherit-labels -d "<description>
-
-   Covers acceptance criteria: <covers>. Plan key: <key>." --silent
+     --no-inherit-labels \
+     -d "$(factory/bin/task-description <job folder>/plan.json <key>)" --silent
    bd dep add <task-id> <dependency-task-id>
    ```
    Add each task to `job.json` `tasks` (status `open`, `runs: 0`) as it is

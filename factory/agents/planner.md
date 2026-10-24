@@ -40,6 +40,13 @@ Your one file goes in the job folder.
 - Every acceptance criterion is covered by at least one task. Name them in
   `covers` by number.
 - `depends_on` lists only real dependencies, by `key`. No cycles.
+- Every task that changes behaviour names its `seam`: the public interface its
+  builder tests through (a function, CLI, HTTP route or page, with its path),
+  one line on what a test there `catches`, and one on what it `misses`. Pick
+  the narrowest public interface that still shows the behaviour, following
+  `factory/testing.md`. Tasks that only touch docs or config, and the final
+  check, have no seam. The factory runs unattended, so this is where the seam
+  is agreed: the builder writes its failing test there.
 - The last task is always the final check: `"final": true`, title
   `Verify all acceptance criteria`, depending on every other task. Its builder
   runs the validation commands, checks every criterion and writes `build.md`.
@@ -62,7 +69,12 @@ it rests on a decision nobody has made. Say exactly what is wrong in `blocked`.
       "title": "Short imperative title",
       "description": "Scope: what to change and where (paths). Done when: the observable result. Verify: the command or page check.",
       "covers": [1, 2],
-      "depends_on": []
+      "depends_on": [],
+      "seam": {
+        "interface": "The public interface the test calls, with its path",
+        "catches": "What a failing test there would catch",
+        "misses": "What a test there can't see"
+      }
     },
     {
       "key": "T2",
@@ -79,7 +91,7 @@ it rests on a decision nobody has made. Say exactly what is wrong in `blocked`.
 ```
 
 A reused task looks like
-`{ "key": "T1", "bead": "app-40.2", "title": "<its title>", "covers": [1], "depends_on": [] }`.
-The final check is always a new task.
+`{ "key": "T1", "bead": "app-40.2", "title": "<its title>", "covers": [1], "depends_on": [] }`,
+plus a `seam` if it changes behaviour. The final check is always a new task.
 
 The file must be valid JSON with nothing else in it.

@@ -42,6 +42,13 @@ things you write in the job folder.
   output, before you write the code. Then write the smallest code that makes it
   pass, and run it again. Tasks that only touch docs, config and the final check
   are exempt. Follow `factory/testing.md` for what a good test is.
+- Write that failing test at the task's seam: the `Seam:` line in its
+  description in `beads.md` names the public interface to test through, and
+  `Catches:` and `Misses:` say what the test is for. Don't move the test to a
+  different interface. If the seam can't be tested as given (it doesn't exist
+  and the task doesn't create it, it isn't public, or a test there can't show
+  the behaviour), report BLOCKED and say why. A behaviour-changing task with no
+  seam: pick the narrowest public interface and name it in `## Changes`.
 - Match the surrounding code: its idioms, formatting, naming and imports. Keep
   comment density like the neighbouring code.
 - Make the simplest change that fully meets the task. No fallbacks, hidden

@@ -307,6 +307,7 @@ factory/
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
   bin/prompt-record              records a Claude role's prompt
   bin/job-set                    updates a job.json field with jq, quietly
+  bin/task-description           builds a plan task's bead description, seam included
   bin/jev                        TypeSafe client for Jev, the decision helper
   bin/jev-decide                 Jev's route, reviewers and triage decisions
   jev/                           Jev's question templates and park-paths.txt
