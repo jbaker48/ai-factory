@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Records the prompt sent to a Claude role.
+# Builds and records the prompt for a Claude role.
 #
 #   factory/bin/prompt-record <job-folder> <key> <prompt>
 #
-# Writes the shared role preamble, the role file and the exact prompt line to
-# <job-folder>/.runs/<timestamp>-<key>.prompt.md, matching run-codex. Prints
-# the path. Exit codes: 2 for usage, unknown keys or missing role files; 1 if
-# it cannot write.
+# Builds the prompt with factory/bin/role-prompt (the shared role preamble, the
+# role, then <prompt>), writes it to
+# <job-folder>/.runs/<timestamp>-<key>.prompt.md, named as run-codex names its
+# prompts, and prints it: the orchestrator sends that output, verbatim, as the
+# factory-agent prompt. Exit codes: 2 for usage, unknown keys or missing role
+# files; 1 if it cannot write.
 set -uo pipefail
 
 if [ $# -ne 3 ]; then
@@ -15,22 +17,12 @@ if [ $# -ne 3 ]; then
 fi
 job=$1 key=$2 prompt=$3
 factory=$(cd "$(dirname "$0")/.." && pwd)
-cfg="$factory/models.json"
 
-entry=$(jq -e --arg k "$key" '.[$k]' "$cfg") || {
-  echo "prompt-record: no '$key' in $cfg" >&2
-  exit 2
-}
-agent=$(jq -r --arg k "$key" '.[$k].agent // $k' "$cfg")
-role="$factory/agents/$agent.md"
-preamble="$factory/role-preamble.md"
-[ -f "$role" ] || { echo "prompt-record: missing $role" >&2; exit 2; }
-[ -f "$preamble" ] || { echo "prompt-record: missing $preamble" >&2; exit 2; }
-
+text=$("$factory/bin/role-prompt" "$key" "$prompt") || exit 2
 mkdir -p "$job/.runs" || { echo "prompt-record: could not create $job/.runs" >&2; exit 1; }
 log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key.prompt.md"
-{ cat "$preamble"; printf '\n'; cat "$role"; printf '\n\n---\n\n%s\n' "$prompt"; } >"$log" || {
+printf '%s\n' "$text" >"$log" || {
   echo "prompt-record: could not write $log" >&2
   exit 1
 }
-printf '%s\n' "$log"
+printf '%s\n' "$text"

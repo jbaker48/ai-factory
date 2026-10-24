@@ -128,11 +128,13 @@ roles read `<job folder>/beads.md` for task state, and a model swap in
 `models.json` must not leave one reading a stale or missing snapshot (skip it
 for the importer, which has no job).
 
-- **anthropic**: before spawning, run
-  `factory/bin/prompt-record <job folder> <key> "<the prompt>"` with the exact
-  prompt line you will send (skip it for the importer, which has no job). Then
-  spawn the `factory-agent` subagent with `model` set to the entry's `model`
-  and the prompt `Role: factory/agents/<agent>.md. <paths> <task>`. After each
+- **anthropic**: run
+  `factory/bin/prompt-record <job folder> <key> "<paths> <task>"`. It records
+  the prompt and prints it: the shared role preamble, `Role:
+  factory/agents/<agent>.md`, then your line. Spawn the `factory-agent`
+  subagent with `model` set to the entry's `model` and with its output,
+  verbatim, as the prompt. For the importer, which has no job, build it with
+  `factory/bin/role-prompt importer "<paths> <task>"` instead. After each
   `factory-agent` returns, run
   `factory/bin/usage-record claude <job folder> <key>` (skip it for the
   importer, which has no job). It records the subagent's tokens in

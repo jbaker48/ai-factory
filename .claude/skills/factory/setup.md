@@ -60,9 +60,9 @@ commands run under; read it before writing anything.
 4. **Scope Beads' own section to people.** If `bd init` added instructions
    telling agents to claim, close, commit or push, put a factory section named
    `beads-scope` directly above Beads' section: it says that section is for
-   people working by hand, that factory agents read Beads only
-   (`bd --readonly`), and that commits and Beads writes are left to the
-   orchestrator. Don't edit Beads' section itself. On a re-run, include
+   people working by hand, that factory agents never run `bd` and read the
+   snapshot the orchestrator takes before each role (`beads.md` in the job
+   folder), and that commits and Beads writes are left to the orchestrator. Don't edit Beads' section itself. On a re-run, include
    `beads-scope` in the scratch file only if `AGENTS.md` already has it;
    otherwise add it by hand above Beads' section, so it never lands at the end.
 5. **Prove the commands in a fresh worktree**, the way the factory will run

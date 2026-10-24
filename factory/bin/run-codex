@@ -50,16 +50,12 @@ model=$(jq -r '.model' <<<"$entry")
 effort=$(jq -r '.effort // "medium"' <<<"$entry")
 network=$(jq -r '.network // false' <<<"$entry")
 browser=$(jq -r '.browser // false' <<<"$entry")
-agent=$(jq -r --arg k "$key" '.agent // $k' <<<"$entry")
-role="$factory/agents/$agent.md"
-preamble="$factory/role-preamble.md"
-[ -f "$role" ] || { echo "run-codex: missing $role" >&2; exit 2; }
-[ -f "$preamble" ] || { echo "run-codex: missing $preamble" >&2; exit 2; }
+# Every role gets the shared preamble, then its role file, then the prompt.
+text=$("$factory/bin/role-prompt" "$key" "$prompt") || exit 2
 
 mkdir -p "$job/.runs"
 log="$job/.runs/$(date +%Y%m%d-%H%M%S)-$key"
-# Every role gets the shared preamble, then its role file, then the prompt.
-{ cat "$preamble"; printf '\n'; cat "$role"; printf '\n\n---\n\n%s\n' "$prompt"; } >"$log.prompt.md"
+printf '%s\n' "$text" >"$log.prompt.md"
 
 # No role uses the user's MCP servers, so turn off every server in config.toml:
 # each one is started for every run, logs a stderr error whenever its auth

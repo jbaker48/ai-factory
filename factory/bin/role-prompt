@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Prints the prompt a factory role is started with.
+#
+#   factory/bin/role-prompt <key> <prompt>
+#
+# <key> is an entry in factory/models.json; its "agent" field names the role
+# file (default: the key). Every prompt starts with factory/role-preamble.md,
+# then the role, then "---" and <prompt>:
+#   openai      the role file itself (run-codex sends this to codex exec)
+#   anthropic   the line "Role: factory/agents/<agent>.md", which the
+#               factory-agent subagent reads from the main checkout. The
+#               orchestrator sends this prompt through its own Agent call, so
+#               inlining the role file would cost its context on every spawn.
+# run-codex and prompt-record both build their prompt here.
+# Exit codes: 2 for usage, an unknown key, a codex-plugin role or a missing file.
+set -uo pipefail
+
+if [ $# -ne 2 ]; then
+  echo "usage: role-prompt <key> <prompt>" >&2
+  exit 2
+fi
+key=$1 prompt=$2
+factory=$(cd "$(dirname "$0")/.." && pwd)
+cfg="$factory/models.json"
+
+entry=$(jq -e --arg k "$key" '.[$k]' "$cfg") || { echo "role-prompt: no '$key' in $cfg" >&2; exit 2; }
+provider=$(jq -r '.provider' <<<"$entry")
+agent=$(jq -r --arg k "$key" '.agent // $k' <<<"$entry")
+role="$factory/agents/$agent.md"
+preamble="$factory/role-preamble.md"
+[ -f "$role" ] || { echo "role-prompt: missing $role" >&2; exit 2; }
+[ -f "$preamble" ] || { echo "role-prompt: missing $preamble" >&2; exit 2; }
+
+case $provider in
+  openai) body=$(cat "$role")$'\n' ;;
+  anthropic) body="Role: factory/agents/$agent.md" ;;
+  *) echo "role-prompt: '$key' is a $provider role and has no role prompt" >&2; exit 2 ;;
+esac
+cat "$preamble"
+printf '\n%s\n\n---\n\n%s\n' "$body" "$prompt"

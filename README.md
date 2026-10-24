@@ -108,9 +108,11 @@ the job's worktree with write access to the job folder only, and logs
 everything to `factory/jobs/<job-id>/.runs/`. The Codex sandbox keeps `.git`
 read-only, so no agent commits: builders list their files and a commit message,
 and the orchestrator commits each task as one commit tagged with its bead id
-(`Add limiter middleware (app-k2f.1)`). Both read the same
-`factory/role-preamble.md` and `factory/agents/<role>.md`, so moving a role
-between providers is a one-line change.
+(`Add limiter middleware (app-k2f.1)`). Both get their prompt from
+`factory/bin/role-prompt`: `factory/role-preamble.md` first, then the role
+(`factory/agents/<role>.md`, inlined for Codex and named in a `Role:` line
+for Claude), then the task. Moving a role between providers is a one-line
+change.
 
 ## Beads
 
@@ -123,8 +125,9 @@ between providers is a one-line change.
 | label `queued`                         | the backlog for `/factory next` and autopilot |
 | label `needs-human`                    | parked for you                         |
 
-Agents only read Beads (`bd --readonly`). The orchestrator makes every write
-from the main checkout, so the Codex sandbox and parallel sessions never
+Agents never run `bd`: they read `beads.md` in the job folder, a snapshot the
+orchestrator takes before every role. The orchestrator makes every Beads
+write from the main checkout, so the Codex sandbox and parallel sessions never
 collide. Queue claims use `bd update <bead> --claim`, which is atomic; the
 autopilot drain claims with a compare-and-set (`--if-assignee ''`) so that
 two of its workers, which share one actor, can't both take a bead.
@@ -307,7 +310,8 @@ factory/
   bin/models                     shows or switches the models.json preset
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
-  bin/prompt-record              records a Claude role's prompt
+  bin/role-prompt                builds a role's prompt: the shared preamble, the role, the task
+  bin/prompt-record              records a Claude role's prompt and prints it for the spawn
   bin/job-set                    updates a job.json field with jq, quietly
   bin/task-description           builds a plan task's bead description, seam included
   bin/jev                        TypeSafe client for Jev, the decision helper

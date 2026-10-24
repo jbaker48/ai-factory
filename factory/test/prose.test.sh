@@ -29,15 +29,20 @@ test_agents_rule() {
 
 test_roles_skip_bd() {
   local hits
-  hits=$(cd "$ROOT" && grep -lE 'bd --readonly|`bd (show|children|list)' factory/agents/*.md)
+  hits=$(cd "$ROOT" && grep -lE 'bd --readonly|`bd (show|children|list)' factory/agents/*.md factory/role-preamble.md .claude/agents/factory-agent.md)
   assert_eq "" "$hits" "every role can run on Codex, so none calls bd"
 }
 
-test_claude_roles_read_preamble() {
-  local t
+test_claude_roles_get_preamble_in_prompt() {
+  local t s
   t=$(tr '\n' ' ' <"$ROOT/.claude/agents/factory-agent.md" | tr -s ' ')
-  assert_contains "$t" 'Read `factory/role-preamble.md`' "factory-agent reads the shared preamble"
-  assert_contains "$t" 'then the role file' "factory-agent reads the preamble before the role file"
+  assert_contains "$t" 'Your prompt starts with the shared role preamble' "factory-agent expects the preamble in its prompt"
+  assert_contains "$t" 'Read the role file it names' "factory-agent reads the role file the Role line names"
+  case $t in *'Read `factory/role-preamble.md`'*) _fail "factory-agent no longer reads the preamble file itself" ;; *) _pass ;; esac
+  s=$(section "$ROOT/.claude/skills/factory/SKILL.md" 'Running a role' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" 'with its output, verbatim, as the prompt' "Claude spawn sends prompt-record's output (preamble first)"
+  assert_contains "$s" 'factory/bin/role-prompt importer' "importer's prompt is built by role-prompt too"
+  case $s in *'and the prompt `Role: factory/agents/<agent>.md. <paths> <task>`'*) _fail "old bare Role prompt is gone" ;; *) _pass ;; esac
 }
 
 # The worktree and Beads-snapshot text lives in factory/role-preamble.md only.
@@ -175,7 +180,15 @@ test_snapshot_before_every_role() {
   local f="$ROOT/.claude/skills/factory/SKILL.md" s
   s=$(section "$f" 'Running a role' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" 'Before any role that has a job folder, whatever its provider, run `factory/bin/beads-snapshot <job folder>`' "snapshot before every role with a job folder"
-  case $(tr '\n' ' ' <"$f" | tr -s ' ') in *'Agents only read Beads (`bd --readonly`)'*) _fail "stale bd --readonly wording" ;; *) _pass ;; esac
+  local doc t
+  for doc in .claude/skills/factory/SKILL.md .claude/skills/factory/setup.md .claude/agents/factory-agent.md README.md; do
+    t=$(tr '\n' ' ' <"$ROOT/$doc" | tr -s ' ')
+    case $t in
+      *'Agents only read Beads (`bd --readonly`)'* | *'read Beads only (`bd --readonly`)'* | *'use `bd --readonly'* | *'Beads is read-only for you'*)
+        _fail "stale wording that agents read Beads with bd --readonly: $doc" ;;
+      *) _pass ;;
+    esac
+  done
 }
 
 test_prompt_record_and_merge_bookmark() {
@@ -454,7 +467,7 @@ test_setup_command() {
   assert_contains "$s" 'factory/bin/agents-md apply AGENTS.md' "setup.md merges factory sections with the script"
   assert_contains "$s" 'factory/bin/agents-md check' "setup.md proves the commands in a fresh worktree with the script"
   assert_contains "$s" 'factory/AGENTS.template.md' "setup.md starts from the template"
-  assert_contains "$s" 'bd --readonly' "setup.md scopes Beads' instructions: agents read Beads only"
+  assert_contains "$s" 'factory agents never run `bd` and read the snapshot the orchestrator takes' "setup.md scopes Beads' instructions: agents never call bd"
 }
 
 test_template_sections_marked() {

@@ -1,7 +1,8 @@
 # Every factory role
 
 This comes before every role file, on Claude and on Codex alike. The role file
-after it is your full instructions; where it is more specific, it wins.
+after it (or the one a `Role:` line after it names) is your full instructions;
+where it is more specific, it wins.
 
 ## Where you work
 
