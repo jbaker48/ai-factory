@@ -43,8 +43,9 @@ In `<target>`:
   `.claude/agents/factory-agent.md`, `factory/`. If one exists, this is an
   upgrade: show the user `diff -r` against `<source>` for each and get their
   go-ahead before overwriting. Their `factory/models.json` and
-  `factory/autopilot-policy.md` are likely customised; keep theirs unless they
-  say otherwise. A repo with a customised `autopilot-policy.md` should make
+  `factory/autopilot-policy.md` are likely customised: the install script in
+  step 3 keeps them, so if the user wants the source's copy instead, copy it
+  over after step 3. A repo with a customised `autopilot-policy.md` should make
   the same change: MERGE needs every final-round review `PASS` or `SKIPPED`,
   not "all-PASS".
 
@@ -54,25 +55,21 @@ and any earlier install has the user's decision.
 ## 3. Copy the files
 
 ```bash
-mkdir -p <target>/.claude/skills <target>/.claude/agents
-rsync -a <source>/.claude/skills/factory/ <target>/.claude/skills/factory/
-cp <source>/.claude/agents/factory-agent.md <target>/.claude/agents/
-rsync -a --exclude 'jobs/*' --exclude 'imports/' --exclude 'autopilot-runs/' \
-  --exclude AGENTS.template.md <source>/factory/ <target>/factory/
-mkdir -p <target>/factory/jobs && touch <target>/factory/jobs/.gitkeep
+<source>/factory/bin/install <target>
 ```
 
-Leave everything else in the target's `.claude/` as it is. The template stays
-in `<source>`: you use it in step 5, and the factory never reads it.
-
-Then add whichever of these lines `<target>/.gitignore` lacks:
-
-```
-/factory/jobs/*
-!/factory/jobs/.gitkeep
-/factory/imports/
-/factory/autopilot-runs/
-```
+The script reads `<source>/factory/manifest`, which lists the files it copies.
+It copies the shipped files (the skill, the agent, the roles, the scripts, the
+dashboard, the Jev templates, the presets) over the target's copies, and
+writes the files the user owns (`factory/models.json`,
+`factory/autopilot-policy.md`, `factory/jobs/.gitkeep`) only when the target
+has none, so an upgrade keeps the user's copies; it never touches
+`factory/settings.json`, which step 6 writes. It adds the factory's `.gitignore` lines the target lacks
+(`/factory/jobs/*`, `!/factory/jobs/.gitkeep`, `/factory/imports/`,
+`/factory/autopilot-runs/`), each once, and writes `factory/VERSION`: the
+source commit SHA. It leaves everything else in the target's `.claude/` as it
+is, and leaves `factory/AGENTS.template.md` in `<source>`: you use it in step
+5, and the factory never reads it.
 
 **Done when** `ls <target>/factory/bin` lists `run-codex`, `run-adversarial`,
 `job-set` and `autopilot`, all executable, and `git -C <target> status`

@@ -291,6 +291,8 @@ factory/
     reviewer-security.md  reviewer-code.md  reviewer-ux.md  reviewer-ui.md
     reviewer-adversarial.md      (claude and openai presets)
     approver.md  autopilot.md  importer.md  briefer.md  retro.md
+  manifest                       which files an install ships, which the user owns
+  bin/install                    installs or upgrades the factory in a repo
   bin/models                     shows or switches the models.json preset
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
@@ -306,6 +308,7 @@ factory/
   dashboard/runs.js              reads run prompt and usage data
   dashboard/git.js               reads job task commits and diffs
   dashboard/detail.js            renders job detail data
+  VERSION                        in an installed repo: the ai-factory commit it came from
   jobs/                          one folder per job (runtime state)
   imports/                       one folder per PRD import (runtime state)
   autopilot-runs/                headless session output from bin/autopilot
@@ -323,19 +326,21 @@ the decisions. By hand:
    the Codex CLI and plugin; with `factory/bin/models openai`, the plugin. Install
    [`agent-browser`](https://github.com/vercel-labs/agent-browser) if your
    project has pages to look at.
-2. Copy `.claude/` and `factory/` into your repo root.
+2. Run `factory/bin/install <your repo>` from this checkout. It copies the
+   files `factory/manifest` lists as shipped, keeps your `models.json` and
+   `autopilot-policy.md` if you have them, adds the `.gitignore` lines, and
+   writes `factory/VERSION` (the commit it installed from).
 3. Run `bd init` in the repo if it has no Beads workspace yet. If it has one,
    keep it: see **Brownfield** above, and start with `/factory import <prd>`.
-4. Add `/factory/jobs/`, `/factory/imports/` and `/factory/autopilot-runs/`
-   to your `.gitignore`. They are runtime state.
-5. Write your `AGENTS.md` from `factory/AGENTS.template.md`, and make
+4. Write your `AGENTS.md` from this checkout's `factory/AGENTS.template.md`
+   (the install leaves it here), and make
    `CLAUDE.md` the one line `@AGENTS.md`. The agents carry nothing
    repo-specific: they get setup for a fresh worktree, the dev server on a
    given port, validation commands and conventions from this file. The
    template's header comment lists the conditions those commands must work
    under (no gitignored files, parallel jobs, no network for reviewers).
-6. Read `factory/autopilot-policy.md` and adjust it before using autopilot.
-7. Commit everything on `main`, then run `/factory <feature>`.
+5. Read `factory/autopilot-policy.md` and adjust it before using autopilot.
+6. Commit everything on `main`, then run `/factory <feature>`.
 
 ## Dashboard
 

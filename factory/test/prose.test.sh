@@ -274,5 +274,14 @@ test_jev_wiring() {
   assert_contains "$(cat "$ROOT/README.md")" 'bin/jev-decide' "README lists bin/jev-decide"
 }
 
+test_install_guide_points_at_script() {
+  local s
+  s=$(awk '/^## 3\./ {on = 1} on && /^## 4\./ {exit} on' "$ROOT/INSTALL.md")
+  assert_contains "$s" 'factory/bin/install <target>' "INSTALL step 3 runs the install script"
+  assert_contains "$s" 'factory/manifest' "INSTALL step 3 names the manifest"
+  assert_contains "$s" 'factory/VERSION' "INSTALL step 3 names the version file"
+  case $s in *rsync*) _fail "INSTALL step 3 no longer copies by hand" ;; *) _pass ;; esac
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish
