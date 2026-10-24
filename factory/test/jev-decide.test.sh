@@ -330,5 +330,45 @@ test_triage_off() {
   if [ -e "$J/round-1/triage.json" ]; then _fail "wrote triage.json"; else _pass; fi
 }
 
+# guard_note <note-line>: round 1 whose only adversarial Note is that line.
+guard_note() {
+  triage_fixture
+  rm "$J/round-1/review-security.md"
+  printf 'VERDICT: PASS\n\n## Notes\n- %s\n' "$1" >"$J/round-1/review-adversarial.md"
+  tanswer note.1=fine:0.9
+  triage >/dev/null
+}
+
+test_guard_nested_and_forms() {
+  setup
+  local note
+  # shellcheck disable=SC2016 # backticks are literal Note text
+  for note in 'src/auth/login.ts:4 [low, confidence 0.9] X. y.' \
+    '.github/workflows/ci.yml:2 [low, confidence 0.9] X. y.' \
+    'infra/main.tf:2 [low, confidence 0.9] X. y.' \
+    'yarn.lock:1 [low, confidence 0.9] X. y.' \
+    'src/app/secrets.ts:1 [low, confidence 0.9] X. y.' \
+    '**package.json**:3 pin it' \
+    'package.json:3-5 pin it' \
+    'src/x/package.json#L4 pin it' \
+    'src/x/package.json#L4-L9 pin it' \
+    '`package.json:3:7` pin it' \
+    '_package.json_ pin it' \
+    'and/or the .env file leaks' \
+    'e.g. the .env leak' \
+    'src/app/Secrets.ts:1 odd' \
+    'See .ENV for it'; do
+    setup; guard_note "$note"
+    assert_eq 1 "$(tj '[.approver[] | select(.why == "guardrail")] | length')" "guarded: $note"
+    if [ -e "$STUBS/fakejev.calls" ]; then _fail "sent: $note"; else _pass; fi
+  done
+  setup; guard_note 'src/app/page.ts:1 [low, confidence 0.9] X. y.'
+  assert_eq 1 "$(tj '.fine | length')" "ordinary path is sent"
+  setup; guard_note 'and/or the .env file leaks'
+  assert_eq '"and/or"' "$(tj '.approver[0].path')" "reported path stays the first token"
+  setup; guard_note '**package.json**:3 pin it'
+  assert_eq '"package.json"' "$(tj '.approver[0].path')" "wrappers stripped from path"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

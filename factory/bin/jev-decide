@@ -256,31 +256,42 @@ notes_of() {
     grep -viE '^none\.?$' || true
 }
 
-# path_of "<note>": its first token that looks like a path (a "/" in it, or a
-# ".<ext>" end, or a Dockerfile/Makefile-style name), with backticks and a ":line" suffix stripped. Prints nothing
-# when there is none.
-path_of() {
+# paths_of "<note>": every token of the note that looks like a path (a "/" in
+# it, a ".<ext>" end, or a Dockerfile/Makefile-style name), one per line, first
+# occurrence only. Markdown wrappers (` * _), trailing punctuation and
+# line suffixes (:N, :N-M, :N:M, #LN, #LN-LM) are stripped.
+paths_of() {
   printf '%s\n' "$1" | awk -v q="'" '{
     for (i = 1; i <= NF; i++) {
       t = $i
       if (t ~ /:\/\//) continue
+      sub("^[(\"" q "`*_]+", "", t)
+      for (k = 0; k < 3; k++) {
+        sub("[],;)\"" q "`*_.]+$", "", t)
+        sub(/:[0-9]+(-[0-9]+)?(:[0-9]+)?$/, "", t)
+        sub(/#L[0-9]+(-L?[0-9]+)?$/, "", t)
+      }
       gsub(/`/, "", t)
-      sub("^[(\"" q "]+", "", t)
-      sub("[],;)\"" q ".]+$", "", t)
-      sub(/:[0-9]+(:[0-9]+)?$/, "", t)
-      if (t != "" && (t ~ /\// || t ~ /\.[A-Za-z][A-Za-z0-9]*$/ || t ~ /^(Dockerfile|Makefile|Gemfile|Rakefile|Procfile)[A-Za-z0-9._-]*$/)) { print t; exit }
+      if (t != "" && !(t in seen) && (t ~ /\// || t ~ /\.[A-Za-z][A-Za-z0-9]*$/ || t ~ /^(Dockerfile|Makefile|Gemfile|Rakefile|Procfile)[A-Za-z0-9._-]*$/)) { seen[t] = 1; print t }
     } }'
 }
 
-# parked <path> <glob>...: true when the path matches a glob, as it is or as ./path.
+# path_of "<note>": the first of those, or nothing.
+path_of() { paths_of "$1" | head -n 1; }
+
+# parked <path> <glob>...: true when the path matches a glob, as it is or as
+# ./path, ignoring case.
 parked() {
-  local p=$1 g
+  local p=$1 g r=1 old
   shift
+  old=$(shopt -p nocasematch)
+  shopt -s nocasematch
   for g in "$@"; do
     # shellcheck disable=SC2053 # the glob is meant as a pattern
-    if [[ $p == $g || ./$p == $g ]]; then return 0; fi
+    if [[ $p == $g || ./$p == $g ]]; then r=0; break; fi
   done
-  return 1
+  eval "$old"
+  return $r
 }
 
 # triage_state <items-json> <send>: the state text, one line per Note that is
@@ -348,7 +359,7 @@ triage_md() {
 }
 
 cmd_triage() {
-  local job=$1 n=$2 conf send min dir tmp out answers lens f note path text sev cf title guarded seen m earlier=""
+  local tok job=$1 n=$2 conf send min dir tmp out answers lens f note path text sev cf title guarded seen m earlier=""
   local sevre='\[([A-Za-z]+),[[:space:]]*confidence[[:space:]]+([0-9.]+)\]' globs=() g state qs res
   conf=$(cfg)
   send=$(jq -r '.send' <<<"$conf")
@@ -389,7 +400,10 @@ cmd_triage() {
         title=${text%%. *}; title=${title%.}; title=${title:0:80}
       fi
       guarded=false
-      if [ "$lens" = security ] || { [ -n "$path" ] && parked "$path" ${globs[@]+"${globs[@]}"}; }; then guarded=true; fi
+      if [ "$lens" = security ]; then guarded=true; fi
+      while IFS= read -r tok; do
+        [ -n "$tok" ] && parked "$tok" ${globs[@]+"${globs[@]}"} && guarded=true
+      done < <(paths_of "$text")
       seen=false
       if [ -n "$path" ]; then case "
 $earlier" in *"
