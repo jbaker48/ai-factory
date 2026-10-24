@@ -1,6 +1,6 @@
 ---
 name: factory
-description: Run the software factory. Use when the user types /factory <feature>, /factory add, /factory next, /factory autopilot, /factory import <prd>, /factory adopt <bead>, /factory status, /factory review [<job-id>], /factory approve <job-id>, /factory rework <job-id> <note>, /factory resume <job-id>, or /factory retro <job-id>. The session that runs it becomes the orchestrator of the spec → plan → build → review → approve loop, with Beads tracking the work and Claude and OpenAI models doing it.
+description: Run the software factory. Use when the user types /factory <feature>, /factory add, /factory next, /factory autopilot, /factory import <prd>, /factory adopt <bead>, /factory status, /factory review [<job-id>], /factory approve <job-id>, /factory rework <job-id> <note>, /factory resume <job-id>, /factory retro <job-id>, or /factory setup. The session that runs it becomes the orchestrator of the spec → plan → build → review → approve loop, with Beads tracking the work and Claude and OpenAI models doing it.
 ---
 
 # Factory
@@ -736,6 +736,11 @@ it.
 
 Read [resume.md](resume.md) when the command is `/factory resume <job-id>`,
 or a drain picks up a `resubmitted` job.
+
+## /factory setup
+
+Read [setup.md](setup.md) when the command is `/factory setup`. It runs
+no job.
 
 ## Reporting
 

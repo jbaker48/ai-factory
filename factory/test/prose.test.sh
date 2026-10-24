@@ -339,7 +339,7 @@ test_skill_pointers() {
   for l in $links; do
     if [ -f "$dir/$l" ]; then _pass; else _fail "SKILL.md pointer $l resolves to a file in the skill folder"; fi
   done
-  for c in import adopt review retro resume; do
+  for c in import adopt review retro resume setup; do
     line=$(grep -F "Read [$c.md]($c.md)" "$f" | head -n 1)
     assert_contains "$line" "/factory $c" "SKILL.md points at $c.md and says when to read it"
     assert_contains "$(head -n 1 "$dir/$c.md" 2>/dev/null)" "## /factory $c" "$c.md starts with its command heading"
@@ -404,6 +404,39 @@ test_approver_names_candidate_adr() {
   s=$(awk '/^## For the human$/ {on = 1} on && /^```$/ {exit} on' "$ROOT/factory/agents/approver.md" | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" 'Candidate ADR: <decision>' "approver's escalation brief can name a candidate ADR"
   assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/approver.md" | tr -s ' ')" 'all three tests hold' "approver names an ADR only when all three tests hold"
+}
+
+# flat <text>: one line, runs of spaces squeezed, so a needle survives rewrapping.
+flat() { printf '%s' "$1" | tr '\n' ' ' | tr -s ' '; }
+
+test_setup_command() {
+  local s step done_when
+  s=$(flat "$(cat "$SKILL_DIR/setup.md" 2>/dev/null)")
+  assert_contains "$(sed -n 3p "$SKILL_DIR/SKILL.md")" '/factory setup' "description lists /factory setup"
+  for step in 4 5; do
+    done_when=$(awk -v n="$step" '$0 ~ "^## " n "\\." {on = 1; next} on && /^## / {exit} on' "$ROOT/INSTALL.md" |
+      awk '/^\*\*Done when\*\*/ {on = 1} on' )
+    [ -n "$done_when" ] || _fail "INSTALL step $step has a Done when"
+    assert_contains "$s" "$(flat "$done_when")" "setup.md ends its INSTALL step $step on the same Done when"
+  done
+  assert_contains "$s" 'bd init' "setup.md initialises Beads when there is none"
+  assert_contains "$s" 'factory/bin/agents-md apply AGENTS.md' "setup.md merges factory sections with the script"
+  assert_contains "$s" 'factory/bin/agents-md check' "setup.md proves the commands in a fresh worktree with the script"
+  assert_contains "$s" 'factory/AGENTS.template.md' "setup.md starts from the template"
+  assert_contains "$s" 'bd --readonly' "setup.md scopes Beads' instructions: agents read Beads only"
+}
+
+test_template_sections_marked() {
+  local t=$ROOT/factory/AGENTS.template.md body
+  # Every heading after the header comment sits inside a factory section.
+  body=$(awk '/^-->$/ {on = 1; next} on' "$t" | awk '
+    /^<!-- factory:begin [^ ]+ -->$/ {cur = $3; next}
+    /^<!-- factory:end [^ ]+ -->$/ {if ($3 == cur) cur = ""; next}
+    /^#/ && cur == "" {print}')
+  assert_eq "" "$body" "every template heading is inside a factory section"
+  assert_exit 0 "template markers are balanced (agents-md apply accepts it)" -- \
+    "$ROOT/factory/bin/agents-md" apply "$TEST_TMP/template-out.md" "$t"
+  assert_contains "$(cat "$TEST_TMP/template-out.md" 2>/dev/null)" '<!-- factory:begin setup -->' "template has a setup section"
 }
 
 # The builder writes a failing test first for behaviour-changing tasks (issue #15).

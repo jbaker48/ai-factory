@@ -62,7 +62,9 @@ follows them too. Where a prose test enforces one, it is named.
 - `factory/dashboard.html`, `factory/dashboard/`, `factory/bin/dashboard`:
   the local dashboard.
 - `factory/AGENTS.template.md`: the template a target's `AGENTS.md` is
-  written from. Not copied into targets.
+  written from, by `/factory setup` (`.claude/skills/factory/setup.md`).
+  Shipped to targets; no job reads it. Its `factory:begin`/`factory:end`
+  markers are what `factory/bin/agents-md apply` updates on a re-run.
 - `factory/test/`: the tests.
 - `docs/superpowers/specs/`, `docs/superpowers/plans/`: designs and plans.
 - `docs/adr/`: decisions that are hard to reverse. Read them before changing

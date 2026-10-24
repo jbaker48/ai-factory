@@ -68,14 +68,19 @@ has none, so an upgrade keeps the user's copies; it never touches
 (`/factory/jobs/*`, `!/factory/jobs/.gitkeep`, `/factory/imports/`,
 `/factory/autopilot-runs/`), each once, and writes `factory/VERSION`: the
 source commit SHA. It leaves everything else in the target's `.claude/` as it
-is, and leaves `factory/AGENTS.template.md` in `<source>`: you use it in step
-5, and the factory never reads it.
+is. It copies `factory/AGENTS.template.md` too: step 5 and `/factory setup`
+write `AGENTS.md` from it, and no job reads it.
 
 **Done when** `ls <target>/factory/bin` lists `run-codex`, `run-adversarial`,
 `job-set` and `autopilot`, all executable, and `git -C <target> status`
 shows no file under `factory/jobs/` other than `.gitkeep`.
 
 ## 4. Beads
+
+Steps 4 and 5 are what `/factory setup` does: in a Claude Code session in
+`<target>` you can run it instead, and it ends each step on the same **Done
+when**. Running it again later updates the factory's sections of `AGENTS.md`
+and keeps the user's.
 
 - **No `.beads/` in the target**: run `bd init` there. It also writes its own
   integration files (an `AGENTS.md` section, a `CLAUDE.md`, editor rules, a
@@ -91,7 +96,7 @@ shows no file under `factory/jobs/` other than `.gitkeep`.
 
 Every factory role reads the target's `AGENTS.md` first, and the role files
 carry nothing repo-specific, so this step decides whether jobs work at all.
-Start from `<source>/factory/AGENTS.template.md`. Its header comment lists the
+Start from `<target>/factory/AGENTS.template.md`. Its header comment lists the
 conditions the commands run under; read it before writing anything.
 
 1. **Gather the facts from the repo**: package manager and lockfile, toolchain
@@ -101,8 +106,9 @@ conditions the commands run under; read it before writing anything.
    docs folder, including a glossary and an ADR folder for the template's
    `## Domain docs` section. Keep the user's existing `AGENTS.md` or `CLAUDE.md` content:
    merge it into the template's sections.
-2. **Write `AGENTS.md`**, filling every `<...>` and deleting the template's
-   header comment. Then make `CLAUDE.md` the one line `@AGENTS.md`; if
+2. **Write `AGENTS.md`**, filling every `<...>`, keeping the template's
+   `factory:begin` and `factory:end` markers, and deleting its header comment.
+   Content no template section covers goes outside the markers. Then make `CLAUDE.md` the one line `@AGENTS.md`; if
    `CLAUDE.md` has content of its own, merge it into `AGENTS.md` first.
 3. **Scope Beads' own section to people.** If `bd init` added instructions
    telling agents to claim, close, commit or push, mark that section as being
