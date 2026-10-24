@@ -4,10 +4,15 @@
 # shellcheck disable=SC2016 # backticks in the needles are literal Markdown
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 ROOT=$(cd "$FACTORY_SRC/.." && pwd)
+SKILL_DIR="$ROOT/.claude/skills/factory"
+
+# skill_text: SKILL.md and the subcommand files it points at, for checks that
+# don't care which file a rule lives in.
+skill_text() { cat "$SKILL_DIR"/*.md; }
 
 test_no_literal_main_diffs() {
   local hits
-  hits=$(cd "$ROOT" && grep -nE '(main\.\.|main\.\.\.|merge-tree --write-tree (origin/)?main|--base main)' factory/agents/*.md factory/bin/* .claude/skills/factory/SKILL.md)
+  hits=$(cd "$ROOT" && grep -nE '(main\.\.|main\.\.\.|merge-tree --write-tree (origin/)?main|--base main)' factory/agents/*.md factory/bin/* .claude/skills/factory/*.md)
   assert_eq "" "$hits" "no role file or script diffs against a literal main"
 }
 
@@ -59,8 +64,8 @@ section() {
 
 test_review_command() {
   local f="$ROOT/.claude/skills/factory/SKILL.md" t s
-  t=$(cat "$f")
-  assert_contains "$t" '## /factory review' "SKILL.md has /factory review"
+  t=$(skill_text)
+  assert_contains "$(head -n 1 "$SKILL_DIR/review.md")" '## /factory review' "review.md has /factory review"
   assert_contains "$(sed -n 3p "$f")" '/factory review' "description lists /factory review"
   assert_contains "$t" 'human_decision' "SKILL.md mentions human_decision"
   assert_contains "$t" 'resubmitted' "SKILL.md mentions resubmitted"
@@ -99,7 +104,7 @@ test_briefer_decision_file() {
 
 test_review_fixes() {
   local f="$ROOT/.claude/skills/factory/SKILL.md" t s
-  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  t=$(skill_text | tr '\n' ' ' | tr -s ' ')
   assert_contains "$t" '.runs/human-<j>.abandoned.md' "unresubmitted human files are moved out of the glob"
   assert_contains "$t" 'Claimed for you by autopilot' "drain-claimed sessions skip the claim"
   assert_contains "$t" 'rmdir <job folder>/.resume-claim' "stale claims can be cleared"
@@ -124,11 +129,11 @@ test_review_fixes() {
 
 test_parallel_drain() {
   local f="$ROOT/.claude/skills/factory/SKILL.md"
-  assert_contains "$(section "$f" '/factory adopt')" 'factory-autopilot' "adopt accepts the drain's claim"
+  assert_contains "$(section "$SKILL_DIR/adopt.md" '/factory adopt')" 'factory-autopilot' "adopt accepts the drain's claim"
   assert_contains "$(section "$f" '/factory autopilot')" '--jobs' "drain text mentions --jobs"
   assert_contains "$(section "$f" '/factory autopilot' | tr '\n' ' ')" 'is logged instead of ending its worker' "drain text: --watch outlives a failed job"
   assert_contains "$(section "$f" 'Parallel jobs')" 'factory-autopilot' "Parallel jobs names the actor"
-  assert_contains "$(section "$f" '/factory resume')" 'BEADS_ACTOR=factory-autopilot' "resume writes Beads as the drain's actor"
+  assert_contains "$(section "$SKILL_DIR/resume.md" '/factory resume')" 'BEADS_ACTOR=factory-autopilot' "resume writes Beads as the drain's actor"
   assert_contains "$(cat "$f")" '--if-assignee' "SKILL.md names the drain's compare-and-set"
   assert_contains "$(cat "$ROOT/README.md")" '--jobs' "README documents --jobs"
   assert_contains "$(cat "$ROOT/INSTALL.md")" "\`jobs\`" "INSTALL documents the jobs setting"
@@ -144,7 +149,7 @@ test_status_command() {
 
 test_resume_open_pr() {
   local s
-  s=$(section "$ROOT/.claude/skills/factory/SKILL.md" '/factory resume' | tr '\n' ' ' | tr -s ' ')
+  s=$(section "$SKILL_DIR/resume.md" '/factory resume' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" '`decision.md` is newer than every file in `round-<N>/`, or `stage` is `autopilot` and `decision_file`'"'"'s first line is `MERGE`' "resume re-runs Merge on an open PR only after a current decision"
   case $s in *'or `autopilot` after a MERGE decision'*) _fail "old open-PR rule is gone" ;; *) _pass ;; esac
 }
@@ -180,7 +185,7 @@ test_dashboard_hints_review() {
 
 test_import_conflict_queues_only_free_beads() {
   local s
-  s=$(section "$ROOT/.claude/skills/factory/SKILL.md" '/factory review' | tr '\n' ' ' | tr -s ' ')
+  s=$(section "$SKILL_DIR/review.md" '/factory review' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" 'if the bead is `in_progress` or assigned to someone else, only `bd update <bead> --remove-label needs-human`' "import conflicts are queued only when nobody has the bead"
 }
 
@@ -211,9 +216,9 @@ test_retro_role() {
 
 test_retro_wiring() {
   local f="$ROOT/.claude/skills/factory/SKILL.md" t s n
-  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  t=$(skill_text | tr '\n' ' ' | tr -s ' ')
   assert_contains "$(sed -n 3p "$f")" '/factory retro' "description lists /factory retro"
-  s=$(section "$f" '/factory retro <job-id>' | tr '\n' ' ' | tr -s ' ')
+  s=$(section "$SKILL_DIR/retro.md" '/factory retro <job-id>' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" '## /factory retro <job-id>' "SKILL.md has /factory retro <job-id>"
   assert_contains "$s" 'skip `retro-due`' "/factory retro skips retro-due"
   assert_contains "$s" 'If `job.json` `retro_worktree` is not null and `retro.md`'"'"'s first line passes step 4, a publish was cut off: run only step 5 and step 6 (`factory/bin/retro-publish <job folder>`), not prep or the role.' "/factory retro finishes a cut-off publish alone"
@@ -226,7 +231,7 @@ test_retro_wiring() {
   done
   s=$(awk '/^### Merge$/ {on = 1} on && /^- \*\*0\*\*/ {b = 1} on && /^- \*\*6\*\*/ {exit} b' "$f")
   assert_contains "$(printf '%s' "$s" | tr '\n' ' ' | tr -s ' ')" '**Retro**, then `factory/bin/usage-record session <job folder>`' "Merge exit 0 runs the Retro before usage-record session"
-  s=$(awk '/^ *- \*\*DROP\*\*/ {b = 1} b && /^6\. / {exit} b' "$f")
+  s=$(awk '/^ *- \*\*DROP\*\*/ {b = 1} b && /^6\. / {exit} b' "$SKILL_DIR/resume.md")
   assert_contains "$(printf '%s' "$s" | tr '\n' ' ' | tr -s ' ')" '**Retro**, then `factory/bin/usage-record session <job folder>`' "resume DROP runs the Retro before usage-record session"
   assert_contains "$t" 'stop the retro; `/factory retro <job-id>` finishes it later. The job stays where it is, and a drain' "a failed retro stops only the retro"
   assert_contains "$(cat "$ROOT/README.md")" 'factory_source' "README documents factory_source"
@@ -307,6 +312,22 @@ test_seeded_adrs() {
       assert_contains "$t" "$h" "$(basename "$f") has $h"
     done
     i=$((i + 1))
+  done
+}
+
+test_skill_pointers() {
+  local dir="$ROOT/.claude/skills/factory" f="$ROOT/.claude/skills/factory/SKILL.md" links l c line
+  links=$(grep -oE '\]\([^)#:]+\.md\)' "$f" | sed -E 's/^\]\(//; s/\)$//' | sort -u)
+  [ -n "$links" ] || _fail "SKILL.md links at least one skill file"
+  for l in $links; do
+    if [ -f "$dir/$l" ]; then _pass; else _fail "SKILL.md pointer $l resolves to a file in the skill folder"; fi
+  done
+  for c in import adopt review retro resume; do
+    line=$(grep -F "Read [$c.md]($c.md)" "$f" | head -n 1)
+    assert_contains "$line" "/factory $c" "SKILL.md points at $c.md and says when to read it"
+    assert_contains "$(head -n 1 "$dir/$c.md" 2>/dev/null)" "## /factory $c" "$c.md starts with its command heading"
+    case $(section "$f" "/factory $c" | tr '\n' ' ' | tr -s ' ') in
+      *'1. '* | *'- '*) _fail "SKILL.md no longer carries the /factory $c steps" ;; *) _pass ;; esac
   done
 }
 

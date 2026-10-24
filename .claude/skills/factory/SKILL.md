@@ -81,7 +81,7 @@ Beads conventions:
 The job bead is usually a `feature`, but an adopted `bug` or `task` works the
 same way. It is `in_progress` while a job runs and `closed` when it merges.
 
-Every task you file must survive a resume (see **/factory resume**): before
+Every task you file must survive a resume (see [resume.md](resume.md)): before
 each `bd create` of a task, look for an open child of the job bead with the
 same title
 (`bd children <bead> --json | jq -r --arg t "<title>" '.[] | select(.title == $t and .status != "closed") | .id'`)
@@ -97,7 +97,7 @@ already in flight:
 - Never claim, close, reopen or relabel a bead that is `in_progress` or
   assigned to someone else. Queue claims go through `bd ready`, which skips
   them anyway. The one exception is a bead the autopilot drain claimed for
-  your run (see **/factory adopt**).
+  your run (see [adopt.md](adopt.md)).
 - A job the autopilot drain ran keeps its bead (and the tasks it claimed)
   assigned to `factory-autopilot`, and `bd close` and `bd update --claim`
   refuse any other actor. In any session that writes Beads for such a job
@@ -266,7 +266,7 @@ state that never lands in a commit.
 - `stage` is one of `spec`, `plan`, `build`, `review`, `approve`, `autopilot`,
   `merged`, `needs-human`, `resubmitted`, `dropped`. Worktree setup counts as
   `spec`. `merged` and `dropped` are end states; `resubmitted` waits for the
-  drain (see **/factory resume**).
+  drain (see [resume.md](resume.md)).
 - `round` is the current review round (0 until the first round starts).
 - `round_base` is the last round before the current run (read it as
   `.round_base // 0`). A rework, respec or owner decision starts a new run:
@@ -469,8 +469,9 @@ Run `factory/bin/jev-decide triage <job folder> <N>`. It writes
 prints `off`, or `round-<N>/triage.json` doesn't exist, go to **Approve**.
 
 1. For each `.follow_up[]` in `round-<N>/triage.json`, file a bead unless an
-   open bead already has its title (the dedupe query in **/factory review**
-   step 3):
+   open bead already has its title
+   (`bd list --title "<title>" --json | jq -r --arg t "<title>" '.[] | select(.title == $t) | .id'`;
+   reuse that id instead):
    ```bash
    bd create "<title>" --type=feature -p 2 -l factory,queued \
      --deps discovered-from:<bead> \
@@ -644,12 +645,13 @@ agent instead, under `factory/autopilot-policy.md` and the limits above.
 
 - `/factory autopilot <feature>`: run one new job on autopilot.
 - `/factory autopilot import <prd>` and `/factory autopilot adopt <bead>`: see
-  those commands; import applies without asking, then drains the queue.
+  [import.md](import.md) and [adopt.md](adopt.md); import applies without
+  asking, then drains the queue.
 - `/factory autopilot <job-id>`: hand a `needs-human` job to the autopilot.
   Set `autopilot: true`, remove its `needs-human` label, and go to
   **Autopilot decision** with the `situation` from its `job.json`.
 - `/factory autopilot` or `/factory autopilot <count>`: drain the queue. Loop:
-  take the oldest `resubmitted` job you can claim (see **/factory resume**)
+  take the oldest `resubmitted` job you can claim (see [resume.md](resume.md))
   and resume it, or else claim as in `/factory next`; run the job on autopilot
   to `merged`, `needs-human` or `dropped`, then take the next. Stop when the
   queue is empty or after `<count>` jobs. A parked job doesn't stop the loop.
@@ -689,265 +691,50 @@ usage files yourself.
 
 ## /factory import <prd>
 
-Bring a PRD into a repo that already has beads, without duplicating or
-trampling work in flight.
-
-1. Create `factory/imports/<YYYY-MM-DD>-<prd-slug>/` (gitignored, like
-   `factory/jobs/`).
-2. Run `bd --readonly export -o <import folder>/beads.jsonl`: the importer
-   reads every bead from it. Then run `importer` with the task
-   `Repo: <repo>. PRD: <absolute prd path>. Import folder: <absolute folder>.`
-   in place of `<paths> <task>`: it has no job, worktree or bead. For an
-   OpenAI role, call `run-codex` with the import folder as `<job folder>` and
-   `<repo>` as `<worktree>`.
-3. Read `import.json` (stop if it isn't valid JSON) and show the user a table:
-   per action, the beads and titles, then the conflicts in full. Unless the
-   command was `/factory autopilot import <prd>`, ask once for go-ahead and
-   apply only what they accept.
-4. Apply it, in this order:
-   - **create**: `bd create "<title>" --type=feature -l factory,queued -p <priority> --silent`
-     with `-d "<description>\n\nPRD: <prd> § <prd_section>"`. Note each
-     key's new id.
-   - **adopt**: skip it if the bead is now `in_progress` or assigned. Otherwise
-     `bd update <bead> --add-label factory,queued`, plus
-     `bd comment <bead> "PRD <prd> § <prd_section>: <context>"` when there is
-     context.
-   - **depends_on** for create and adopt items, with keys resolved to ids:
-     `bd dep add <item> <dependency>`.
-   - **conflict**: `bd comment <bead> "PRD conflict: <reason>"` and
-     `bd update <bead> --add-label needs-human`. Queue nothing for it.
-   - **done** and **owned**: write nothing.
-5. Write `applied.md` in the import folder: what was created, adopted and
-   flagged, with ids. Then print the new ready queue. The work runs through
-   `/factory next` or `/factory autopilot` like any other queued job.
-
-On autopilot, conflicts still get `needs-human`: the autopilot decides about
-jobs, not about contradictions between a PRD and someone else's bead.
+Read [import.md](import.md) when the command is `/factory import <prd>` or
+`/factory autopilot import <prd>`.
 
 ## /factory adopt <bead>
 
-Run the factory on a bead that already exists.
-
-- A `feature`, `bug` or `task` that is open and not assigned to someone else
-  becomes a job now. Run `/factory <its title>`, reusing it in step 2. Its
-  existing children are kept: the planner reuses those that fit.
-- An `epic` isn't a job. Queue its open, unassigned, non-epic children with
-  `bd update <child> --add-label factory,queued` and print them.
-- An `in_progress` bead whose assignee is `factory-autopilot`, when your
-  prompt says `Claimed for you by autopilot as factory-autopilot.`: the
-  autopilot drain claimed it for this run. Treat it as open and unassigned;
-  step 2's `bd update <bead> --claim` succeeds because your session runs as
-  that actor.
-- Anything else `in_progress` or assigned to someone else, including a
-  `factory-autopilot` bead your prompt doesn't say was claimed for you:
-  refuse, say who has it, and suggest `bd dep add` so new factory work can
-  wait for it.
-
-`/factory autopilot adopt <bead>` does the same with `autopilot: true`.
+Read [adopt.md](adopt.md) when the command is `/factory adopt <bead>` or
+`/factory autopilot adopt <bead>`, as every headless drain session is.
 
 ## /factory review [<job-id>]
 
-Work through parked jobs with their owner, one at a time, and end each with a
-recorded decision that sends it back to the drain. This session never runs a
-job's build, review or merge. It needs a person: in a headless session, say so
-and stop.
-
-Take the jobs at `stage: "needs-human"`, oldest `updated` first
-(`jq -r 'select(.stage == "needs-human") | "\(.updated) \(.id)"' factory/jobs/*/job.json | sort`).
-With `<job-id>`, take only that job, and if its stage isn't `needs-human`,
-say which stage it is at and stop. For each job, pick `k`, the next number
-with neither `human-brief-<k>.md` nor `human-<k>.md` in its folder. A
-`human-<j>.md` numbered above the one `human_decision` names (any, when it is
-unset) was never resubmitted, from a review that was cut off: move it to
-`.runs/human-<j>.abandoned.md` first, so no later role takes it as binding.
-
-1. **Brief.** Run `factory/bin/beads-snapshot <job folder>`, then `briefer`
-   with the task `Brief k.` (then `usage-record claude <job folder> briefer`,
-   as after every Claude role). Check `human-brief-<k>.md` exists and starts
-   with `## Situation`. Read only this brief, never the raw job files, so your
-   context stays small across many jobs.
-2. **Ask.** Show the `## Situation` in a few lines. Ask each question under
-   `## Decisions` with AskUserQuestion, one question per decision, its options
-   as the choices and the recommended one marked; the owner may answer
-   free-form. Then confirm the outcome, **approve**, **rework**, **respec** or
-   **drop** (only those the brief offered), and which `## Out of scope` beads
-   to file. For drop, ask for a one-line reason.
-3. **Record.** Run `briefer` with the task
-   `Write decision k. Owner answers: <every question, its answer, the outcome and any reason, verbatim>`.
-   If it finishes with `NEEDS-OWNER: <question>`, ask the owner that question
-   and run `Write decision k.` again with all the answers so far. Check
-   `human-<k>.md` exists and its first line is `APPROVE`, `REWORK`, `RESPEC`
-   or `DROP`; never resubmit without one. File each chosen out-of-scope bead,
-   unless an open bead already has its title
-   (`bd list --title "<title>" --json | jq -r --arg t "<title>" '.[] | select(.title == $t) | .id'`;
-   reuse that id instead):
-   ```bash
-   bd create "<title>" --type=<type> -p <priority> -l factory,queued \
-     -d "<description>
-
-   Found by /factory review of factory/<job-id>." --silent
-   ```
-   Then put their ids (or `None.`) in place of the file's `Pending:` line:
-   `perl -pi -e 's/^Pending:.*/<ids>/' <job folder>/human-<k>.md`.
-4. **Resubmit.** `rmdir <job folder>/.resume-claim` if one is left over (it
-   is stale: a parked job has no worker). In one `job-set`:
-   `stage: "resubmitted"`, `human_decision: "human-<k>.md"`,
-   `situation: null`, `autopilot: true`, `round_base` set to `round`. Then
-   `bd update <bead> --remove-label needs-human --add-label resubmitted`,
-   and move on to the next job.
-
-Then, without a job id, take the `needs-human` beads that no job folder's
-`job.json` names: import conflicts, which are questions rather than code, so
-there is no briefer. For each, show the `PRD conflict:` comment from
-`bd comments <bead>` and ask the owner. Write the answer, verbatim, with
-`bd comment <bead> "Owner decision: <answer>"`, and into the description too
-if it changes what the bead asks for and the factory created the bead (see
-**Brownfield rules**). Then, if the bead is `in_progress` or assigned to
-someone else, only `bd update <bead> --remove-label needs-human`: its owner
-has it, so it isn't queued. Otherwise
-`bd update <bead> --remove-label needs-human --add-label factory,queued`.
-
-At the end, print one line per job or bead handled: id, outcome, and the
-beads filed. Then the **drain check**: if `pgrep -f factory/bin/autopilot`
-finds a drain, say it will pick the jobs up. If not, offer to start
-`factory/bin/autopilot --watch` with Bash and `run_in_background: true`; it
-resumes resubmitted jobs and keeps watching for more.
+Read [review.md](review.md) when the command is `/factory review`, and
+before `/factory approve` or `/factory rework`, which reuse its `k`, its
+resubmit step and its drain check.
 
 ## /factory retro <job-id>
 
-Run **Retro** on one job by hand, at any stage and even if it isn't due:
-skip `retro-due`. Use it on old jobs, and to finish a retro that failed or
-was cut off. If `job.json` `retro_worktree` is not null and `retro.md`'s
-first line passes step 4, a publish was cut off: run only step 5 and step 6
-(`factory/bin/retro-publish <job folder>`), not prep or the role. Otherwise
-running it again replaces `retro.md` and reuses the open retro PRs and any
-unpublished retro branch.
+Read [retro.md](retro.md) when the command is `/factory retro <job-id>`.
+The **Retro** step every merged or dropped job runs is above, not there.
 
 ## /factory approve <job-id>
 
 A shortcut for a `/factory review` that ends in APPROVE, with no brief. The
 job must be in `needs-human` with situation `escalated` or `merge-blocked`,
 every review in `job.json` `PASS` or `SKIPPED` and every task closed; otherwise say so and point at
-`/factory review <job-id>`. With `k` as in **/factory review**, write
+`/factory review <job-id>`. With `k` as in [review.md](review.md), write
 `factory/jobs/<job-id>/human-<k>.md` yourself: `APPROVE`, a blank line,
 `## Owner answers`, `/factory approve <job-id>`. Then resubmit it as in
-**/factory review** step 4, and end with its drain check. The drain merges
+[review.md](review.md) step 4, and end with its drain check. The drain merges
 it.
 
 ## /factory rework <job-id> <note>
 
 A shortcut for a `/factory review` that ends in REWORK, with the note as the
 instructions. The job must be in `needs-human`. With `k` as in
-**/factory review**, write `factory/jobs/<job-id>/human-<k>.md` yourself:
+[review.md](review.md), write `factory/jobs/<job-id>/human-<k>.md` yourself:
 `REWORK`, a blank line, `## Owner answers` and the note verbatim, then
 `## Instructions` and the note verbatim again. Then resubmit it as in
-**/factory review** step 4, and end with its drain check. The drain builds
+[review.md](review.md) step 4, and end with its drain check. The drain builds
 it.
 
 ## /factory resume <job-id>
 
-Pick up a job whose orchestrator session ended mid-step: a closed terminal, a
-crash, or a headless run stopped by its budget, a time limit or SIGTERM. Only
-resume a job no other session is driving. The state is `job.json`, Beads and
-the job folder; don't read more of the job than the step below needs.
-
-1. Read the state with
-   `jq -c '{stage, round, situation, decision_file, human_decision, autopilot, tasks: [.tasks[] | select(.status != "closed")]}' job.json`.
-   If `stage` is `merged` or `dropped`, say so and stop. If it is
-   `needs-human`, say which situation parked it and point at
-   `/factory review <job-id>`, `/factory approve`, `/factory rework` and
-   `/factory autopilot <job-id>`, then stop. If it is `resubmitted`, the job
-   must be claimed. When your prompt says `Claimed for you by autopilot`, the
-   drain already claimed it with `mkdir <job folder>/.resume-claim` and
-   removes that when the job's sessions end. Otherwise claim it yourself with
-   the same atomic `mkdir`. If that fails, a drain worker has it: say so and
-   stop; if `pgrep -f factory/bin/autopilot` also finds no drain, the claim is
-   stale, so tell the user to clear it with `rmdir <job folder>/.resume-claim`
-   and resume again. Remove your own claim with `rmdir` when your session
-   leaves the job. If the bead's assignee is `factory-autopilot` (a drain ran
-   the job), run every `bd` write for it as `BEADS_ACTOR=factory-autopilot bd
-   ...` (see **Brownfield rules**).
-2. Make sure nothing from the old session is still running. If
-   `pgrep -fl -- "<worktree>"` lists a `codex` or `codex-companion` process,
-   stop and tell the user: another session may still own the job, or the
-   process is orphaned and they should kill it. Then free the job's three
-   ports (`lsof -ti tcp:<port> | xargs kill`, ignoring errors) and close its
-   agent-browser sessions (`agent-browser --session <job-id>-<builder|ux|ui> close`,
-   ignoring errors).
-3. Check whether the job already landed:
-   - With `land: "pr"`, take `pr` from `job.json`; if it is unset, look for
-     a merged one with
-     `gh pr list --head factory/<job-id> --state merged --json url -q '.[0].url // empty'`
-     and set `pr` from it. If there is a `pr`, check it with
-     `gh pr view <pr> --json state -q .state`. `MERGED`: finish **Merge** from
-     its exit-0 cleanup and stop. `OPEN`: run **Merge** again (it reuses the
-     PR) only when `stage` is `approve`, `decision.md`'s first line is
-     `APPROVE` and `decision.md` is newer than every file in `round-<N>/`, or
-     `stage` is `autopilot` and `decision_file`'s first line is `MERGE`
-     (within the limits of **Autopilot decision** step 4). Otherwise carry
-     on with step 4: the PR stays open across review rounds, so after a
-     moved base (**Merge** exit 6) an open PR doesn't mean the approver has
-     seen the new round.
-   - With `land: "local"`, if `factory/<job-id>` is already merged into `main`
-     (`git merge-base --is-ancestor factory/<job-id> main`), finish **Merge**
-     from its exit-0 cleanup and stop. If the main checkout has a merge in
-     progress for it, `git merge --abort` and go to **Merge**.
-4. Check the worktree exists and
-   `git -C <worktree> branch --show-current` prints `factory/<job-id>`. If the
-   worktree is missing and `stage` is `spec`, create it as in step 3 of
-   **/factory <feature>**. If it is missing and the job is `resubmitted` with
-   a DROP decision, carry on: the drop was cut off after removing it.
-   Otherwise stop and tell the user.
-5. Go back in by `stage`:
-   - **spec**: run the repo's setup again (AGENTS.md says it is safe to
-     re-run). If `spec.md` is missing, go to step 4 of **/factory <feature>**;
-     otherwise go to **Plan**.
-   - **plan**: if `tasks` is empty, go to **Plan**. Otherwise the tasks were
-     being filed: continue from **Plan** step 4 (filing skips tasks that
-     already exist), then go to **Build**.
-   - **build**: take the `in_progress` task, if there is one. If
-     `build/<task-id>.md` exists, its run finished: continue from **Build**
-     step 4. If not, the run was cut off: throw away its partial change
-     (`git -C <worktree> reset -q --hard && git -C <worktree> clean -fdq`),
-     set the task back to `open` with `runs` minus one, and go to **Build**.
-     With no `in_progress` task, go to **Build**.
-   - **review**: for each lens whose `round-<N>/review-<lens>.md` exists with a
-     valid first line (`VERDICT: SKIPPED` is one), write its verdict to
-     `job.json`. Run the missing reviewers as in **Review round N** step 2, then
-     continue from step 3. With all reviews in and a `triage.md` present,
-     don't run the triage command again: continue from **Triage** step 1 with
-     the existing `triage.json`. Every `bd create` there is title-checked, so
-     nothing is filed twice.
-   - **approve**: if `decision.md` is newer than every file in `round-<N>/`,
-     use it as in **Approve**. Otherwise run **Approve** again.
-   - **autopilot**: if `decision_file` exists with a valid first line, continue
-     from **Autopilot decision** step 3. Otherwise run step 2 with that file.
-   - **resubmitted**: the owner decided in `/factory review`. Run
-     `bd update <bead> --remove-label resubmitted --remove-label needs-human`,
-     then act on the first line of `human_decision`. Owner decisions never change `reworks` or `respecs`.
-     - **APPROVE**: go to **Merge**. A moved base still gets its re-review
-       round, and **Approve** tells the approver the escalation is settled.
-     - **REWORK**: file one fix task
-       (`"Owner rework k"`, `-d "Address every instruction in factory/jobs/<job-id>/human-<k>.md."`)
-       and a new final task depending on it, exactly as a review round does.
-       Go to **Build** (resubmitting set `round_base`, so the run gets its own
-       `MAX_ROUNDS`).
-     - **RESPEC**: run `spec-writer` with the task
-       `Amend: read human-<k>.md and revise spec.md.` Close every open task
-       under the bead with `--reason "Superseded by respec human-<k>"`, then
-       go to **Plan**.
-     - **DROP**: take the reason from the file's `## Reason` section. Close
-       every open task under the bead with `--reason "Superseded: dropped"`.
-       Then `git worktree remove --force <worktree>` (if it still exists) and
-       `git branch -D factory/<job-id>` (either may already be gone). With a
-       `pr` whose `gh pr view <pr> --json state -q .state` is `OPEN`,
-       `gh pr close <pr> --delete-branch --comment "Dropped: <reason>"`
-       (after the local branch is gone, so `gh` only has the remote one to
-       delete). Then `bd close <bead> --reason "Dropped: <reason>"`, set
-       `stage: "dropped"`, run **Retro**, then
-       `factory/bin/usage-record session <job folder>`.
-6. Tell the user, in one line, where the job went back in, then carry on as
-   usual. `autopilot` stays as `job.json` has it.
+Read [resume.md](resume.md) when the command is `/factory resume <job-id>`,
+or a drain picks up a `resubmitted` job.
 
 ## Reporting
 
