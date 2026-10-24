@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# Asks Jev (factory/bin/jev) for the factory's routing decisions.
+#
+#   factory/bin/jev-decide route <job-folder> <task-id>
+#
+# Subcommands are dispatched by name from main. They share three helpers:
+# cfg (the jev settings over their defaults), ask (one call to jev) and
+# log_line (one line appended to <job-folder>/jev.jsonl).
+#
+# route: picks the model tier for a task's first build run. Prints one line,
+# "<role-key> (<why>)", where <why> is "jev <option> p=<p>", "fallback
+# low-confidence|cap|error" or "off". The orchestrator takes the first word.
+# With send off, or route false, it prints "builder (off)" and logs nothing.
+# Tiers: light -> builder-light, standard -> builder-standard, thorough ->
+# builder, strong -> builder-escalation. A tier key missing from models.json
+# runs as builder. The answer is used only when its p >= min_confidence, and
+# strong only while the newest Codex rollout's rate_limits.primary.used_percent
+# under ${CODEX_SESSIONS_DIR:-~/.codex/sessions} is below sol_ceiling x 100
+# (no rollout means allowed; skipped unless builder-escalation is openai).
+# The state sent is facts about the task: label, round, files named with line
+# counts, a history line for their top-level directories and, in summary mode
+# only, the title and description. Never code, diffs or logs. jev redacts it.
+#
+# jev is ${JEV_BIN:-<factory>/bin/jev}. A jev failure prints its stderr line
+# once and falls back to builder. Every subcommand always exits 0.
+#
+# jev.jsonl lines: {ts, decision, task, round, send, state, answers, latency_ms,
+# input_tokens, outcome: {<key>: {used, why, did}}}; state is the redacted state
+# jev sent, or null when nothing was sent; why is null, low-confidence, cap,
+# guardrail or error.
+set -uo pipefail
+
+factory=$(cd "$(dirname "$0")/.." && pwd)
+jev_bin=${JEV_BIN:-$factory/bin/jev}
+
+now_iso() { date +%Y-%m-%dT%H:%M:%S%z | sed -E 's/([0-9]{2})$/:\1/'; }
+
+# cfg: the jev settings merged over their defaults, as compact JSON.
+cfg() {
+  local defaults='{"send":"off","route":true,"triage":true,"reviewers":true,"min_confidence":0.7,"sol_ceiling":0.8,"park_paths":[],"model":"jev-latest"}' got
+  got=$("$factory/bin/settings" jev 2>/dev/null) || got=
+  jq -cn --argjson d "$defaults" --arg c "${got:-{\}}" '$d + (($c | fromjson? // {}) | if type == "object" then . else {} end)'
+}
+
+# ask <decision> <questions-file> <state-file>: prints jev's JSON; fails when
+# jev does (its stderr line passes through). <decision> is for callers' logs.
+# shellcheck disable=SC2329 # used by the subcommands
+ask() {
+  "$jev_bin" "$2" "$3"
+}
+
+# log_line <job-folder> <json>: appends the object as one compact line.
+log_line() {
+  jq -c . <<<"$2" >>"$1/jev.jsonl" 2>/dev/null || echo "jev-decide: could not write $1/jev.jsonl" >&2
+}
+
+# make_line <decision> <task> <round> <send> <jev-json|""> <outcome-json>
+make_line() {
+  jq -n -c --arg ts "$(now_iso)" --arg decision "$1" --arg task "$2" --argjson round "${3:-null}" \
+    --arg send "$4" --arg j "$5" --argjson outcome "$6" '
+    ($j | fromjson? // {}) as $r
+    | { ts: $ts, decision: $decision, task: $task, round: $round, send: $send,
+        state: ($r.state // null),
+        answers: ($r.answers // {} | map_values({choice, p})),
+        latency_ms: ($r.latency_ms // null), input_tokens: ($r.input_tokens // null),
+        outcome: $outcome }'
+}
+
+# paths_in: reads text on stdin, prints the file paths it names, one per line
+# (emails and URLs dropped, ":line" suffixes and trailing punctuation cut).
+paths_in() {
+  sed -E 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]]+# #g; s#[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+# #g' |
+    grep -oE '[A-Za-z0-9_./-]+\.(sh|bash|md|json|jsonl|js|mjs|ts|tsx|jsx|py|go|rs|rb|java|c|h|cpp|yml|yaml|toml|html|css|txt|sql|tf)\b(:[0-9]+)?' |
+    sed -E 's/:[0-9]+$//; s#^\./##' | awk '!seen[$0]++' | head -n 20
+}
+
+# task_files <job> <task-id> <title>: the files the task names, one per line.
+task_files() {
+  local job=$1 title=$3 n lens
+  case $title in
+    "Fix round "*" notes")
+      n=${title#Fix round }; n=${n%% *}
+      jq -r '.fix_now[]?.path // empty' "$job/round-$n/triage.json" 2>/dev/null | awk '!seen[$0]++'
+      ;;
+    "Fix round "*" review")
+      n=${title#Fix round }; n=${n%% *}
+      lens=${title#"Fix round $n "}; lens=${lens% review}
+      sed -n '/^## Findings/,/^## /p' "$job/round-$n/review-$lens.md" 2>/dev/null | sed '1d;/^## /d' | paths_in
+      ;;
+    *)
+      jq -r --arg t "$title" '[.tasks[]? | select(.title == $t) | .description // ""] | first // ""' "$job/plan.json" 2>/dev/null | paths_in
+      ;;
+  esac
+}
+
+# top_dir <path>: its top-level directory, or "." for a root file.
+top_dir() { case $1 in */*) echo "${1%%/*}/" ;; *) echo "." ;; esac; }
+
+# history_line "<dirs>": how earlier tasks touching these space-separated
+# top-level directories went, from every factory/jobs/*/job.json and build/<id>.md.
+# SELF_TASK (<job>/<id>) is left out. Prints nothing without directories.
+history_line() {
+  local dirs=$1 jf jd id role flag f d hit rows=""
+  [ -n "$dirs" ] || return 0
+  for jf in "$factory"/jobs/*/job.json; do
+    [ -f "$jf" ] || continue
+    jd=$(dirname "$jf")
+    while IFS=$'\t' read -r id role flag; do
+      [ -n "$id" ] || continue
+      [ "$jd/$id" = "$SELF_TASK" ] && continue
+      f=$jd/build/$id.md
+      [ -f "$f" ] || continue
+      hit=0
+      while IFS= read -r p; do
+        d=$(top_dir "$p")
+        case " $dirs " in *" $d "*) hit=1; break ;; esac
+      done < <(sed -n '/^## Commit/,/^## [^C]/p' "$f" | sed -n '/^Files:/,$p' | sed -n 's/^- //p')
+      [ "$hit" = 1 ] && rows="$rows$role	$flag
+"
+    done < <(jq -r '.tasks[]? | [.id, (.role // "builder"), (if (.runs // 1) > 1 or .status == "blocked" then 1 else 0 end)] | @tsv' "$jf" 2>/dev/null)
+  done
+  if [ -z "$rows" ]; then
+    echo "History: no earlier tasks touched ${dirs// /, }."
+    return 0
+  fi
+  printf '%s' "$rows" | awk -F'\t' -v dirs="${dirs// /, }" '
+    { n++; ran[$1]++; blk[$1] += $2; if (!($1 in seen)) { seen[$1] = 1; order[++k] = $1 } }
+    END { out = "History: " n " earlier task" (n == 1 ? "" : "s") " touched " dirs ".";
+      for (i = 1; i <= k; i++) out = out " " order[i] ": " ran[order[i]] " ran, " blk[order[i]] " went BLOCKED.";
+      print out }'
+}
+
+# route_state <job> <task-id> <send>: the state text for one task.
+route_state() {
+  local job=$1 id=$2 send=$3 wt round title label desc files="" f n dirs="" d
+  wt=$(jq -r '.worktree // empty' "$job/job.json")
+  round=$(jq -r '.round // 0' "$job/job.json")
+  title=$(jq -r --arg id "$id" '[.tasks[]? | select(.id == $id) | .title // ""] | first // ""' "$job/job.json")
+  label=$(jq -r --arg id "$id" '[.tasks[]? | select(.id == $id) | if .final == true then "final" elif .fix == true or (.fix | type) == "string" then "fix" else "none" end] | first // "none"' "$job/job.json")
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ -f "$wt/$f" ]; then n="$(wc -l <"$wt/$f" | tr -d ' ') lines"; else n=new; fi
+    files="$files${files:+, }$f ($n)"
+    d=$(top_dir "$f")
+    case " $dirs " in *" $d "*) ;; *) dirs="$dirs${dirs:+ }$d" ;; esac
+  done < <(task_files "$job" "$id" "$title")
+  [ "$send" = summary ] && printf 'Task: %s\n' "$title"
+  printf 'Label: %s\nRound: %s\nFiles: %s\n' "$label" "$round" "${files:-none named}"
+  if [ "$send" = summary ]; then
+    desc=$(jq -r --arg t "$title" '[.tasks[]? | select(.title == $t) | .description // ""] | first // ""' "$job/plan.json" 2>/dev/null)
+    [ -n "$desc" ] && printf 'Description: %s\n' "$desc"
+  fi
+  SELF_TASK=$job/$id history_line "$dirs"
+}
+
+# cap_hit <sol-ceiling>: true when the newest Codex rollout's last
+# rate_limits.primary.used_percent is at or over ceiling x 100.
+cap_hit() {
+  local root=${CODEX_SESSIONS_DIR:-$HOME/.codex/sessions} f newest="" used
+  [ "$(jq -r '.["builder-escalation"].provider // ""' "$factory/models.json" 2>/dev/null)" = openai ] || return 1
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ -z "$newest" ] || [ "$f" -nt "$newest" ]; then newest=$f; fi
+  done < <(find "$root" -name 'rollout-*.jsonl' 2>/dev/null)
+  [ -n "$newest" ] || return 1
+  used=$(grep token_count "$newest" | jq -R -r 'try (fromjson | .payload.rate_limits.primary.used_percent // empty) catch empty' | tail -n 1)
+  [ -n "$used" ] || return 1
+  awk -v u="$used" -v c="$1" 'BEGIN { exit !(u >= c * 100) }'
+}
+
+cmd_route() {
+  local job=$1 id=$2 conf send min ceil tmp out round
+  conf=$(cfg)
+  send=$(jq -r '.send' <<<"$conf")
+  if [ "$(jq -r '.route' <<<"$conf")" = false ]; then send=off; fi
+  case $send in metadata | summary) ;; *) echo "builder (off)"; return ;; esac
+  min=$(jq -r '.min_confidence' <<<"$conf")
+  ceil=$(jq -r '.sol_ceiling' <<<"$conf")
+  round=$(jq -c '.round // null' "$job/job.json" 2>/dev/null) || round=null
+  [ -n "$round" ] || round=null
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/jev-decide.XXXXXX") || { echo "builder (fallback error)"; return; }
+  route_state "$job" "$id" "$send" >"$tmp/state" 2>/dev/null
+  if ! out=$(ask route "$factory/jev/route.json" "$tmp/state") || ! jq -e . >/dev/null 2>&1 <<<"$out"; then
+    log_line "$job" "$(make_line route "$id" "$round" "$send" "" \
+      '{"route":{"used":false,"why":"error","did":"ran as builder"}}')"
+    rm -rf "$tmp"
+    echo "builder (fallback error)"
+    return
+  fi
+  rm -rf "$tmp"
+
+  local choice p role=builder why=null did used=true line
+  choice=$(jq -r '.answers.route.choice' <<<"$out")
+  p=$(jq -r '.answers.route.p' <<<"$out")
+  case $choice in
+    light) role=builder-light ;;
+    standard) role=builder-standard ;;
+    strong) role=builder-escalation ;;
+    *) role=builder ;;
+  esac
+  if awk -v p="$p" -v m="$min" 'BEGIN { exit !(p < m) }'; then
+    used=false why='"low-confidence"' role=builder did="p=$p is below $min; ran as builder"
+    line="builder (fallback low-confidence)"
+  elif [ "$choice" = strong ] && cap_hit "$ceil"; then
+    used=false why='"cap"' role=builder did="Codex weekly usage is at the ceiling; ran as builder"
+    line="builder (fallback cap)"
+  else
+    did="ran as $role"
+    if ! jq -e --arg r "$role" 'has($r)' "$factory/models.json" >/dev/null 2>&1; then
+      did="$role is not in models.json; ran as builder"
+      role=builder
+    fi
+    line="$role (jev $choice p=$p)"
+  fi
+  log_line "$job" "$(make_line route "$id" "$round" "$send" "$out" \
+    "$(jq -cn --argjson u "$used" --argjson w "$why" --arg d "$did" '{route: {used: $u, why: $w, did: $d}}')")"
+  echo "$line"
+}
+
+main() {
+  local sub=${1:-}
+  case $sub in
+    route)
+      if [ $# -lt 3 ]; then
+        echo "usage: jev-decide route <job-folder> <task-id>" >&2
+        echo "builder (off)"
+        return 0
+      fi
+      if [ ! -f "$2/job.json" ]; then echo "jev-decide: no $2/job.json" >&2; echo "builder (fallback error)"; return 0; fi
+      cmd_route "$2" "$3"
+      ;;
+    *) echo "usage: jev-decide route ..." >&2 ;;
+  esac
+  return 0
+}
+
+main "$@"
+exit 0
