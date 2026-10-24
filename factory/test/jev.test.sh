@@ -116,14 +116,14 @@ test_no_probabilities() {
 
 test_redacts_state() {
   setup; respond 1 200 0.1 "$OK"
-  printf 'k sk-proj-abcdefghijklmnop g ghp_abcdefghijklmnopqrstuvwxyz0123 a AKIAABCDEFGHIJKLMNOP h Bearer abc.def.ghi e me@example.com u https://bob:hunter2@host/x t token=abcd1234efgh5678 path src/api/key-handler.ts end\n' >"$TEST_TMP/s.txt"
+  printf 'k sk-proj-abcdefghijklmnop g ghp_abcdefghijklmnopqrstuvwxyz0123 a AKIAABCDEFGHIJKLMNOP h Bearer abc.def.ghi e me@example.com u https://bob:hunter2@host/x t token=abcd1234efgh5678 path src/api/key-handler.ts disk-usage-monitoring-service risk-assessment-report-x end\n' >"$TEST_TMP/s.txt"
   out=$(J 2>/dev/null)
   for s in "$(jq -r .state "$TEST_TMP/req.1")" "$(jq -r .state <<<"$out")"; do
     for secret in sk-proj-abc ghp_abc AKIAABC abc.def.ghi me@example hunter2 abcd1234efgh; do
       case $s in *"$secret"*) _fail "not redacted: $secret" "$s" ;; *) _pass ;; esac
     done
     assert_contains "$s" "[redacted]" "marker"
-    assert_contains "$s" "src/api/key-handler.ts end" "plain path survives"
+    assert_contains "$s" "src/api/key-handler.ts disk-usage-monitoring-service risk-assessment-report-x end" "plain words and slugs survive"
   done
 }
 
