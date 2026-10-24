@@ -4,7 +4,7 @@
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-D() { "$R/factory/bin/decisions" "$@"; }
+D() { "$R/factory/bin/decisions"; }
 line() { printf '%s\n' "$OUT" | grep "^$1: " | head -n 1 | sed "s/^$1: //"; }
 
 test_fresh_install_shows_defaults() {
