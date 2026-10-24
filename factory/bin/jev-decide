@@ -114,7 +114,7 @@ history_line() {
       while IFS= read -r p; do
         d=$(top_dir "$p")
         case " $dirs " in *" $d "*) hit=1; break ;; esac
-      done < <(sed -n '/^## Commit/,/^## [^C]/p' "$f" | sed -n '/^Files:/,$p' | sed -n 's/^- //p')
+      done < <(awk '/^## /{c = ($0 == "## Commit"); fl = 0; next} c && /^Files:/{fl = 1; next} c && fl && /^- /{sub(/^- /, ""); print; next} fl && !/^- /{fl = 0}' "$f")
       [ "$hit" = 1 ] && rows="$rows$role	$flag
 "
     done < <(jq -r '.tasks[]? | [.id, (.role // "builder"), (if (.runs // 1) > 1 or .status == "blocked" then 1 else 0 end)] | @tsv' "$jf" 2>/dev/null)

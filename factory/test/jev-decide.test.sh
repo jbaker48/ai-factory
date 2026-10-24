@@ -179,11 +179,19 @@ test_route_history() {
   setup; answer light 0.9
   mkdir -p "$R/factory/jobs/j0/build"
   jq -n '{round: 1, tasks: [{id: "a.1", title: "Old", status: "closed", role: "builder", runs: 2}]}' >"$R/factory/jobs/j0/job.json"
-  printf 'STATUS: DONE\n\n## Commit\nMessage: x\nFiles:\n- src/bar.sh\n\n## Changes\nnone\n' >"$R/factory/jobs/j0/build/a.1.md"
+  printf 'STATUS: DONE\n\n## Commit\nMessage: x\nFiles:\n- src/bar.sh\n\n## Changes\n- see docs/x.md edited\n- notes in other/dir\n' >"$R/factory/jobs/j0/build/a.1.md"
   route >/dev/null
-  s=$(cat "$TEST_TMP/state.sent")
-  assert_contains "$s" "src/" "history names the directory"
-  assert_contains "$s" "1 went BLOCKED" "history counts blocked"
+  h=$(grep '^History:' "$TEST_TMP/state.sent")
+  assert_eq "History: 1 earlier task touched src/. builder: 1 ran, 1 went BLOCKED." "$h" "history line"
+}
+
+test_route_history_ignores_prose_bullets() {
+  setup; answer light 0.9
+  mkdir -p "$R/factory/jobs/j0/build"
+  jq -n '{round: 1, tasks: [{id: "a.1", title: "Old", status: "closed", role: "builder", runs: 2}]}' >"$R/factory/jobs/j0/job.json"
+  printf 'STATUS: DONE\n\n## Commit\nMessage: x\nFiles:\n- lib/bar.sh\n\n## Changes\n- touched src/ in passing\n- src/foo.sh mentioned\n\n## Evidence\n- src/z\n' >"$R/factory/jobs/j0/build/a.1.md"
+  route >/dev/null
+  assert_eq "History: no earlier tasks touched src/." "$(grep '^History:' "$TEST_TMP/state.sent")" "prose bullets are not files"
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
