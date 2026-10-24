@@ -83,7 +83,7 @@ test_review_command() {
   local f="$ROOT/.claude/skills/factory/SKILL.md" t s
   t=$(skill_text)
   assert_contains "$(head -n 1 "$SKILL_DIR/review.md")" '## /factory review' "review.md has /factory review"
-  assert_contains "$(sed -n 3p "$f")" '/factory review' "description lists /factory review"
+  assert_contains "$(grep -m 1 '^description:' "$f")" ' review,' "description lists /factory review"
   assert_contains "$t" 'human_decision' "SKILL.md mentions human_decision"
   assert_contains "$t" 'resubmitted' "SKILL.md mentions resubmitted"
   assert_contains "$t" '`dropped`' "SKILL.md mentions dropped"
@@ -234,7 +234,7 @@ test_retro_role() {
 test_retro_wiring() {
   local f="$ROOT/.claude/skills/factory/SKILL.md" t s n
   t=$(skill_text | tr '\n' ' ' | tr -s ' ')
-  assert_contains "$(sed -n 3p "$f")" '/factory retro' "description lists /factory retro"
+  assert_contains "$(grep -m 1 '^description:' "$f")" ' retro,' "description lists /factory retro"
   s=$(section "$SKILL_DIR/retro.md" '/factory retro <job-id>' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" '## /factory retro <job-id>' "SKILL.md has /factory retro <job-id>"
   assert_contains "$s" 'skip `retro-due`' "/factory retro skips retro-due"
@@ -355,6 +355,18 @@ test_install_guide_points_at_script() {
   assert_contains "$s" 'factory/manifest' "INSTALL step 3 names the manifest"
   assert_contains "$s" 'factory/VERSION' "INSTALL step 3 names the version file"
   case $s in *rsync*) _fail "INSTALL step 3 no longer copies by hand" ;; *) _pass ;; esac
+}
+
+test_user_invoked_only() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" fm d t
+  fm=$(awk 'NR == 1 && /^---$/ {on = 1; next} on && /^---$/ {exit} on' "$f")
+  assert_contains "$fm" 'disable-model-invocation: true' "the factory skill runs only when typed"
+  d=$(printf '%s\n' "$fm" | grep '^description:')
+  assert_eq "1" "$(printf '%s\n' "$fm" | grep -c '^description:')" "the skill has one description line"
+  case $d in *'Use when'*) _fail "the description is for people, not model triggers" "$d" ;; *) _pass ;; esac
+  if [ "${#d}" -le 200 ]; then _pass; else _fail "the description is one short line" "${#d} chars"; fi
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  assert_contains "$t" "use only the factory's own roles and scripts" "the orchestrator stays in the factory loop"
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done

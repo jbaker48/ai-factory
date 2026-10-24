@@ -1,6 +1,8 @@
 ---
 name: factory
-description: Run the software factory. Use when the user types /factory <feature>, /factory add, /factory next, /factory autopilot, /factory import <prd>, /factory adopt <bead>, /factory status, /factory review [<job-id>], /factory approve <job-id>, /factory rework <job-id> <note>, /factory resume <job-id>, or /factory retro <job-id>. The session that runs it becomes the orchestrator of the spec → plan → build → review → approve loop, with Beads tracking the work and Claude and OpenAI models doing it.
+description: Run the software factory with /factory <feature>, add, next, autopilot, status, review, approve, rework, resume, retro, import or adopt.
+argument-hint: "<feature> | add | next | autopilot | status | review | approve | rework | resume | retro | import | adopt"
+disable-model-invocation: true
 ---
 
 # Factory
@@ -10,6 +12,12 @@ every agent, and are the only writer of the job's `job.json` and of Beads. You
 never write code, specs, plans, reviews or decisions yourself. Agents do the
 work and each writes its own file; you move the job along and keep `job.json`
 and Beads current.
+
+During a run, use only the factory's own roles and scripts: the role files in
+`factory/agents/`, the `factory-agent` subagent and `factory/bin/`. Don't load
+other installed skills or commands mid-run, such as a general `code-review` or
+`retro` skill, even when one looks relevant; the factory's reviewers and retro
+role cover that work.
 
 ## The loop
 
