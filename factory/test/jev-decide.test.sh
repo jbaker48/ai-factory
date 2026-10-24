@@ -491,5 +491,28 @@ test_reviewers_many_files() {
   assert_eq 40 "$(grep -c '^- ' "$TEST_TMP/state.sent")" "40 listed"
 }
 
+test_reviewers_git_failure_runs_all() {
+  local case_
+  for case_ in missing empty badbase; do
+    rsetup; ranswer ux=skip:0.9 ui=skip:0.9
+    case $case_ in
+      missing) jq '.worktree = "/nonexistent/wt"' "$J/job.json" >"$J/j.tmp" && mv "$J/j.tmp" "$J/job.json" ;;
+      empty) jq 'del(.worktree)' "$J/job.json" >"$J/j.tmp" && mv "$J/j.tmp" "$J/job.json" ;;
+      badbase) git -C "$R" remote remove origin ;;
+    esac
+    assert_eq "reviewers round 1: run all" "$(reviewers 1)" "$case_ output"
+    if ls "$J"/round-1/review-*.md >/dev/null 2>&1; then _fail "$case_ wrote a review file"; else _pass; fi
+    if [ -e "$STUBS/fakejev.calls" ]; then _fail "$case_ called jev"; else _pass; fi
+  done
+}
+
+test_reviewers_later_run_first_round() {
+  rsetup; jq '.round_base = 2' "$J/job.json" >"$J/j.tmp" && mv "$J/j.tmp" "$J/job.json"
+  mkdir -p "$J/round-2"
+  ranswer ux=run:0.9 ui=run:0.9
+  assert_eq "reviewers round 3: run all" "$(reviewers 3)" "output"
+  assert_eq "review.ui,review.ux" "$(sent_keys)" "only ux and ui asked"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

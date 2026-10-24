@@ -505,9 +505,10 @@ fix_files() {
 reviewers_state() {
   local job=$1 n=$2 r=$3 asked=$4 wt base stat total=0 shown=0 lines path uis="" nui=0 lens ufiles
   wt=$(jq -r '.worktree // empty' "$job/job.json")
-  base=$("$factory/bin/settings" base 2>/dev/null)
-  stat=$(git -C "$wt" diff --numstat --no-renames "${base:-main}...HEAD" 2>/dev/null |
-    awk -F'\t' '{ l = ($1 == "-" ? 0 : $1) + ($2 == "-" ? 0 : $2); print l "\t" $3 }' | sort -t"$(printf '\t')" -k1,1nr -k2,2)
+  [ -n "$wt" ] && [ -d "$wt" ] || return 1
+  base=$("$factory/bin/settings" base 2>/dev/null) && [ -n "$base" ] || return 1
+  stat=$(git -C "$wt" diff --numstat --no-renames "$base...HEAD" 2>/dev/null) || return 1
+  stat=$(awk -F'\t' '{ l = ($1 == "-" ? 0 : $1) + ($2 == "-" ? 0 : $2); print l "\t" $3 }' <<<"$stat" | sort -t"$(printf '\t')" -k1,1nr -k2,2)
   printf 'Review round %s (run round %s)\n' "$n" "$r"
   total=$(grep -c . <<<"$stat" || true)
   printf 'Changed files: %s\n' "$total"
@@ -552,7 +553,15 @@ cmd_reviewers() {
   local answers='{}' failed=0
   if [ -n "$asked" ]; then
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/jev-decide.XXXXXX") || { echo "reviewers round $n: run all"; return; }
-    reviewers_state "$job" "$n" "$r" "$asked" >"$tmp/state" 2>/dev/null
+    if ! reviewers_state "$job" "$n" "$r" "$asked" >"$tmp/state" 2>/dev/null; then
+      for lens in $asked; do
+        outcome=$(jq -c --arg k "review.$lens" '. + {($k): {used: false, why: "error", did: "run"}}' <<<"$outcome")
+      done
+      log_error "$job" reviewers "round-$n" "$n" "$send" "$outcome"
+      rm -rf "$tmp"
+      echo "reviewers round $n: run all"
+      return
+    fi
     qs=$(jq -c --arg a "$asked" '. as $all | ($a | split(" ")) | map({key: "review.\(.)", value: $all["review.\(.)"]}) | from_entries' "$factory/jev/reviewers.json")
     printf '%s\n' "$qs" >"$tmp/questions"
     if out=$(try_ask reviewers "$tmp/questions" "$tmp/state"); then
