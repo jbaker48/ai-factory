@@ -14,7 +14,9 @@ Your one file goes in the job folder.
 
 ## Read
 
-1. `AGENTS.md` (or `CLAUDE.md`).
+1. `AGENTS.md` (or `CLAUDE.md`). The domain docs `## Domain docs` in
+   AGENTS.md points at, when they exist: name tasks in the glossary's terms
+   and plan nothing an ADR rules out. Read only; never edit the glossary.
 2. `<job folder>/spec.md`. Read it critically: you are the first agent to look
    at it after the spec-writer, on a different model.
 3. Every `human-*.md` in the job folder (not `human-brief-*.md`): the

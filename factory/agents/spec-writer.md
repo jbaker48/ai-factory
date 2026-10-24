@@ -16,7 +16,9 @@ file goes in the job folder.
 ## Read first
 
 1. `AGENTS.md` (or `CLAUDE.md`): the project overview, important paths,
-   commands and conventions.
+   commands and conventions. The domain docs `## Domain docs` in AGENTS.md
+   points at, when they exist: write the spec in the glossary's terms and
+   follow the ADRs covering this area. Read only; never edit the glossary.
 2. The Bead section of `beads.md`: the request may have been queued with more
    context in its description, notes or comments. If it names a PRD section,
    read that section: the PRD is upstream of your spec. Don't contradict it,

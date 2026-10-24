@@ -81,6 +81,10 @@ Two or three sentences.
 ## For the human
 Only when you escalate: the exact decision or check you need from them, and the
 files to look at.
+Candidate ADR: <decision>: hard to reverse: <why>; surprising without context: <why>; real trade-off: <why>.
 ```
 
-The first line must be exactly `APPROVE` or `ESCALATE`.
+The first line must be exactly `APPROVE` or `ESCALATE`. Add the
+`Candidate ADR` line only when the decision you escalate on is one where all
+three tests hold: hard to reverse, surprising without context, and the result
+of a real trade-off. Otherwise leave it out.

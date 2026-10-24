@@ -357,5 +357,54 @@ test_install_guide_points_at_script() {
   case $s in *rsync*) _fail "INSTALL step 3 no longer copies by hand" ;; *) _pass ;; esac
 }
 
+test_template_domain_docs() {
+  local s
+  s=$(section "$ROOT/factory/AGENTS.template.md" 'Domain docs' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" '## Domain docs' "AGENTS template has a Domain docs section"
+  assert_contains "$s" 'Glossary:' "Domain docs points at the glossary"
+  assert_contains "$s" 'ADRs:' "Domain docs points at the ADR folder"
+  assert_contains "$s" 'Delete this section if the repo has neither' "Domain docs is removable"
+}
+
+test_roles_read_domain_docs() {
+  local r t
+  for r in spec-writer planner builder; do
+    t=$(tr '\n' ' ' <"$ROOT/factory/agents/$r.md" | tr -s ' ')
+    assert_contains "$t" 'The domain docs `## Domain docs` in AGENTS.md points at, when they exist' "$r reads the domain docs"
+    assert_contains "$t" "the glossary's terms" "$r uses the glossary's terms"
+  done
+}
+
+# Roles read the glossary; none writes to it.
+test_no_role_writes_glossary() {
+  local f t
+  for f in "$ROOT"/factory/agents/*.md; do
+    t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+    case $t in
+      *[Gg]lossary*) assert_contains "$t" 'never edit the glossary' "$(basename "$f") never edits the glossary" ;;
+    esac
+  done
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/retro.md" | tr -s ' ')" 'never edit the glossary' "retro's repo fixes leave the glossary alone"
+}
+
+test_retro_suggests_adrs() {
+  local t n
+  t=$(tr '\n' ' ' <"$ROOT/factory/agents/retro.md" | tr -s ' ')
+  for n in '## ADR candidates' \
+    'Suggest an ADR only when all three tests hold' \
+    'hard to reverse' 'surprising without context' 'a real trade-off' \
+    '- <decision>: hard to reverse: <why>; surprising without context: <why>; real trade-off: <why>. Evidence: <file>' \
+    'Suggest; never write the ADR'; do
+    assert_contains "$t" "$n" "retro ADR suggestions mention $n"
+  done
+}
+
+test_approver_names_candidate_adr() {
+  local s
+  s=$(awk '/^## For the human$/ {on = 1} on && /^```$/ {exit} on' "$ROOT/factory/agents/approver.md" | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" 'Candidate ADR: <decision>' "approver's escalation brief can name a candidate ADR"
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/approver.md" | tr -s ' ')" 'all three tests hold' "approver names an ADR only when all three tests hold"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

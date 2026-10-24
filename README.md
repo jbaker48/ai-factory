@@ -268,6 +268,9 @@ and drafts the fixes that would have saved them:
   go to ai-factory itself when `factory_source` in `factory/settings.json`
   names a local ai-factory checkout: a PR there titled `Retro <repo> <job-id>: <n> fixes`. Without it
   they land in the job folder as `retro-factory.patch`.
+- **ADR candidates**: a decision the job made that is hard to reverse,
+  surprising without context and a real trade-off is listed in `retro.md`
+  and the repo PR body, with the reason for each test. You write the ADR.
 
 Nothing merges by itself; you review the PRs. `/factory retro <job-id>` runs
 one by hand on any job, and running it again updates the open PRs.

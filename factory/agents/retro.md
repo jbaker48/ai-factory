@@ -80,6 +80,9 @@ Fixes matching an earlier lesson, retro or PR, and what you did. Or `None.`
 
 ## Drafted beads
 bd create "<title>" --type=task -d "<why, with evidence path>"
+
+## ADR candidates
+- <decision>: hard to reverse: <why>; surprising without context: <why>; real trade-off: <why>. Evidence: <file>
 ```
 
 The first line is `RETRO: <n> fixes` (`<n>` = numbered entries in `## Fixes`), or
@@ -145,10 +148,19 @@ already says it.
 
 **Drafted beads.** One runnable `bd create` line per `work` fix, or `None.`
 
+**ADR candidates.** A decision this job made (in the spec, plan, a
+`decision*.md`, `autopilot-*.md` or `human-*.md`, or the approver's
+`Candidate ADR` line). Suggest an ADR only when all three tests hold: it is
+hard to reverse, surprising without context, and the result of a real
+trade-off. Give each test's reason on the entry; if any one is missing, leave
+the decision out. Skip one an ADR in the domain docs already records. Suggest;
+never write the ADR. Or `None.`
+
 ## Repo fixes
 
 Edit only `AGENTS.md` (or `CLAUDE.md`), or a doc `AGENTS.md` tells agents to
-read for that area; never product code, tests, CI or config. Lessons go under
+read for that area; never product code, tests, CI or config, and never edit
+the glossary. Lessons go under
 one `## Lessons from factory jobs` section, each 1–2 lines ending
 `(job <id>)`. Keep it at 30 lines or fewer by merging or replacing old
 lessons in place.
@@ -168,7 +180,8 @@ worktree has changes but `retro-pr-repo.md` is missing, or a `source`
 factory worktree has changes but `retro-pr-factory.md` is missing.
 
 - `retro-pr-repo.md`: the `repo` entries from `## Fixes`, then
-  `## Drafted beads`, then the stale-install note if `retro-stale.txt` exists.
+  `## Drafted beads`, then `## ADR candidates` unless it is `None.`, then the
+  stale-install note if `retro-stale.txt` exists.
 - `retro-pr-factory.md` (`source` only): the `factory` entries.
 
 ## Finish
