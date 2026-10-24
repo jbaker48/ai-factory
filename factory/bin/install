@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Installs (or upgrades) the factory from this checkout into a target repo.
+#
+#   factory/bin/install <target>
+#
+# Reads factory/manifest: copies every "shipped" entry over the target's copy,
+# writes each "owned" entry only when the target lacks it, and never copies
+# "source" entries. Then adds the factory's .gitignore lines the target lacks
+# (each once, so a re-run adds nothing) and writes factory/VERSION in the
+# target: the source commit SHA. It does not check that the target is clean or
+# show an upgrade diff; INSTALL.md step 2 does that first.
+# Exit: 0 installed, 1 failed, 2 usage.
+set -uo pipefail
+
+src=$(cd "$(dirname "$0")/../.." && pwd)
+manifest=$src/factory/manifest
+
+die() { echo "install: $1" >&2; exit "${2:-1}"; }
+
+[ $# -eq 1 ] || die "usage: factory/bin/install <target>" 2
+[ -d "$1" ] || die "no such directory: $1"
+target=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) || die "not a git repo: $1"
+[ "$target" != "$src" ] || die "target is the source checkout"
+sha=$(git -C "$src" rev-parse HEAD 2>/dev/null) || die "source is not a git checkout: $src"
+[ -f "$manifest" ] || die "no manifest: $manifest"
+
+while read -r kind path _; do
+  case $kind in '' | '#'*) continue ;; esac
+  case $path in /* | *..*) die "bad manifest path: $path" ;; esac
+  from=$src/$path to=$target/$path
+  case $kind in
+    shipped)
+      [ -e "$from" ] || die "shipped file missing from the source: $path"
+      mkdir -p "$(dirname "$to")"
+      if [ -d "$from" ]; then
+        { mkdir -p "$to" && rsync -a "$from" "$to/"; } || die "copy failed: $path"
+      else
+        cp -p "$from" "$to" || die "copy failed: $path"
+      fi
+      ;;
+    owned)
+      [ -e "$to" ] && continue
+      [ -e "$from" ] || continue # e.g. settings.json: written from the example later
+      { mkdir -p "$(dirname "$to")" && cp -p "$from" "$to"; } || die "copy failed: $path"
+      ;;
+    source) ;;
+    *) die "unknown manifest kind: $kind" ;;
+  esac
+done <"$manifest"
+
+gi=$target/.gitignore
+for line in '/factory/jobs/*' '!/factory/jobs/.gitkeep' '/factory/imports/' '/factory/autopilot-runs/'; do
+  [ -f "$gi" ] && grep -qxF -- "$line" "$gi" && continue
+  [ -s "$gi" ] && [ -n "$(tail -c 1 "$gi")" ] && echo >>"$gi"
+  printf '%s\n' "$line" >>"$gi"
+done
+
+echo "$sha" >"$target/factory/VERSION"
+echo "installed factory $sha into $target"
