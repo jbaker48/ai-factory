@@ -32,5 +32,26 @@ JS
   assert_contains "$content" "$SPEC_LINE" "saved adversarial prompt contains the spec's first line"
 }
 
+# The Codex path checks seams too (issue #19).
+test_focus_prompt_checks_seams() {
+  local R JOB COMPANION prompt content
+  R=$(mkrepo)
+  JOB="$TEST_TMP/seamjob"
+  mkdir -p "$JOB"
+  echo "Acceptance criteria: discounts." >"$JOB/spec.md"
+  cp "$FACTORY_SRC/test/fixtures/plan/plan.json" "$JOB/plan.json"
+  COMPANION="$TEST_TMP/companion-ok.mjs"
+  echo "console.log(JSON.stringify({threadId:null,result:{verdict:'approve',summary:'ok',findings:[],next_steps:[]}}))" >"$COMPANION"
+  CODEX_COMPANION="$COMPANION" "$R/factory/bin/run-adversarial" "$JOB" "$R" 1 >/dev/null 2>&1
+  prompt=$(find "$JOB/.runs" -type f -name '*-reviewer-adversarial.prompt.md' -print | head -n 1)
+  content=$(cat "$prompt" 2>/dev/null)
+  assert_contains "$content" "T1 Add the discount rule: checkout(cart, code) in src/cart.js" "prompt lists the planned seam"
+  assert_contains "$content" "T2 Verify all acceptance criteria: no seam" "prompt marks a task with no seam"
+  assert_contains "$content" "factory/design.md" "prompt points at the design reference"
+  assert_contains "$content" "single-adapter seams" "prompt asks for single-adapter seams"
+  assert_contains "$content" "testing past the interface" "prompt asks for tests past the interface"
+  assert_contains "$content" "shallow pass-through modules" "prompt asks for shallow pass-through modules"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

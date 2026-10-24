@@ -44,7 +44,8 @@ Your one file goes in the job folder.
   builder tests through (a function, CLI, HTTP route or page, with its path),
   one line on what a test there `catches`, and one on what it `misses`. Pick
   the narrowest public interface that still shows the behaviour, following
-  `factory/testing.md`. Tasks that only touch docs or config, and the final
+  `factory/testing.md`, and choose each seam with `factory/design.md`: a deep
+  module's interface, not a shallow pass-through or a seam with one adapter. Tasks that only touch docs or config, and the final
   check, have no seam. The factory runs unattended, so this is where the seam
   is agreed: the builder writes its failing test there.
 - The last task is always the final check: `"final": true`, title

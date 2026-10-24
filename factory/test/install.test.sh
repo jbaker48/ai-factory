@@ -37,6 +37,13 @@ test_testing_reference_shipped() {
   assert_eq "yes" "$([ -f "$t/factory/testing.md" ] && echo yes)" "testing reference copied"
 }
 
+test_design_reference_shipped() {
+  local t
+  t=$(scratch)
+  "$INSTALL" "$t" >/dev/null 2>&1
+  assert_eq "yes" "$([ -f "$t/factory/design.md" ] && echo yes)" "seam design reference copied"
+}
+
 test_owned_files_kept() {
   local t
   t=$(scratch)

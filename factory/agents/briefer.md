@@ -60,6 +60,9 @@ Write `human-brief-<k>.md` with exactly these three sections:
 The situation from job.json and what is wrong, in plain words, in a few
 sentences. Each fact carries the file:line evidence you checked yourself.
 
+Seams:
+- <key> <title>: <seam interface> (catches: <...>; misses: <...>)
+
 ## Decisions
 1. <a question only the owner can answer>
    - A. <option>: what happens next if chosen.
@@ -70,6 +73,12 @@ sentences. Each fact carries the file:line evidence you checked yourself.
 - <title> (<type>, P<priority>): one paragraph on the problem, where it is,
   and why this job shouldn't fix it.
 ```
+
+Under `Seams:` list each task's seam from `plan.json`, one line per task, so
+the owner can sanity-check where each task was tested against
+`factory/design.md`; a task with no seam reads
+`<key> <title>: no seam (docs, config or final check)`. With no `plan.json`
+(a `plan-blocked` job), write `Seams: none planned.`
 
 Ask one to three questions, each with two to four options and one
 recommendation. Ask only what the owner must decide: a product call, an

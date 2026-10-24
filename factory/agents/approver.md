@@ -81,10 +81,16 @@ Two or three sentences.
 ## For the human
 Only when you escalate: the exact decision or check you need from them, and the
 files to look at.
+
+Seams:
+- <key> <title>: <seam interface> (catches: <...>; misses: <...>)
 Candidate ADR: <decision>: hard to reverse: <why>; surprising without context: <why>; real trade-off: <why>.
 ```
 
-The first line must be exactly `APPROVE` or `ESCALATE`. Add the
+The first line must be exactly `APPROVE` or `ESCALATE`. When you escalate,
+list each task's seam from `plan.json` under `Seams:`, one line per task, so
+the person can sanity-check where each task was tested; a task with no seam
+reads `<key> <title>: no seam (docs, config or final check)`. Add the
 `Candidate ADR` line only when the decision you escalate on is one where all
 three tests hold: hard to reverse, surprising without context, and the result
 of a real trade-off. Otherwise leave it out.
