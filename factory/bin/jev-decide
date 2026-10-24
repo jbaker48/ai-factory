@@ -65,7 +65,13 @@ now_iso() { date +%Y-%m-%dT%H:%M:%S%z | sed -E 's/([0-9]{2})$/:\1/'; }
 cfg() {
   local defaults='{"send":"off","route":true,"triage":true,"reviewers":true,"min_confidence":0.7,"sol_ceiling":0.8,"park_paths":[],"model":"jev-latest"}' got
   got=$("$factory/bin/settings" jev 2>/dev/null) || got=
-  jq -cn --argjson d "$defaults" --arg c "${got:-{\}}" '$d + (($c | fromjson? // {}) | if type == "object" then . else {} end)'
+  # A setting of the wrong type falls back to its default.
+  jq -cn --argjson d "$defaults" --arg c "${got:-{\}}" '
+    $d + (($c | fromjson? // {}) | if type == "object" then . else {} end)
+    | .min_confidence = ((.min_confidence | tonumber?) // $d.min_confidence)
+    | .sol_ceiling = ((.sol_ceiling | tonumber?) // $d.sol_ceiling)
+    | .route = (.route != false) | .triage = (.triage != false) | .reviewers = (.reviewers != false)
+    | .park_paths = (if (.park_paths | type) == "array" then [.park_paths[] | strings] else [] end)'
 }
 
 # ask <decision> <questions-file> <state-file>: prints jev's JSON; fails when

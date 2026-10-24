@@ -132,6 +132,15 @@ test_route_cap() {
   assert_eq "builder-escalation (jev strong p=0.9)" "$(route)" "newest rollout wins"
 }
 
+test_route_bad_settings_types() {
+  setup '{"jev":{"send":"summary","min_confidence":"x","sol_ceiling":null}}'; answer light 0.9
+  assert_eq "builder-light (jev light p=0.9)" "$(route)" "min_confidence default"
+  answer strong 0.9; rollout 50.0
+  assert_eq "builder-escalation (jev strong p=0.9)" "$(route)" "sol_ceiling default allows 50%"
+  setup '{"jev":{"send":"summary","route":"no","park_paths":"docs/**"}}'; answer light 0.9
+  assert_eq "builder-light (jev light p=0.9)" "$(route)" "non-boolean route stays on"
+}
+
 test_route_cap_only_for_strong() {
   setup; answer standard 0.9; rollout 99.0
   assert_eq "builder-standard (jev standard p=0.9)" "$(route)" "cap does not touch other tiers"
@@ -233,6 +242,20 @@ test_park_root_files() {
   assert_eq 4 "$(tj '[.approver[] | select(.why == "guardrail")] | length')" "security, package.json, .env, Dockerfile"
   assert_eq 1 "$(tj '.fine | length')" "docs note settled"
   assert_eq '"package.json"' "$(tj '[.approver[] | select(.lens == "adversarial")][0].path')" "package.json parked"
+}
+
+test_park_default_categories() {
+  setup; triage_fixture
+  local notes="" f
+  for f in package-lock.json pnpm-lock.yaml requirements.txt docker-compose.yml .gitlab-ci.yml firestore.rules db/schema.sql src/billing/invoice.ts db/migrations src/app/page.ts; do
+    notes+="- $f:1 [low, confidence 0.9] Thing in $f. x."$'\n'
+  done
+  printf 'VERDICT: PASS\n\n## Findings\nNone.\n\n## Notes\n%s' "$notes" >"$J/round-1/review-adversarial.md"
+  tanswer note.1=fine:0.9
+  triage >/dev/null
+  assert_eq 9 "$(tj '[.approver[] | select(.why == "guardrail" and .lens == "adversarial")] | length')" "nine always-PARK files guarded"
+  assert_eq '["note.1"]' "$(jq -c keys "$TEST_TMP/questions.sent")" "only src/app/page.ts sent"
+  assert_eq '"src/app/page.ts"' "$(tj '.fine[0].path')" "page.ts still settled by Jev"
 }
 
 test_guarded_not_sent() {

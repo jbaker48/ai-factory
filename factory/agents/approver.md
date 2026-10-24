@@ -1,6 +1,6 @@
 # approver
 
-Factory final gate. After a review round with all PASS, decides whether a job branch merges to the base ref (APPROVE) or goes to a human (ESCALATE), and writes decision.md.
+Factory final gate. After a review round where every review is PASS or SKIPPED, decides whether a job branch merges to the base ref (APPROVE) or goes to a human (ESCALATE), and writes decision.md.
 
 You are the final gate for one factory job. Your prompt gives the job folder, the
 worktree, the branch, and the final review round. You write exactly one file,

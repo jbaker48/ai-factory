@@ -44,7 +44,9 @@ In `<target>`:
   upgrade: show the user `diff -r` against `<source>` for each and get their
   go-ahead before overwriting. Their `factory/models.json` and
   `factory/autopilot-policy.md` are likely customised; keep theirs unless they
-  say otherwise.
+  say otherwise. A repo with a customised `autopilot-policy.md` should make
+  the same change: MERGE needs every final-round review `PASS` or `SKIPPED`,
+  not "all-PASS".
 
 **Done when** the tree is clean, the user knows about any non-`main` default,
 and any earlier install has the user's decision.
@@ -156,7 +158,8 @@ Show the user each of these and record their answer:
   needs the key in the environment: `export JEV_KEY=<key>`. `route`, `triage`
   and `reviewers` turn each decision off; `min_confidence` (0.7) and
   `sol_ceiling` (0.8) are the other knobs; `park_paths` adds globs whose Notes
-  always go to the approver.
+  always go to the approver. Notes that name no path aren't guarded, and
+  `jev.park_paths` extends the default list.
 - **Commit**: the factory reads `AGENTS.md` from worktrees branched off
   `main`, so the install only works once it is committed on `main`. Offer to
   commit it as one commit. With `land: "pr"` worktrees branch from

@@ -111,19 +111,20 @@ test_missing_question() {
 test_no_probabilities() {
   setup; respond 1 200 0.1 '{"model":"m","answers":{"tone":{"type":"choice","choice":"a"}}}'
   out=$(J 2>/dev/null)
-  assert_eq 1 "$(jq -r .answers.tone.p <<<"$out")" "p defaults to 1"
+  assert_eq 0 "$(jq -r .answers.tone.p <<<"$out")" "p defaults to 0, so the floor holds"
 }
 
 test_redacts_state() {
   setup; respond 1 200 0.1 "$OK"
-  printf 'k sk-proj-abcdefghijklmnop g ghp_abcdefghijklmnopqrstuvwxyz0123 a AKIAABCDEFGHIJKLMNOP h Bearer abc.def.ghi e me@example.com u https://bob:hunter2@host/x t token=abcd1234efgh5678 path src/api/key-handler.ts disk-usage-monitoring-service risk-assessment-report-x end\n' >"$TEST_TMP/s.txt"
+  printf 'k sk-proj-abcdefghijklmnop g ghp_abcdefghijklmnopqrstuvwxyz0123 a AKIAABCDEFGHIJKLMNOP h Bearer abc.def.ghi e me@example.com u https://bob:hunter2@host/x t token=abcd1234efgh5678 path src/api/key-handler.ts disk-usage-monitoring-service risk-assessment-report-x the password field is required end\n' >"$TEST_TMP/s.txt"
+  printf 'j eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4 x xoxb-1234567890-abcdefghij G AIzaSyA1234567890abcdefghijklmnopqrstuv q "api_key": "abcd1234efgh5678" p1 password=hunter2 p2 password: '"'"'abcd1234'"'"' pem -----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAzzzz\n-----END RSA PRIVATE KEY----- tail\n' >>"$TEST_TMP/s.txt"
   out=$(J 2>/dev/null)
   for s in "$(jq -r .state "$TEST_TMP/req.1")" "$(jq -r .state <<<"$out")"; do
-    for secret in sk-proj-abc ghp_abc AKIAABC abc.def.ghi me@example hunter2 abcd1234efgh; do
+    for secret in sk-proj-abc ghp_abc AKIAABC abc.def.ghi me@example hunter2 abcd1234efgh eyJhbGci SflKxw xoxb-1234 AIzaSyA1 MIIEowIB abcd1234 BEGIN; do
       case $s in *"$secret"*) _fail "not redacted: $secret" "$s" ;; *) _pass ;; esac
     done
     assert_contains "$s" "[redacted]" "marker"
-    assert_contains "$s" "src/api/key-handler.ts disk-usage-monitoring-service risk-assessment-report-x end" "plain words and slugs survive"
+    assert_contains "$s" "src/api/key-handler.ts disk-usage-monitoring-service risk-assessment-report-x the password field is required end" "plain words and slugs survive"
   done
 }
 

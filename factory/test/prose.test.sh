@@ -266,6 +266,9 @@ test_jev_wiring() {
   for a in security code ux ui adversarial; do
     assert_contains "$(cat "$ROOT/factory/agents/reviewer-$a.md")" 'VERDICT: SKIPPED' "reviewer-$a mentions SKIPPED"
   done
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/autopilot-policy.md" | tr -s ' ')" 'every final-round review `PASS` or `SKIPPED`' "policy: MERGE accepts SKIPPED"
+  assert_contains "$(cat "$ROOT/factory/agents/approver.md")" 'PASS or SKIPPED' "approver intro accepts SKIPPED"
+  assert_contains "$(cat "$ROOT/factory/autopilot-policy.md")" 'SKIPPED' "policy mentions SKIPPED"
   assert_contains "$(cat "$ROOT/factory/agents/retro.md")" 'jev.jsonl' "retro reads jev.jsonl"
   assert_contains "$(cat "$ROOT/INSTALL.md")" 'JEV_KEY' "INSTALL documents JEV_KEY"
   assert_contains "$(cat "$ROOT/README.md")" 'bin/jev-decide' "README lists bin/jev-decide"
