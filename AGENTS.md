@@ -18,8 +18,8 @@ Each file prints `N passed, M failed` and exits non-zero on a failure. They
 need `bash`, `git`, `jq` and `node`, and run offline: `lib.sh` gives each file
 a private `HOME`, git config and stub `PATH`, so they never touch your real
 `~/.claude`, `~/.codex` or Beads. `factory/test/prose.test.sh` checks the
-prose in `SKILL.md`, the role files, the template, `README.md` and
-`INSTALL.md`; a wording change there may need its needle updated.
+prose in `SKILL.md` and its subcommand files, the role files, the template,
+`README.md` and `INSTALL.md`; a wording change there may need its needle updated.
 
 ## Invariants
 
@@ -73,8 +73,9 @@ follows them too. Where a prose test enforces one, it is named.
 ## Docs to keep current
 
 - `README.md` when a command, script, role or setting changes.
-- `INSTALL.md` when what gets copied, or a setting the installer asks about,
-  changes.
+- `INSTALL.md` when what gets copied changes, and
+  `.claude/skills/factory/setup.md` (with `factory/bin/decisions`) when a
+  decision or setting `/factory setup` asks about changes.
 - `factory/AGENTS.template.md` when a condition target commands run under
   changes.
 - A new ADR in `docs/adr/`, numbered after the last, when a decision is hard

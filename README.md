@@ -302,6 +302,7 @@ factory/
   bin/install                    installs or upgrades the factory in a repo
   bin/upgrade                    checks an installed repo against this checkout; --apply upgrades it
   bin/agents-md                  merges factory sections into AGENTS.md; checks its commands
+  bin/decisions                  prints the current value of each /factory setup decision
   bin/models                     shows or switches the models.json preset
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
@@ -327,8 +328,11 @@ factory/
 ## Use it in your repo
 
 To have a coding agent do this, point it at [`INSTALL.md`](INSTALL.md): it
-checks the tools, copies the files, writes and tests `AGENTS.md`, and asks you
-the decisions. By hand:
+checks the tools, runs the install script, then has you run `/factory setup`,
+which writes and tests `AGENTS.md` and asks you the decisions (the autopilot
+policy, the model preset, the settings, Jev's send mode and the install
+commit), offering your current answers as defaults on a re-run. The factory
+ships its own references and needs no external skills plugin. By hand:
 
 1. Install `bd` (Beads), the Codex CLI (logged in, with access to the models in
    `models.json`), the Codex plugin for Claude Code (for the adversarial

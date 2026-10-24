@@ -153,8 +153,8 @@ test_parallel_drain() {
   assert_contains "$(section "$SKILL_DIR/resume.md" '/factory resume')" 'BEADS_ACTOR=factory-autopilot' "resume writes Beads as the drain's actor"
   assert_contains "$(cat "$f")" '--if-assignee' "SKILL.md names the drain's compare-and-set"
   assert_contains "$(cat "$ROOT/README.md")" '--jobs' "README documents --jobs"
-  assert_contains "$(cat "$ROOT/INSTALL.md")" "\`jobs\`" "INSTALL documents the jobs setting"
-  assert_contains "$(tr '\n' ' ' <"$ROOT/INSTALL.md" | tr -s ' ')" 'With `land: "pr"` worktrees branch from `origin/main`, not the local `main`, so the commit must also be pushed' "INSTALL: pr mode needs the install pushed"
+  assert_contains "$(cat "$SKILL_DIR/setup.md")" "\`jobs\`" "setup.md documents the jobs setting"
+  assert_contains "$(tr '\n' ' ' <"$SKILL_DIR/setup.md" | tr -s ' ')" 'With `land: "pr"` worktrees branch from `origin/main`, not the local `main`, so the commit must also be pushed' "setup.md: pr mode needs the install pushed"
 }
 
 test_status_command() {
@@ -252,7 +252,7 @@ test_retro_wiring() {
   assert_contains "$(printf '%s' "$s" | tr '\n' ' ' | tr -s ' ')" '**Retro**, then `factory/bin/usage-record session <job folder>`' "resume DROP runs the Retro before usage-record session"
   assert_contains "$t" 'stop the retro; `/factory retro <job-id>` finishes it later. The job stays where it is, and a drain' "a failed retro stops only the retro"
   assert_contains "$(cat "$ROOT/README.md")" 'factory_source' "README documents factory_source"
-  assert_contains "$(cat "$ROOT/INSTALL.md")" 'factory_source' "INSTALL documents factory_source"
+  assert_contains "$(cat "$SKILL_DIR/setup.md")" 'factory_source' "setup.md documents factory_source"
 }
 
 test_jev_wiring() {
@@ -292,7 +292,7 @@ test_jev_wiring() {
   assert_contains "$(cat "$ROOT/factory/agents/approver.md")" 'PASS or SKIPPED' "approver intro accepts SKIPPED"
   assert_contains "$(cat "$ROOT/factory/autopilot-policy.md")" 'SKIPPED' "policy mentions SKIPPED"
   assert_contains "$(cat "$ROOT/factory/agents/retro.md")" 'jev.jsonl' "retro reads jev.jsonl"
-  assert_contains "$(cat "$ROOT/INSTALL.md")" 'JEV_KEY' "INSTALL documents JEV_KEY"
+  assert_contains "$(cat "$SKILL_DIR/setup.md")" 'JEV_KEY' "setup.md documents JEV_KEY"
   assert_contains "$(cat "$ROOT/README.md")" 'bin/jev-decide' "README lists bin/jev-decide"
 }
 
@@ -350,11 +350,46 @@ test_skill_pointers() {
 
 test_install_guide_points_at_script() {
   local s
-  s=$(awk '/^## 3\./ {on = 1} on && /^## 4\./ {exit} on' "$ROOT/INSTALL.md")
-  assert_contains "$s" 'factory/bin/install <target>' "INSTALL step 3 runs the install script"
-  assert_contains "$s" 'factory/manifest' "INSTALL step 3 names the manifest"
-  assert_contains "$s" 'factory/VERSION' "INSTALL step 3 names the version file"
-  case $s in *rsync*) _fail "INSTALL step 3 no longer copies by hand" ;; *) _pass ;; esac
+  s=$(awk '/^## 2\./ {on = 1} on && /^## 3\./ {exit} on' "$ROOT/INSTALL.md")
+  assert_contains "$s" 'factory/bin/install <target>' "INSTALL step 2 runs the install script"
+  assert_contains "$s" 'factory/manifest' "INSTALL step 2 names the manifest"
+  assert_contains "$s" 'factory/VERSION' "INSTALL step 2 names the version file"
+  assert_contains "$s" 'factory/bin/upgrade <target>' "INSTALL step 2 previews an upgrade"
+  case $s in *rsync*) _fail "INSTALL step 2 no longer copies by hand" ;; *) _pass ;; esac
+}
+
+# INSTALL.md is the tool check, the install script and /factory setup; the
+# decisions live in setup.md.
+test_install_guide_is_three_steps() {
+  local t steps n
+  t=$(flat "$(cat "$ROOT/INSTALL.md")")
+  steps=$(grep -E '^## [0-9]+\. ' "$ROOT/INSTALL.md")
+  assert_eq "## 1. Check the tools
+## 2. Run the install script
+## 3. Run /factory setup" "$steps" "INSTALL has three steps"
+  assert_contains "$(awk '/^## 3\./ {on = 1} on' "$ROOT/INSTALL.md")" '`/factory setup`' "INSTALL step 3 runs /factory setup"
+  assert_contains "$t" 'ships its own references and needs no external skills plugin' "INSTALL: no external skills plugin"
+  for n in 'bd init' 'factory_source' 'JEV_KEY' 'priority_labels' 'factory/bin/models'; do
+    case $t in *"$n"*) _fail "INSTALL leaves $n to /factory setup" ;; *) _pass ;; esac
+  done
+}
+
+test_setup_decisions() {
+  local s t n
+  s=$(awk '/^### 3\. Decisions/ {on = 1} on && /^### 4\./ {exit} on' "$SKILL_DIR/setup.md")
+  t=$(flat "$s")
+  for n in '**Autopilot policy**' '**Model preset**' '**Settings**' "**Jev's send mode**" '**Install commit**'; do
+    assert_contains "$t" "$n" "setup.md Decisions presents $n"
+  done
+  for n in 'factory/bin/decisions' 'as the default' 'wait for their answer' \
+    'factory/autopilot-policy.md' 'factory/bin/models mixed' 'factory/bin/models claude' 'factory/bin/models openai' \
+    'factory/settings.example.json' '"land": "pr"' '"land": "local"' 'priority_labels' '`jobs`' 'factory_source' \
+    'metadata' 'summary' '"send": "off"' 'JEV_KEY' \
+    'With `land: "pr"` worktrees branch from `origin/main`, not the local `main`, so the commit must also be pushed' \
+    '**Done when** the user has answered all five, and each answer is in its file or committed.'; do
+    assert_contains "$t" "$n" "setup.md Decisions mentions $n"
+  done
+  case $t in *'headless'*) _pass ;; *) _fail "setup.md Decisions says what a headless session does" ;; esac
 }
 
 test_template_domain_docs() {
@@ -410,15 +445,11 @@ test_approver_names_candidate_adr() {
 flat() { printf '%s' "$1" | tr '\n' ' ' | tr -s ' '; }
 
 test_setup_command() {
-  local s step done_when
+  local s
   s=$(flat "$(cat "$SKILL_DIR/setup.md" 2>/dev/null)")
   assert_contains "$(grep -m 1 '^description:' "$SKILL_DIR/SKILL.md")" ' setup.' "description lists /factory setup"
-  for step in 4 5; do
-    done_when=$(awk -v n="$step" '$0 ~ "^## " n "\\." {on = 1; next} on && /^## / {exit} on' "$ROOT/INSTALL.md" |
-      awk '/^\*\*Done when\*\*/ {on = 1} on' )
-    [ -n "$done_when" ] || _fail "INSTALL step $step has a Done when"
-    assert_contains "$s" "$(flat "$done_when")" "setup.md ends its INSTALL step $step on the same Done when"
-  done
+  assert_contains "$s" '**Done when** `bd --readonly ready` runs in the target without an error.' "setup.md's Beads step has its Done when"
+  assert_contains "$s" '**Done when** `AGENTS.md` has no `<...>` left, every command in it passed in the fresh worktree (or the user has accepted a named failure), and the dev server bound exactly port `5199`.' "setup.md's AGENTS.md step has its Done when"
   assert_contains "$s" 'bd init' "setup.md initialises Beads when there is none"
   assert_contains "$s" 'factory/bin/agents-md apply AGENTS.md' "setup.md merges factory sections with the script"
   assert_contains "$s" 'factory/bin/agents-md check' "setup.md proves the commands in a fresh worktree with the script"
