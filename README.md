@@ -296,6 +296,7 @@ factory/
     reviewer-security.md  reviewer-code.md  reviewer-ux.md  reviewer-ui.md
     reviewer-adversarial.md      (claude and openai presets)
     approver.md  autopilot.md  importer.md  briefer.md  retro.md
+  testing.md                     what a good test is, read by the builder and code reviewer
   manifest                       which files an install ships, which the user owns
   bin/install                    installs or upgrades the factory in a repo
   bin/models                     shows or switches the models.json preset

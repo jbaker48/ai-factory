@@ -37,6 +37,11 @@ things you write in the job folder.
 
 - Run `cd <worktree> && git branch --show-current` first. It must print the
   branch from your prompt. If it doesn't, stop and report BLOCKED.
+- Work test-first when the task changes behaviour and the repo has a test
+  runner: write a test that fails for the right reason, run it and keep the
+  output, before you write the code. Then write the smallest code that makes it
+  pass, and run it again. Tasks that only touch docs, config and the final check
+  are exempt. Follow `factory/testing.md` for what a good test is.
 - Match the surrounding code: its idioms, formatting, naming and imports. Keep
   comment density like the neighbouring code.
 - Make the simplest change that fully meets the task. No fallbacks, hidden
@@ -85,7 +90,9 @@ Files:
 What you changed and why.
 
 ## Evidence
-The commands you ran and their results, and what pages showed.
+For a test-first task, the failing run first: the test command and the output
+showing it fail. Then the passing run: the same command and its output.
+Then the other commands you ran and their results, and what pages showed.
 
 ## Findings addressed
 Only for fix tasks: each finding and what you did about it, or why you changed
