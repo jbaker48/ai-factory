@@ -378,10 +378,12 @@ gets `5102 + 10n`, appended as ` Port: <port>.`
    description is the output of
    `factory/bin/task-description <job folder>/plan.json <key>`: the plan's
    description, the task's seam (`Seam:`, `Catches:`, `Misses:` lines) and the
-   criteria it covers, so the builder finds the seam in `beads.md`. A task with
-   a `bead` field already exists: don't create it or edit its description, just
-   `bd update <id> --add-label factory`, and if it has a seam,
+   criteria it covers. A task with a `bead` field already exists: don't create
+   it or edit its description, just `bd update <id> --add-label factory`, and
+   if it has a seam,
    `bd comment <id> "$(factory/bin/task-description <job folder>/plan.json <key>)"`.
+   Either way the builder finds the seam in its description or comments in
+   `beads.md`.
    Create the rest:
    ```bash
    bd create "<title>" --type=task --parent <bead> -l factory[,final] \

@@ -43,7 +43,8 @@ things you write in the job folder.
   pass, and run it again. Tasks that only touch docs, config and the final check
   are exempt. Follow `factory/testing.md` for what a good test is.
 - Write that failing test at the task's seam: the `Seam:` line in its
-  description in `beads.md` names the public interface to test through, and
+  description or its comments in `beads.md` (a task reused from an existing
+  bead carries it as a comment) names the public interface to test through, and
   `Catches:` and `Misses:` say what the test is for. Don't move the test to a
   different interface. If the seam can't be tested as given (it doesn't exist
   and the task doesn't create it, it isn't public, or a test there can't show

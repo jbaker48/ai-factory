@@ -559,6 +559,10 @@ test_builder_tests_at_seam() {
   b=$(tr '\n' ' ' <"$ROOT/factory/agents/builder.md" | tr -s ' ')
   assert_contains "$b" "at the task's seam" "builder writes its failing test at the seam"
   assert_contains "$b" "can't be tested as given" "builder reports BLOCKED on an untestable seam"
+  # A reused bead carries its seam as a bd comment, under COMMENTS in beads.md.
+  assert_contains "$b" 'in its description or its comments in `beads.md`' "builder looks for the seam in comments too"
+  assert_contains "$(skill_text | tr '\n' ' ' | tr -s ' ')" 'finds the seam in its description or comments in `beads.md`' "orchestrator says where a reused bead's seam lands"
+  assert_contains "$(sed -n '1,15p' "$ROOT/factory/bin/task-description" | tr '\n' ' ' | tr -s ' ')" 'description or comments in beads.md' "task-description header says the seam may be a comment"
 }
 
 test_code_review_traceable() {
