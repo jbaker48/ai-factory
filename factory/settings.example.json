@@ -1,1 +1,1 @@
-{"land":"pr","priority_labels":[],"jobs":1,"factory_source":""}
+{"land":"pr","priority_labels":[],"jobs":1,"factory_source":"","jev":{"send":"off","route":true,"triage":true,"reviewers":true,"min_confidence":0.7,"sol_ceiling":0.8,"park_paths":[],"model":"jev-latest"}}
