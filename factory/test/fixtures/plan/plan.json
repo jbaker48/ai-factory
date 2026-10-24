@@ -1,0 +1,27 @@
+{
+  "status": "READY",
+  "tasks": [
+    {
+      "key": "T1",
+      "title": "Add the discount rule",
+      "description": "Scope: src/cart.js. Done when: a 10% code takes 10% off. Verify: npm test.",
+      "covers": [1, 2],
+      "depends_on": [],
+      "seam": {
+        "interface": "checkout(cart, code) in src/cart.js",
+        "catches": "a wrong total for a valid or expired code",
+        "misses": "how the total is rendered on the page"
+      }
+    },
+    {
+      "key": "T2",
+      "title": "Verify all acceptance criteria",
+      "description": "Run the validation commands from AGENTS.md and check every acceptance criterion in spec.md. Write build.md.",
+      "covers": [1, 2],
+      "depends_on": ["T1"],
+      "final": true
+    }
+  ],
+  "notes": null,
+  "blocked": null
+}
