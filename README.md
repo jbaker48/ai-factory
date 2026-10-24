@@ -300,6 +300,7 @@ factory/
   testing.md                     what a good test is, read by the builder and code reviewer
   manifest                       which files an install ships, which the user owns
   bin/install                    installs or upgrades the factory in a repo
+  bin/upgrade                    checks an installed repo against this checkout; --apply upgrades it
   bin/agents-md                  merges factory sections into AGENTS.md; checks its commands
   bin/models                     shows or switches the models.json preset
   bin/run-codex                  runs an OpenAI role through codex exec
@@ -337,7 +338,10 @@ the decisions. By hand:
 2. Run `factory/bin/install <your repo>` from this checkout. It copies the
    files `factory/manifest` lists as shipped, keeps your `models.json` and
    `autopilot-policy.md` if you have them, adds the `.gitignore` lines, and
-   writes `factory/VERSION` (the commit it installed from).
+   writes `factory/VERSION` (the commit it installed from). Later,
+   `factory/bin/upgrade <your repo>` shows how far behind it is: the commits
+   since `VERSION`, the shipped files that changed, and the owned files you
+   customised. `factory/bin/upgrade --apply <your repo>` upgrades it.
 3. Run `bd init` in the repo if it has no Beads workspace yet. If it has one,
    keep it: see **Brownfield** above, and start with `/factory import <prd>`.
 4. Write your `AGENTS.md` from `factory/AGENTS.template.md` (the install
