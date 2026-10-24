@@ -39,6 +39,18 @@ test_no_config() {
   assert_contains "$out" "ended turn.completed" "run still works"
 }
 
+test_prompt_starts_with_shared_preamble() {
+  setup "$NORMAL"
+  RC >/dev/null
+  local p preamble role
+  p=$(cat "$JOB"/.runs/*-builder.prompt.md)
+  preamble=$(cat "$R/factory/role-preamble.md" 2>/dev/null)
+  role=$(cat "$R/factory/agents/builder.md")
+  assert_contains "$p" "Your shell may start anywhere" "codex prompt has the shared worktree text"
+  assert_contains "$p" "orchestrator's snapshot" "codex prompt has the shared Beads text"
+  assert_eq "$preamble"$'\n\n'"$role"$'\n\n\n---\n\ndo it' "$p" "codex prompt is preamble, role file, separator, prompt"
+}
+
 test_ended_normal() {
   setup "$NORMAL"
   out=$(RC)
