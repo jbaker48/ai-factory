@@ -46,10 +46,17 @@ test_ok() {
 }
 
 test_off() {
-  setup '{}'
+  setup '{"jev":{"send":"off"}}'
   J >/dev/null 2>&1; rc=$?
   assert_eq 3 "$rc" "off exit"
   if [ -e "$STUBS/curl.calls" ]; then _fail "no curl when off"; else _pass; fi
+}
+
+test_default_is_metadata() {
+  setup '{}'; respond 1 200 0.2 "$OK"
+  J >/dev/null 2>&1; rc=$?
+  assert_eq 0 "$rc" "default sends"
+  assert_eq 1 "$(ncalls)" "one call"
 }
 
 test_no_key() {

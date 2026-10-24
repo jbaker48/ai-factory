@@ -9,7 +9,7 @@
 # tokens, email addresses, URLs with credentials become [redacted]) and capped
 # at 12000 characters before it leaves the machine.
 # Reads JEV_KEY from the environment, and "send" and "model" from
-# `factory/bin/settings jev` merged over the defaults (send off, model
+# `factory/bin/settings jev` merged over the defaults (send metadata, model
 # jev-latest). JEV_URL overrides the endpoint (tests).
 # The whole call has a 1.5 s deadline; one retry after 300 ms on 429, 5xx or a
 # dropped connection, only if the deadline allows. The key goes to curl in a
@@ -31,7 +31,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 [ -f "$qfile" ] && [ -f "$sfile" ] || { echo "jev: missing input file" >&2; exit 2; }
 jq -e 'type == "object" and length > 0' "$qfile" >/dev/null 2>&1 || { echo "jev: questions must be a non-empty object" >&2; exit 2; }
 
-defaults='{"send":"off","model":"jev-latest"}'
+defaults='{"send":"metadata","model":"jev-latest"}'
 cfg=$("$here/settings" jev) || exit 2
 cfg=$(jq -cn --argjson d "$defaults" --arg c "${cfg:-{\}}" '$d + ($c | fromjson? // {})') || exit 2
 send=$(jq -r '.send' <<<"$cfg")

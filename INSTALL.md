@@ -151,11 +151,13 @@ Show the user each of these and record their answer:
   as a patch file in the job folder instead.
 - **`jev` in `factory/settings.json`**: Jev (TypeSafe) picks the builder tier,
   skips reviewers a change gives nothing to review, and sorts review Notes.
-  It is off (`"send": "off"`). `metadata` sends facts about the work (file
-  names, counts, labels); `summary` adds task titles and descriptions. Suggest
-  `summary` for personal repos and `metadata` anywhere else, and tell them to
-  check TypeSafe's terms before using `summary` on anything sensitive. Either
-  needs the key in the environment: `export JEV_KEY=<key>`. `route`, `triage`
+  It is on by default in `metadata` mode, which sends facts about the work
+  (file names, counts, labels); `summary` adds task titles and descriptions,
+  and `"send": "off"` turns it off. Suggest `summary` for personal repos and
+  `metadata` anywhere else, and tell them to check TypeSafe's terms before
+  using `summary` on anything sensitive. Either needs the key in the
+  environment: `export JEV_KEY=<key>`; without it each decision logs an error
+  and falls back. `route`, `triage`
   and `reviewers` turn each decision off; `min_confidence` (0.7) and
   `sol_ceiling` (0.8) are the other knobs; `park_paths` adds globs whose Notes
   always go to the approver. Notes that name no path aren't guarded, and

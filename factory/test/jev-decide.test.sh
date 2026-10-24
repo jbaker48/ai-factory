@@ -38,7 +38,7 @@ rollout() {
 }
 
 test_route_off() {
-  setup '{}'; answer light 0.9
+  setup '{"jev":{"send":"off"}}'; answer light 0.9
   assert_eq "builder (off)" "$(route)" "off output"
   if [ -e "$J/jev.jsonl" ] || [ -e "$STUBS/fakejev.calls" ]; then _fail "off logs or calls nothing"; else _pass; fi
   setup '{"jev":{"send":"summary","route":false}}'; answer light 0.9
@@ -74,6 +74,12 @@ test_route_metadata_hides_description() {
   assert_contains "$s" "src/foo.sh" "path sent"
   case $s in *Scope:* | *"Rename foo"*) _fail "metadata leaks title or description" "$s" ;; *) _pass ;; esac
   assert_eq metadata "$(jq -r .send <<<"$(logline)")" "logged send"
+}
+
+test_route_default_is_metadata() {
+  setup '{}'; answer light 0.9
+  assert_eq "builder-light (jev light p=0.9)" "$(route)" "default output"
+  assert_eq metadata "$(jq -r .send <<<"$(logline)")" "default send"
 }
 
 test_route_missing_file_is_new() {
@@ -345,7 +351,7 @@ test_triage_all_guarded() {
 }
 
 test_triage_off() {
-  setup '{}'; triage_fixture
+  setup '{"jev":{"send":"off"}}'; triage_fixture
   assert_eq "triage round 1: off" "$(triage)" "off"
   if [ -e "$J/round-1/triage.json" ]; then _fail "wrote triage.json"; else _pass; fi
   setup '{"jev":{"send":"summary","triage":false}}'; triage_fixture
@@ -496,7 +502,7 @@ test_reviewers_bad_choice_runs() {
 }
 
 test_reviewers_off() {
-  rsetup '{}'; ranswer ux=skip:0.9 ui=skip:0.9
+  rsetup '{"jev":{"send":"off"}}'; ranswer ux=skip:0.9 ui=skip:0.9
   assert_eq "reviewers round 1: run all" "$(reviewers 1)" "off output"
   rsetup '{"jev":{"send":"summary","reviewers":false}}'; ranswer ux=skip:0.9 ui=skip:0.9
   assert_eq "reviewers round 1: run all" "$(reviewers 1)" "reviewers false output"

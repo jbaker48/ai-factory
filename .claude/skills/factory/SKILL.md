@@ -157,8 +157,8 @@ session's tokens for the job (once per session) and prints nothing.
 Jev answers three quick choices through `factory/bin/jev-decide`: which
 builder a task gets (**Build** step 2), which reviewers a round can skip
 (**Review round N** step 2) and which review Notes are worth a fix
-(**Triage**). `jev` in `factory/settings.json` configures it, and it is off
-unless `send` is `metadata` or `summary`. Its one output line is all you read.
+(**Triage**). `jev` in `factory/settings.json` configures it. `send` is
+`metadata` by default, and `off` turns it off. Its one output line is all you read.
 You never call `factory/bin/jev` yourself, never send Jev anything, and never
 override a `jev-decide` result with your own judgement. It always exits 0 and
 falls back to today's behaviour when anything fails.
