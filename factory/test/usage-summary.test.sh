@@ -199,5 +199,25 @@ test_autopilot_line() {
   cd - >/dev/null || return
 }
 
+test_jev_lines() {
+  fresh
+  jobj 001-a '{"id":"001-a","stage":"build","tasks":[{"id":"t1","status":"done","runs":1,"role":"builder-light"},{"id":"t2","status":"done","runs":2,"role":"builder"},{"id":"t3","status":"done","runs":1,"role":"builder-escalation"}]}' "$(ul build 1000000 0 0)"
+  local dec='{ts:"2026-10-24T10:00:00+00:00",round:1,send:true,state:"x",latency_ms:5,input_tokens:9}'
+  {
+    jq -n -c "$dec + {decision:\"route\",task:\"t1\",answers:{route:{choice:\"light\",p:0.9}},outcome:{route:{used:true,why:null,did:\"ran as builder-light\"}}}"
+    jq -n -c "$dec + {decision:\"route\",task:\"t2\",answers:{route:{choice:\"strong\",p:0.9}},outcome:{route:{used:true,why:null,did:\"ran as builder\"}}}"
+    jq -n -c "$dec + {decision:\"route\",task:\"t3\",answers:{route:{choice:\"light\",p:0.4}},outcome:{route:{used:false,why:\"cap\",did:\"ran as builder-escalation\"}}}"
+    jq -n -c "$dec + {decision:\"triage\",task:\"round-1\",answers:{\"note.1\":{choice:\"fix-now\",p:0.8}},outcome:{\"note.1\":{used:true,why:null,did:\"triaged as fix-now\"},\"guarded.1\":{used:false,why:\"guardrail\",did:\"sent to approver\"}}}"
+    jq -n -c "$dec + {decision:\"reviewers\",task:\"round-1\",answers:{},outcome:{\"review.a\":{used:true,why:null,did:\"skip\"},\"review.b\":{used:true,why:null,did:\"run\"}}}"
+  } >"$R/factory/jobs/001-a/jev.jsonl"
+  out=$(run)
+  assert_contains "$out" "jev route: 3 calls, 2 used, fallbacks cap 1; Sol 1/3 tasks; BLOCKED after route light 0/1, standard 0/0, thorough 0/0, strong 1/1" "jev route"
+  assert_contains "$out" "jev triage: 2 notes, 1 used (fix-now 1, follow-up 0, fine 0), fallbacks guardrail 1" "jev triage"
+  assert_contains "$out" "jev reviewers: 1 calls, 1 skips of 2 asked, fallbacks none" "jev reviewers"
+  assert_eq "quota: no data" "$(grep -A1 '^jev reviewers' <<<"$out" | tail -n 1)" "jev lines sit before quota"
+  rm "$R/factory/jobs/001-a/jev.jsonl"
+  case $(run) in *jev*) _fail "no jev line without jev.jsonl" "$(run)" ;; *) _pass ;; esac
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

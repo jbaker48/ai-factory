@@ -16,6 +16,18 @@
 # record with quota data ("quota: no data" if none), then "claude: tokens only".
 # With no usage files and no merged jobs it prints just "quota: no data".
 #
+# Between the trend line and quota, up to three lines report Jev over every job
+# folder with a jev.jsonl (one line per decision point that has lines):
+#   jev route: <calls> calls, <used> used, fallbacks <list>; Sol <s>/<t> tasks; BLOCKED after route light <x>/<y>, standard ..., thorough ..., strong ...
+#   jev triage: <notes> notes, <used> used (fix-now <a>, follow-up <b>, fine <c>), fallbacks <list>
+#   jev reviewers: <calls> calls, <skips> skips of <asked> asked, fallbacks <list>
+# Lines are filtered by .decision. A call is a route/reviewers line; a note or
+# asked reviewer is an .outcome entry; used is .used == true; <list> is
+# "<why> <k>" pairs (low-confidence, cap, guardrail, error; zeros left out, or
+# "none"). Sol is job.json tasks with role "builder-escalation" over tasks with
+# runs >= 1. BLOCKED counts routed tasks (last used route line per task, option
+# = its choice) with runs > 1 or status "blocked", over routed tasks per option.
+#
 # Tokens are input + output (input already includes cached); null counts as 0
 # but a run with null tokens is still a run. A job is flagged for a usage
 # stage when its total there is at least 2x the median of that stage over jobs
@@ -23,26 +35,29 @@
 # information only. Lines that are not JSON objects are skipped. Always exits 0.
 set -uo pipefail
 
-# Every job folder with a job.json or a usage.jsonl is an input; one jq program
+# Every job folder with a job.json, usage.jsonl or jev.jsonl is an input; one jq program
 # reads them all, grouping lines by folder.
 inputs=()
 for d in factory/jobs/*/; do
   d=${d%/}
   [ -f "$d/job.json" ] && inputs+=("$d/job.json")
   [ -f "$d/usage.jsonl" ] && inputs+=("$d/usage.jsonl")
+  [ -f "$d/jev.jsonl" ] && inputs+=("$d/jev.jsonl")
 done
 if [ ${#inputs[@]} -eq 0 ]; then echo "quota: no data"; exit 0; fi
 
 jq -n -R -r '
   def n: . // 0;
   def median: sort | length as $l | if $l % 2 == 1 then .[($l-1)/2] else (.[$l/2-1] + .[$l/2]) / 2 end;
+  def whys: . as $o | [ "low-confidence", "cap", "guardrail", "error" ] | map(. as $w | {w: $w, k: ($o | map(select(.why == $w)) | length)} | select(.k > 0) | "\(.w) \(.k)") | if length == 0 then "none" else join(", ") end;
   def r1: (. * 10 | round) / 10 | tostring | if test("\\.") then . else . + ".0" end;
   [inputs | {f: input_filename, v: .}]
   | group_by(.f | sub("/[^/]*$"; "")) as $dirs
   | [ $dirs[]
       | ((map(select(.f | endswith("job.json")).v) | join("\n") | fromjson? | select(type == "object")) // {}) as $j
       | (map(select(.f | endswith("usage.jsonl")).v | fromjson? | select(type == "object"))) as $u
-      | { id: (.[0].f | split("/") | .[-2]), j: $j, stage: ($j.stage // "?"), u: $u,
+      | (map(select(.f | endswith("jev.jsonl")).v | fromjson? | select(type == "object"))) as $jev
+      | { id: (.[0].f | split("/") | .[-2]), j: $j, stage: ($j.stage // "?"), u: $u, jev: $jev,
           finished: (($j.stage // "") | IN("merged", "dropped")) } ] as $all
   | ($all | map(select(.u | length > 0))) as $jobs
   | ($jobs | map(. + {
@@ -63,6 +78,21 @@ jq -n -R -r '
                    and .j.human_decision == null and all((.j.tasks // [])[]; (.runs // 0) <= 1))) as $fp
       | [ .[] | [.u[] | select(.role != "retro") | (.input|n) + (.output|n)] | select(length > 0) | add ] as $tok
       | "trend (last \($n) merged): first-pass \($fp | length)/\($n), median rounds \(map(.j.round // 0) | median | r1), median reworks+respecs \(map((.j.reworks // 0) + (.j.respecs // 0)) | median | r1), median tokens \(if ($tok | length) == 0 then "n/a" else ($tok | median / 1e6 | r1) + "M" end)" ),
+    ( [ $all[] | select(.jev | length > 0) ] as $jj
+      | ([ $jj[] | .jev[] | select(.decision == "route") ]) as $rl
+      | select($rl | length > 0)
+      | [ $jj[] | .j.tasks // [] | .[] | select((.runs // 0) >= 1) ] as $ran
+      | [ $jj[] | . as $job | ([ .jev[] | select(.decision == "route" and .outcome.route.used == true) ] | group_by(.task) | map(last)[])
+          | . as $l | ($job.j.tasks // [] | map(select(.id == $l.task)) | first // empty) as $t
+          | {o: $l.answers.route.choice, b: ((($t.runs // 0) > 1) or $t.status == "blocked")} ] as $rt
+      | "jev route: \($rl | length) calls, \([ $rl[] | select(.outcome.route.used == true) ] | length) used, fallbacks \([ $rl[].outcome[] ] | whys); Sol \($ran | map(select(.role == "builder-escalation")) | length)/\($ran | length) tasks; BLOCKED after route \(["light", "standard", "thorough", "strong"] | map(. as $o | "\($o) \($rt | map(select(.o == $o and .b)) | length)/\($rt | map(select(.o == $o)) | length)") | join(", "))" ),
+    ( [ $all[].jev[] | select(.decision == "triage") ] | select(length > 0)
+      | [ .[] | . as $l | .outcome | to_entries[] | {used: .value.used, why: .value.why, c: $l.answers[.key].choice} ] as $e
+      | [ $e[] | select(.used == true) ] as $u
+      | "jev triage: \($e | length) notes, \($u | length) used (fix-now \($u | map(select(.c == "fix-now")) | length), follow-up \($u | map(select(.c == "follow-up")) | length), fine \($u | map(select(.c == "fine")) | length)), fallbacks \($e | whys)" ),
+    ( [ $all[].jev[] | select(.decision == "reviewers") ] | select(length > 0)
+      | [ .[].outcome[] ] as $e
+      | "jev reviewers: \(length) calls, \([ $e[] | select(.used == true and .did == "skip") ] | length) skips of \($e | length) asked, fallbacks \($e | whys)" ),
     ( [ $jobs[].u[] | select(.quota != null) ] | sort_by(.ts) | last
       | if . == null then "quota: no data"
         else "quota: codex \(.quota.window // "quota") \(.quota.after | if type != "number" then "?" else round end)% (resets \(.quota.resets_at | if type != "number" then "?" else (try (todate | .[0:10]) catch "?") end))" end ),
