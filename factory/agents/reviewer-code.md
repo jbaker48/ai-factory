@@ -36,6 +36,10 @@ mode that rewrites files, such as `--fix`.
   cases, missing awaits, unhandled errors, and off-by-one or wrong-path bugs.
 - **Simplicity**: it is the smallest change that fully meets the spec, with no
   speculative options, fallbacks, hidden defaults or swallowed errors.
+- **Scope creep**: behaviour the spec didn't ask for, such as a new option,
+  command, output or side effect no requirement or criterion covers. Each one is
+  a CHANGES finding that cites the spec.md section it goes beyond (`spec.md:
+  Out of scope`, `spec.md: Requirements`).
 - **Reuse**: it uses existing helpers, components and patterns instead of
   duplicating them.
 - **Conventions**: the repo's style as AGENTS.md and the neighbouring code show
@@ -49,6 +53,27 @@ mode that rewrites files, such as `--fix`.
   requires it.
 - **Commits**: short one-line messages and nothing stray committed.
 
+## Smell baseline
+
+Judgement calls from Fowler, *Refactoring* ch. 3, checked on the changed code
+only. A smell goes under Notes, never under Findings, and never makes the
+verdict CHANGES on its own. Name the smell, its path:line and the fix, one line
+each. A rule documented in AGENTS.md overrides this baseline: where the repo
+asks for what a smell warns against, it isn't a smell there.
+
+- **Mysterious name**: a function, variable or file whose name doesn't say what it does. Fix: rename it.
+- **Duplicated code**: the same logic in two or more places. Fix: extract it and call it from both.
+- **Long function**: a function you have to read twice to follow. Fix: extract the parts into named functions.
+- **Long parameter list**: a call that needs many arguments to make sense. Fix: pass an object, or a value the callee can query.
+- **Global data**: state anything can read or change from anywhere. Fix: wrap it behind a function or module that owns it.
+- **Mutable data**: a value changed in place where a new value would do. Fix: return a new value, or confine the change to one place.
+- **Divergent change**: one module edited for several unrelated reasons. Fix: split it so each reason has its own module.
+- **Shotgun surgery**: one change that needs small edits across many files. Fix: move the pieces into one module.
+- **Feature envy**: a function that works mostly on another module's data. Fix: move it to that module.
+- **Data clumps**: the same few values always passed or stored together. Fix: make them one type or record.
+- **Primitive obsession**: strings or numbers standing in for a domain idea. Fix: give the idea its own small type.
+- **Repeated switches**: the same switch or if-chain on one value in several places. Fix: replace it with one lookup or polymorphism.
+
 ## Write review-code.md
 
 ```markdown
@@ -58,7 +83,7 @@ VERDICT: PASS | CHANGES
 <command>: pass/fail
 
 ## Findings
-1. <path:line> <the problem and the fix you want>
+1. <path:line> <the problem and the fix you want> (<source>)
 
 ## Notes
 Non-blocking observations. Optional.
@@ -67,6 +92,10 @@ Non-blocking observations. Optional.
 - The first line must be exactly `VERDICT: PASS` or `VERDICT: CHANGES`.
 - A failing check is always CHANGES. Otherwise use CHANGES only for bugs, spec
   gaps or clear convention breaks. Put style preferences under Notes.
+- Every CHANGES finding cites its source at the end of its line: an
+  acceptance-criterion number from spec.md (`AC 3`) or a rule in AGENTS.md
+  (`AGENTS.md: <the rule, quoted or named>`). A failing check cites the
+  command. A finding you can't trace to either is a Note, not a finding.
 - Under Findings, write "None." when there are none.
 - Keep it short: one numbered line per finding, at most three lines of Notes,
   and no summary of the spec, the diff or what you checked.
