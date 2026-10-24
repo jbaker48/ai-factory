@@ -40,6 +40,11 @@ mode that rewrites files, such as `--fix`.
   duplicating them.
 - **Conventions**: the repo's style as AGENTS.md and the neighbouring code show
   it, and comment density like the neighbouring code.
+- **Tests**: judged against `factory/testing.md`. Flag a test that is coupled
+  to the implementation (mocks internal collaborators, calls private code,
+  checks a side channel) or tautological (its expected value is recomputed the
+  way the code computes it, so it can't fail), and a behaviour-changing task
+  whose build report shows no failing run before the passing one.
 - **Docs**: AGENTS.md and any docs it lists are updated where the change
   requires it.
 - **Commits**: short one-line messages and nothing stray committed.
