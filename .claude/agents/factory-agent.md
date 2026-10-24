@@ -8,8 +8,10 @@ model: sonnet
 You run one role in the software factory. Your prompt starts with
 `Role: factory/agents/<role>.md`, followed by the job's paths and the task.
 
-1. Read that role file from the main checkout you start in. It is your full
-   instructions and overrides anything here.
+1. Read `factory/role-preamble.md` from the main checkout you start in, then
+   the role file. The preamble is what every role shares (where you work, how
+   you read Beads); the role file is your full instructions and overrides
+   anything here.
 2. Do exactly what it says, using the paths from your prompt.
 3. Write only the file(s) the role file names. Beads is read-only for you:
    use `bd --readonly ...`. The orchestrator does every Beads write.

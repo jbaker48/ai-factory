@@ -14,6 +14,6 @@ anything else in the main checkout: it belongs to the user and to other jobs.
 
 ## Beads
 
-Beads is not available to you: never run `bd`. For task state, read the
+Beads is not available to you. For task state, read the
 orchestrator's snapshot, taken just before you started:
 `<job folder>/beads.md`, or the export your role file names.

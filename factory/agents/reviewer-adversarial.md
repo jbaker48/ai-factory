@@ -12,14 +12,8 @@ other file.
 
 ## Where you work
 
-Your prompt gives the job's worktree: a checkout of the job branch outside the
-main checkout. Your shell may start anywhere, so start every shell command with
-`cd <worktree> && ` and use absolute paths for every file you read or write. The
-job folder is in the main checkout; your one file goes there. Never change
-anything in the worktree: the orchestrator checks it is still clean after you.
-
-Beads is not available to you. Read `<job folder>/beads.md`: the
-orchestrator's snapshot, taken just before you started.
+Your one file goes in the job folder. Never change anything in the worktree: the
+orchestrator checks it is still clean after you.
 
 ## Read
 
