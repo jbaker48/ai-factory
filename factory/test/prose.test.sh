@@ -83,7 +83,7 @@ test_review_command() {
   local f="$ROOT/.claude/skills/factory/SKILL.md" t s
   t=$(skill_text)
   assert_contains "$(head -n 1 "$SKILL_DIR/review.md")" '## /factory review' "review.md has /factory review"
-  assert_contains "$(sed -n 3p "$f")" '/factory review' "description lists /factory review"
+  assert_contains "$(grep -m 1 '^description:' "$f")" ' review,' "description lists /factory review"
   assert_contains "$t" 'human_decision' "SKILL.md mentions human_decision"
   assert_contains "$t" 'resubmitted' "SKILL.md mentions resubmitted"
   assert_contains "$t" '`dropped`' "SKILL.md mentions dropped"
@@ -234,7 +234,7 @@ test_retro_role() {
 test_retro_wiring() {
   local f="$ROOT/.claude/skills/factory/SKILL.md" t s n
   t=$(skill_text | tr '\n' ' ' | tr -s ' ')
-  assert_contains "$(sed -n 3p "$f")" '/factory retro' "description lists /factory retro"
+  assert_contains "$(grep -m 1 '^description:' "$f")" ' retro,' "description lists /factory retro"
   s=$(section "$SKILL_DIR/retro.md" '/factory retro <job-id>' | tr '\n' ' ' | tr -s ' ')
   assert_contains "$s" '## /factory retro <job-id>' "SKILL.md has /factory retro <job-id>"
   assert_contains "$s" 'skip `retro-due`' "/factory retro skips retro-due"
@@ -412,7 +412,7 @@ flat() { printf '%s' "$1" | tr '\n' ' ' | tr -s ' '; }
 test_setup_command() {
   local s step done_when
   s=$(flat "$(cat "$SKILL_DIR/setup.md" 2>/dev/null)")
-  assert_contains "$(sed -n 3p "$SKILL_DIR/SKILL.md")" '/factory setup' "description lists /factory setup"
+  assert_contains "$(grep -m 1 '^description:' "$SKILL_DIR/SKILL.md")" ' setup.' "description lists /factory setup"
   for step in 4 5; do
     done_when=$(awk -v n="$step" '$0 ~ "^## " n "\\." {on = 1; next} on && /^## / {exit} on' "$ROOT/INSTALL.md" |
       awk '/^\*\*Done when\*\*/ {on = 1} on' )
@@ -437,6 +437,18 @@ test_template_sections_marked() {
   assert_exit 0 "template markers are balanced (agents-md apply accepts it)" -- \
     "$ROOT/factory/bin/agents-md" apply "$TEST_TMP/template-out.md" "$t"
   assert_contains "$(cat "$TEST_TMP/template-out.md" 2>/dev/null)" '<!-- factory:begin setup -->' "template has a setup section"
+}
+
+test_user_invoked_only() {
+  local f="$ROOT/.claude/skills/factory/SKILL.md" fm d t
+  fm=$(awk 'NR == 1 && /^---$/ {on = 1; next} on && /^---$/ {exit} on' "$f")
+  assert_contains "$fm" 'disable-model-invocation: true' "the factory skill runs only when typed"
+  d=$(printf '%s\n' "$fm" | grep '^description:')
+  assert_eq "1" "$(printf '%s\n' "$fm" | grep -c '^description:')" "the skill has one description line"
+  case $d in *'Use when'*) _fail "the description is for people, not model triggers" "$d" ;; *) _pass ;; esac
+  if [ "${#d}" -le 200 ]; then _pass; else _fail "the description is one short line" "${#d} chars"; fi
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  assert_contains "$t" "use only the factory's own roles and scripts" "the orchestrator stays in the factory loop"
 }
 
 # The builder writes a failing test first for behaviour-changing tasks (issue #15).
