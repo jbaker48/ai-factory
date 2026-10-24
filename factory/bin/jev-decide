@@ -3,6 +3,7 @@
 #
 #   factory/bin/jev-decide route <job-folder> <task-id>
 #   factory/bin/jev-decide triage <job-folder> <round>
+#   factory/bin/jev-decide reviewers <job-folder> <round>
 #
 # Subcommands are dispatched by name from main. They share three helpers:
 # cfg (the jev settings over their defaults), ask (one call to jev) and
@@ -34,6 +35,17 @@
 # is approver/low-confidence; a failed call, a missing answer or a choice the
 # question did not offer is approver/error; metadata mode offers only fine or
 # approver, and approver is why "jev".
+#
+# reviewers: decides which review lenses a round can skip. Asks review.ux and
+# review.ui always, review.security and review.code only when the run index
+# r = round - round_base is 2 or more (adversarial is never asked), with a state
+# of the changed files (git diff --numstat against `settings base`, 40 listed),
+# the UI files and, for security/code, the previous round's verdict, counts and
+# fix-task files. A skip answered with p >= min_confidence writes
+# round-<N>/review-<lens>.md ("VERDICT: SKIPPED", blank, "Skipped by Jev (p=<p>):
+# <state line>."); a lens whose file already exists is not asked. Prints
+# "reviewers round <N>: run <lenses>; skip <lens> (p=<p>), ..." or "run all"
+# (nothing skipped, off, or any jev failure). Outcome did is "skip" or "run".
 #
 # jev is ${JEV_BIN:-<factory>/bin/jev}. A jev failure prints its stderr line
 # once and falls back to builder. Every subcommand always exits 0.
@@ -124,6 +136,11 @@ task_files() {
 # top_dir <path>: its top-level directory, or "." for a root file.
 top_dir() { case $1 in */*) echo "${1%%/*}/" ;; *) echo "." ;; esac; }
 
+# commit_files <build-report>: the paths in its "## Commit" -> "Files:" bullets.
+commit_files() {
+  awk '/^## /{c = ($0 == "## Commit"); fl = 0; next} c && /^Files:/{fl = 1; next} c && fl && /^- /{sub(/^- /, ""); print; next} fl && !/^- /{fl = 0}' "$1"
+}
+
 # history_line "<dirs>": how earlier tasks touching these space-separated
 # top-level directories went, from every factory/jobs/*/job.json and build/<id>.md.
 # SELF_TASK (<job>/<id>) is left out. Prints nothing without directories.
@@ -142,7 +159,7 @@ history_line() {
       while IFS= read -r p; do
         d=$(top_dir "$p")
         case " $dirs " in *" $d "*) hit=1; break ;; esac
-      done < <(awk '/^## /{c = ($0 == "## Commit"); fl = 0; next} c && /^Files:/{fl = 1; next} c && fl && /^- /{sub(/^- /, ""); print; next} fl && !/^- /{fl = 0}' "$f")
+      done < <(commit_files "$f")
       [ "$hit" = 1 ] && rows="$rows$role	$flag
 "
     done < <(jq -r '.tasks[]? | [.id, (.role // "builder"), (if (.runs // 1) > 1 or .status == "blocked" then 1 else 0 end)] | @tsv' "$jf" 2>/dev/null)
@@ -447,6 +464,143 @@ $path
   echo "triage round $n: $outline"
 }
 
+# is_ui <path>: true for a UI file: a UI extension, or a UI directory in the path.
+is_ui() {
+  case $1 in
+    *.html | *.css | *.scss | *.sass | *.less | *.tsx | *.jsx | *.vue | *.svelte | *.astro | *.erb | *.hbs | *.swift | *.xib | *.storyboard) return 0 ;;
+    *components/* | *pages/* | *views/* | *templates/* | *public/*) return 0 ;;
+  esac
+  return 1
+}
+
+# plural <n> <word>: "1 word", "2 words".
+plural() { if [ "$1" = 1 ]; then echo "$1 $2"; else echo "$1 $2s"; fi; }
+
+# review_line <job> <round> <lens> <fix-files>: the state line for a security or
+# code review: the lens's verdict in that round, its Findings and Notes counts,
+# and the files the round's fix tasks changed.
+review_line() {
+  local f=$1/round-$2/review-$3.md verdict findings notes
+  if [ ! -f "$f" ]; then echo "$3: no review file from round $2"; return; fi
+  verdict=$(sed -n '1s/^VERDICT:[[:space:]]*//p' "$f" | tr -d '[:space:]')
+  findings=$(sed -n '/^## Findings/,/^## /p' "$f" | grep -cE '^[[:space:]]*[0-9]+\.' || true)
+  notes=$(notes_of "$f" | grep -c . || true)
+  printf '%s: previous round %s, %s, %s; fix tasks changed %s\n' "$3" "${verdict:-unknown}" \
+    "$(plural "$findings" finding)" "$(plural "$notes" note)" "${4:-no files}"
+}
+
+# fix_files <job> <round>: the files the "Fix round <round> ..." tasks changed.
+fix_files() {
+  local id out=""
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    while IFS= read -r f; do
+      [ -n "$f" ] && case ", $out," in *", $f,"*) ;; *) out="$out${out:+, }$f" ;; esac
+    done < <(commit_files "$1/build/$id.md" 2>/dev/null)
+  done < <(jq -r --arg p "Fix round $2 " '.tasks[]? | select((.title // "") | startswith($p)) | .id' "$1/job.json" 2>/dev/null)
+  printf '%s' "$out"
+}
+
+# reviewers_state <job> <round> <run-index> <asked-lenses>: the state text.
+reviewers_state() {
+  local job=$1 n=$2 r=$3 asked=$4 wt base stat total=0 shown=0 lines path uis="" nui=0 lens ufiles
+  wt=$(jq -r '.worktree // empty' "$job/job.json")
+  base=$("$factory/bin/settings" base 2>/dev/null)
+  stat=$(git -C "$wt" diff --numstat --no-renames "${base:-main}...HEAD" 2>/dev/null |
+    awk -F'\t' '{ l = ($1 == "-" ? 0 : $1) + ($2 == "-" ? 0 : $2); print l "\t" $3 }' | sort -t"$(printf '\t')" -k1,1nr -k2,2)
+  printf 'Review round %s (run round %s)\n' "$n" "$r"
+  total=$(grep -c . <<<"$stat" || true)
+  printf 'Changed files: %s\n' "$total"
+  while IFS=$'\t' read -r lines path; do
+    [ -n "$path" ] || continue
+    if [ "$shown" -lt 40 ]; then printf -- '- %s (%s lines)\n' "$path" "$lines"; shown=$((shown + 1)); fi
+    if is_ui "$path"; then
+      nui=$((nui + 1))
+      [ "$nui" -le 10 ] && uis="$uis${uis:+, }$path"
+    fi
+  done <<<"$stat"
+  [ "$total" -gt 40 ] && printf 'and %s more\n' "$((total - 40))"
+  if [ "$nui" -gt 10 ]; then uis="$uis, and $((nui - 10)) more"; fi
+  if [ "$nui" = 0 ]; then ufiles="no UI files"; else ufiles="$(plural "$nui" 'UI file') ($uis)"; fi
+  for lens in $asked; do
+    case $lens in
+      ux | ui) printf '%s: %s\n' "$lens" "$ufiles" ;;
+      *) review_line "$job" "$((n - 1))" "$lens" "$(fix_files "$job" "$((n - 1))")" ;;
+    esac
+  done
+}
+
+cmd_reviewers() {
+  local job=$1 n=$2 conf send min dir r lens f asked="" tmp out round_base key p choice
+  local skips="" runs="" outcome='{}' qs why did used ok line
+  conf=$(cfg)
+  send=$(jq -r '.send' <<<"$conf")
+  if [ "$(jq -r '.reviewers' <<<"$conf")" = false ]; then send=off; fi
+  case $send in metadata | summary) ;; *) echo "reviewers round $n: run all"; return ;; esac
+  min=$(jq -r '.min_confidence' <<<"$conf")
+  dir=$job/round-$n
+  mkdir -p "$dir" || { echo "reviewers round $n: run all"; return; }
+  round_base=$(jq -r '.round_base // 0' "$job/job.json" 2>/dev/null) || round_base=0
+  r=$((n - ${round_base:-0}))
+
+  for lens in ux ui security code; do
+    f=$dir/review-$lens.md
+    if [ -f "$f" ]; then continue; fi
+    if [ "$r" -ge 2 ] || [ "$lens" = ux ] || [ "$lens" = ui ]; then asked="$asked${asked:+ }$lens"; fi
+  done
+
+  local answers='{}' failed=0
+  if [ -n "$asked" ]; then
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/jev-decide.XXXXXX") || { echo "reviewers round $n: run all"; return; }
+    reviewers_state "$job" "$n" "$r" "$asked" >"$tmp/state" 2>/dev/null
+    qs=$(jq -c --arg a "$asked" '. as $all | ($a | split(" ")) | map({key: "review.\(.)", value: $all["review.\(.)"]}) | from_entries' "$factory/jev/reviewers.json")
+    printf '%s\n' "$qs" >"$tmp/questions"
+    if out=$(try_ask reviewers "$tmp/questions" "$tmp/state"); then
+      answers=$(jq -c '.answers // {}' <<<"$out")
+    else
+      failed=1
+    fi
+    for lens in $asked; do
+      key=review.$lens
+      choice=$(jq -r --arg k "$key" '.[$k].choice // empty' <<<"$answers")
+      p=$(jq -r --arg k "$key" '.[$k].p // empty' <<<"$answers")
+      case $choice in run | skip) ok=1 ;; *) ok=0 ;; esac
+      if [ "$failed" = 1 ] || [ "$ok" = 0 ] || [ -z "$p" ]; then
+        used=false why='"error"' did=run
+      elif awk -v p="$p" -v m="$min" 'BEGIN { exit !(p < m) }'; then
+        used=false why='"low-confidence"' did=run
+      else
+        used=true why=null did=$choice
+      fi
+      outcome=$(jq -c --arg k "$key" --argjson u "$used" --argjson w "$why" --arg d "$did" \
+        '. + {($k): {used: $u, why: $w, did: $d}}' <<<"$outcome")
+      if [ "$did" = skip ]; then
+        line=$(grep "^$lens: " "$tmp/state" | head -n 1)
+        printf 'VERDICT: SKIPPED\n\nSkipped by Jev (p=%s): %s.\n' "$p" "${line%.}" >"$dir/review-$lens.md"
+      fi
+    done
+    if [ "$failed" = 1 ]; then
+      log_error "$job" reviewers "round-$n" "$n" "$send" "$outcome"
+    else
+      log_line "$job" "$(make_line reviewers "round-$n" "$n" "$send" "$out" "$outcome")"
+    fi
+    rm -rf "$tmp"
+  fi
+
+  # What happens now: a SKIPPED file (new, or kept from before) is a skip.
+  for lens in ux ui security code; do
+    f=$dir/review-$lens.md
+    if [ "$(sed -n 1p "$f" 2>/dev/null)" = "VERDICT: SKIPPED" ]; then
+      p=$(sed -n '3s/^Skipped by Jev (p=\([^)]*\)).*/\1/p' "$f")
+      skips="$skips${skips:+, }$lens (p=${p:-?})"
+    else
+      runs="$runs${runs:+, }$lens"
+    fi
+  done
+  runs="$runs${runs:+, }adversarial"
+  if [ -z "$skips" ]; then echo "reviewers round $n: run all"; else echo "reviewers round $n: run $runs; skip $skips"; fi
+}
+
 main() {
   local sub=${1:-}
   case $sub in
@@ -468,7 +622,16 @@ main() {
       if [ ! -d "$2" ] || ! [[ $3 =~ ^[0-9]+$ ]]; then echo "jev-decide: bad job folder or round" >&2; echo "triage round $3: off"; return 0; fi
       cmd_triage "$2" "$3"
       ;;
-    *) echo "usage: jev-decide route|triage ..." >&2 ;;
+    reviewers)
+      if [ $# -lt 3 ]; then
+        echo "usage: jev-decide reviewers <job-folder> <round>" >&2
+        echo "reviewers round ${3:-?}: run all"
+        return 0
+      fi
+      if [ ! -f "$2/job.json" ] || ! [[ $3 =~ ^[0-9]+$ ]]; then echo "jev-decide: bad job folder or round" >&2; echo "reviewers round $3: run all"; return 0; fi
+      cmd_reviewers "$2" "$3"
+      ;;
+    *) echo "usage: jev-decide route|triage|reviewers ..." >&2 ;;
   esac
   return 0
 }

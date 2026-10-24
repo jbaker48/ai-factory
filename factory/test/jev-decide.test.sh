@@ -370,5 +370,126 @@ test_guard_nested_and_forms() {
   assert_eq '"package.json"' "$(tj '.approver[0].path')" "wrappers stripped from path"
 }
 
+# rsetup: setup plus a job branch with one commit changing docs/a.md.
+rsetup() {
+  setup "$@"
+  mkdir -p "$R/docs"
+  echo a >"$R/docs/a.md"
+  git -C "$R" checkout -q -b job/j1 && git -C "$R" add docs && git -C "$R" commit -q -m "change docs"
+}
+# ranswer <lens>=<choice>:<p> ...: what the fake jev prints for the review questions.
+ranswer() {
+  local a lens rest args='{}'
+  for a in "$@"; do
+    lens=${a%%=*} rest=${a#*=}
+    args=$(jq -c --arg k "review.$lens" --arg c "${rest%%:*}" --argjson p "${rest#*:}" \
+      '. + {($k): {choice: $c, p: $p, probabilities: {($c): $p}}}' <<<"$args")
+  done
+  jq -cn --argjson a "$args" '{model: "jev-2", state: "state", answers: $a, latency_ms: 80, input_tokens: 150}' >"$TEST_TMP/jev.out"
+}
+reviewers() { "$R/factory/bin/jev-decide" reviewers "$J" "${1:-1}" 2>"$TEST_TMP/err"; }
+sent_keys() { jq -r 'keys | join(",")' "$TEST_TMP/questions.sent"; }
+
+test_reviewers_first_round() {
+  rsetup; ranswer ux=skip:0.9 ui=skip:0.9
+  assert_eq "reviewers round 1: run security, code, adversarial; skip ux (p=0.9), ui (p=0.9)" "$(reviewers 1)" "output"
+  assert_eq "review.ui,review.ux" "$(sent_keys)" "questions sent"
+  assert_eq "skip" "$(jq -r '.["review.ux"].criteria | keys | map(select(. == "skip")) | .[0]' "$TEST_TMP/questions.sent")" "skip offered"
+  assert_eq "a change that might alter what this reviewer checks" \
+    "$(jq -r '.["review.ux"].criteria.skip.not_for' "$TEST_TMP/questions.sent")" "skip not_for"
+  f=$J/round-1/review-ux.md
+  assert_eq "VERDICT: SKIPPED" "$(sed -n 1p "$f")" "line 1"
+  assert_eq "" "$(sed -n 2p "$f")" "line 2 blank"
+  l3=$(sed -n 3p "$f")
+  case $l3 in "Skipped by Jev (p=0.9): ux: "*.) _pass ;; *) _fail "line 3" "$l3" ;; esac
+  assert_eq 3 "$(wc -l <"$f" | tr -d ' ')" "three lines"
+  l=$(logline)
+  assert_eq reviewers "$(jq -r .decision <<<"$l")" "decision"
+  assert_eq skip "$(jq -r '.outcome["review.ux"].did' <<<"$l")" "did skip"
+  assert_eq true "$(jq -r '.outcome["review.ux"].used' <<<"$l")" "used"
+}
+
+test_reviewers_round_two_asks_all() {
+  rsetup; mkdir -p "$J/round-1"
+  printf 'VERDICT: PASS\n\n## Findings\nNone.\n\n## Notes\n- one thing\n' >"$J/round-1/review-security.md"
+  printf 'VERDICT: PASS\n\n## Findings\nNone.\n\n## Notes\nNone.\n' >"$J/round-1/review-code.md"
+  ranswer ux=run:0.9 ui=run:0.9 security=run:0.9 code=run:0.9
+  assert_eq "reviewers round 2: run all" "$(reviewers 2)" "output"
+  assert_eq "review.code,review.security,review.ui,review.ux" "$(sent_keys)" "questions sent"
+  s=$(cat "$TEST_TMP/state.sent")
+  assert_contains "$s" "security: previous round PASS" "security line"
+  assert_eq run "$(jq -r '.outcome["review.code"].did' <<<"$(logline)")" "did run"
+}
+
+test_reviewers_round_two_fix_files() {
+  rsetup; mkdir -p "$J/round-1"
+  printf 'VERDICT: CHANGES\n\n## Findings\n1. bad\n2. worse\n\n## Notes\nNone.\n' >"$J/round-1/review-code.md"
+  jq '.tasks += [{id: "f.1", title: "Fix round 1 review", status: "done", runs: 1}]' "$J/job.json" >"$J/j.tmp" && mv "$J/j.tmp" "$J/job.json"
+  printf '## Commit\nFiles:\n- src/fixed.sh\n' >"$J/build/f.1.md"
+  ranswer ux=run:0.9 ui=run:0.9 security=run:0.9 code=run:0.9
+  reviewers 2 >/dev/null
+  s=$(cat "$TEST_TMP/state.sent")
+  assert_contains "$s" "code: previous round CHANGES, 2 findings, 0 notes" "code counts"
+  assert_contains "$s" "src/fixed.sh" "fix task files"
+}
+
+test_reviewers_low_confidence_runs() {
+  rsetup; ranswer ux=skip:0.6 ui=skip:0.6
+  assert_eq "reviewers round 1: run all" "$(reviewers 1)" "output"
+  if [ -e "$J/round-1/review-ux.md" ]; then _fail "no file written"; else _pass; fi
+  assert_eq low-confidence "$(jq -r '.outcome["review.ux"].why' <<<"$(logline)")" "why"
+  assert_eq run "$(jq -r '.outcome["review.ux"].did' <<<"$(logline)")" "did run"
+}
+
+test_reviewers_ui_file_line() {
+  rsetup
+  mkdir -p "$R/src/components"; echo x >"$R/src/components/Button.tsx"
+  git -C "$R" add src && git -C "$R" commit -q -m ui
+  ranswer ux=run:0.9 ui=run:0.9
+  reviewers 1 >/dev/null
+  assert_contains "$(cat "$TEST_TMP/state.sent")" "ui: 1 UI file (src/components/Button.tsx)" "ui line"
+}
+
+test_reviewers_existing_file_kept() {
+  rsetup; mkdir -p "$J/round-1"; echo keep >"$J/round-1/review-ux.md"
+  ranswer ui=run:0.9
+  reviewers 1 >/dev/null
+  assert_eq keep "$(cat "$J/round-1/review-ux.md")" "not rewritten"
+  assert_eq "review.ui" "$(sent_keys)" "ux not asked"
+}
+
+test_reviewers_error_runs_all() {
+  rsetup; ranswer ux=skip:0.9 ui=skip:0.9
+  export JEV_RC=1
+  assert_eq "reviewers round 1: run all" "$(reviewers 1)" "output"
+  unset JEV_RC
+  assert_eq error "$(jq -r '.outcome["review.ux"].why' <<<"$(logline)")" "why error"
+  if [ -e "$J/round-1/review-ux.md" ]; then _fail "no file written"; else _pass; fi
+}
+
+test_reviewers_bad_choice_runs() {
+  rsetup; ranswer ux=maybe:0.9 ui=skip:0.9
+  assert_eq "reviewers round 1: run ux, security, code, adversarial; skip ui (p=0.9)" "$(reviewers 1)" "output"
+}
+
+test_reviewers_off() {
+  rsetup '{}'; ranswer ux=skip:0.9 ui=skip:0.9
+  assert_eq "reviewers round 1: run all" "$(reviewers 1)" "off output"
+  rsetup '{"jev":{"send":"summary","reviewers":false}}'; ranswer ux=skip:0.9 ui=skip:0.9
+  assert_eq "reviewers round 1: run all" "$(reviewers 1)" "reviewers false output"
+  if [ -e "$J/jev.jsonl" ] || [ -e "$STUBS/fakejev.calls" ]; then _fail "nothing logged or called"; else _pass; fi
+}
+
+test_reviewers_many_files() {
+  rsetup
+  mkdir -p "$R/gen"; for i in $(seq 1 59); do echo x >"$R/gen/f$i.txt"; done
+  git -C "$R" add gen && git -C "$R" commit -q -m many
+  ranswer ux=run:0.9 ui=run:0.9
+  reviewers 1 >/dev/null
+  s=$(cat "$TEST_TMP/state.sent")
+  assert_contains "$s" "and 20 more" "more"
+  assert_eq 40 "$(grep -c '^- ' "$TEST_TMP/state.sent")" "40 listed"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish
