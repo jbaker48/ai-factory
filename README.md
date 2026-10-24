@@ -236,7 +236,7 @@ two REWORKs and one RESPEC per job, never push.
 /factory rework <job-id> <note>  resubmit a needs-human job to the builder with a note
 /factory resume <job-id>         pick up a job whose session ended mid-step
 /factory retro <job-id>          run a retro on one job by hand
-/factory setup                   set up Beads and AGENTS.md; re-run to update AGENTS.md
+/factory setup                   set up Beads and AGENTS.md, then take your decisions (policy, preset, settings, Jev, install commit); re-run to update either
 ```
 
 ## Human review

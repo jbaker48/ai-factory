@@ -470,6 +470,7 @@ test_setup_command() {
   assert_contains "$s" 'factory/bin/agents-md check' "setup.md proves the commands in a fresh worktree with the script"
   assert_contains "$s" 'factory/AGENTS.template.md' "setup.md starts from the template"
   assert_contains "$s" 'factory agents never run `bd` and read the snapshot the orchestrator takes' "setup.md scopes Beads' instructions: agents never call bd"
+  assert_contains "$(grep '^/factory setup ' "$ROOT/README.md")" 'decisions' "README's /factory setup row names the decisions half"
 }
 
 test_template_sections_marked() {
