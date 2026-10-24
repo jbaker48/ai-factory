@@ -280,6 +280,8 @@ the retros help.
 ```
 .claude/
   skills/factory/SKILL.md        the orchestrator: runs the loop, writes job.json and Beads
+  skills/factory/import.md  adopt.md  review.md  retro.md  resume.md
+                                 rarer subcommands, read only when SKILL.md points there
   agents/factory-agent.md        runs any role on a Claude model
 factory/
   models.json                    role → provider, model, effort
