@@ -219,5 +219,15 @@ test_jev_lines() {
   case $(run) in *jev*) _fail "no jev line without jev.jsonl" "$(run)" ;; *) _pass ;; esac
 }
 
+test_jev_malformed_lines() {
+  fresh
+  job 001-a build "$(ul build 1000000 0 0)"
+  printf '%s\n' '{"decision":"route","task":"t1"}' '{"decision":"triage","outcome":"x"}' '{"decision":"reviewers","outcome":{"review.a":5},"answers":[1]}' 'not json' >"$R/factory/jobs/001-a/jev.jsonl"
+  out=$(cd "$R" && "$US" 2>"$R/err")
+  assert_contains "$out" "quota: no data" "quota survives malformed jev lines"
+  assert_contains "$out" "jev route: 1 calls, 0 used, fallbacks none;" "line without outcome is a call"
+  assert_eq "" "$(cat "$R/err")" "no stderr"
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish

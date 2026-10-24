@@ -56,7 +56,9 @@ jq -n -R -r '
   | [ $dirs[]
       | ((map(select(.f | endswith("job.json")).v) | join("\n") | fromjson? | select(type == "object")) // {}) as $j
       | (map(select(.f | endswith("usage.jsonl")).v | fromjson? | select(type == "object"))) as $u
-      | (map(select(.f | endswith("jev.jsonl")).v | fromjson? | select(type == "object"))) as $jev
+      | (map(select(.f | endswith("jev.jsonl")).v | fromjson? | select(type == "object")
+            | .outcome |= (if type == "object" then with_entries(select(.value | type == "object")) else {} end)
+            | .answers |= (if type == "object" then with_entries(select(.value | type == "object")) else {} end))) as $jev
       | { id: (.[0].f | split("/") | .[-2]), j: $j, stage: ($j.stage // "?"), u: $u, jev: $jev,
           finished: (($j.stage // "") | IN("merged", "dropped")) } ] as $all
   | ($all | map(select(.u | length > 0))) as $jobs
