@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Prints the Beads description the orchestrator files for one plan task.
+#
+#   factory/bin/task-description <plan.json> <key>
+#
+# The description is the task's own description, then its seam (when the plan
+# gives one) as "Seam:", "Catches:" and "Misses:" lines, then
+# "Covers acceptance criteria: <covers>. Plan key: <key>." The orchestrator
+# passes it to `bd create -d`, or for a reused bead to `bd comment`, so the
+# builder sees the seam in the task's description or comments in beads.md.
+# Exit codes: 0 ok, 1 no task with that key, 2 usage.
+set -uo pipefail
+
+if [ $# -ne 2 ]; then
+  echo "usage: task-description <plan.json> <key>" >&2
+  exit 2
+fi
+
+jq -er --arg key "$2" '
+  first(.tasks[] | select(.key == $key))
+  | [.description]
+    + (if .seam then
+         ["Seam: \(.seam.interface)\nCatches: \(.seam.catches)\nMisses: \(.seam.misses)"]
+       else [] end)
+    + ["Covers acceptance criteria: \(.covers | map(tostring) | join(", ")). Plan key: \(.key)."]
+  | join("\n\n")' "$1" || {
+  echo "task-description: no task $2 in $1" >&2
+  exit 1
+}

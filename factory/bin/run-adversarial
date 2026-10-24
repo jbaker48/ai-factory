@@ -7,7 +7,9 @@
 # Writes <job-folder>/round-<round>/review-adversarial.md. The review is
 # read-only. Findings at a severity in "block_on" with confidence of at least
 # "min_confidence" (factory/models.json, key reviewer-adversarial) make the
-# verdict CHANGES; everything else goes under Notes. The raw JSON is kept in
+# verdict CHANGES; everything else goes under Notes. The focus prompt adds the
+# seam checks from factory/design.md and the seams in <job-folder>/plan.json,
+# when it exists. The raw JSON is kept in
 # <job-folder>/.runs/, and its usage goes to <job-folder>/usage.jsonl via
 # usage-record. Set CODEX_COMPANION to use a specific codex-companion.mjs.
 set -uo pipefail
@@ -30,7 +32,16 @@ companion=${CODEX_COMPANION:-$(ls -d ~/.claude/plugins/cache/openai-codex/codex/
 
 mkdir -p "$job/.runs" "$job/round-$round"
 log="$job/.runs/$(date +%Y%m%d-%H%M%S)-reviewer-adversarial"
+seams="none planned"
+if [ -f "$job/plan.json" ]; then
+  seams=$(jq -r '.tasks[]? | "- \(.key) \(.title): " + (if .seam then "\(.seam.interface) (catches: \(.seam.catches); misses: \(.seam.misses))" else "no seam" end)' "$job/plan.json" 2>/dev/null) || seams="plan.json unreadable"
+fi
 focus="Challenge this branch against its spec below. Look for ways it breaks: unmet or weakly verified acceptance criteria, edge cases, regressions, and anything the spec's Out of scope forbids.
+
+Also check seam placement against factory/design.md and the planned seams below: testing past the interface (a test that reaches behind a task's seam, or a seam on an internal helper), single-adapter seams (a new interface with one implementation, added to have something to mock), and shallow pass-through modules that fail the deletion test.
+
+Planned seams:
+$seams
 
 $(cat "$job/spec.md")"
 printf '%s\n' "$focus" >"$log.prompt.md" || {

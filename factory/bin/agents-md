@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Keeps the factory's sections of a target's AGENTS.md current, and proves its
+# commands in a fresh worktree. Used by /factory setup (.claude/skills/factory/setup.md).
+#
+#   factory/bin/agents-md apply <AGENTS.md> <sections.md>
+#   factory/bin/agents-md check <repo> <commands-file>
+#
+# A factory section is the text from `<!-- factory:begin <name> -->` to
+# `<!-- factory:end <name> -->`, markers included. apply replaces each section
+# of <sections.md> in <AGENTS.md> in place and appends the ones <AGENTS.md>
+# lacks (writing it if missing). Everything outside the markers is the user's
+# and is left byte for byte. Unbalanced markers in either file change nothing.
+#
+# check adds a fresh detached worktree of <repo>'s HEAD, copies in <repo>'s
+# AGENTS.md (it may be uncommitted), and runs each line of <commands-file>
+# (blank lines and # comments skipped) there with bash, in order, stdin closed.
+# It prints PASS or FAIL (exit N) per command, the tail of each failure's
+# output, and a summary, then removes the worktree.
+# Exit: 0 done (check: every command passed), 1 failed, 2 usage.
+set -uo pipefail
+
+die() { echo "agents-md: $1" >&2; exit "${2:-1}"; }
+
+# balanced <file>: every begin marker is closed by its own end marker before the
+# next begin, and no end marker is stray. Prints the first problem.
+balanced() {
+  awk '
+    /^<!-- factory:begin [^ ]+ -->$/ {
+      if (cur != "") { print FILENAME ":" FNR ": section " cur " is not closed"; bad = 1; exit }
+      cur = $3; next
+    }
+    /^<!-- factory:end [^ ]+ -->$/ {
+      if ($3 != cur) { print FILENAME ":" FNR ": end marker for " $3 " without its begin"; bad = 1; exit }
+      cur = ""; next
+    }
+    END { if (!bad && cur != "") { print FILENAME ": section " cur " is not closed"; exit 1 } if (bad) exit 1 }
+  ' "$1"
+}
+
+apply() {
+  local target=$1 new=$2 tmp
+  [ -f "$new" ] || die "no such file: $new"
+  balanced "$new" >&2 || die "unbalanced markers; nothing changed"
+  [ ! -e "$target" ] || balanced "$target" >&2 || die "unbalanced markers; nothing changed"
+  local src=$target
+  [ -e "$target" ] || src=/dev/null
+  tmp=$(mktemp "${TMPDIR:-/tmp}/agents-md.XXXXXX") || die "cannot make a temp file"
+  awk '
+    function bname(s) { sub(/^<!-- factory:begin /, "", s); sub(/ -->$/, "", s); return s }
+    FNR == NR {
+      if ($0 ~ /^<!-- factory:begin [^ ]+ -->$/) { cur = bname($0); order[++count] = cur }
+      if (cur != "") body[cur] = body[cur] $0 "\n"
+      if (cur != "" && $0 == "<!-- factory:end " cur " -->") cur = ""
+      next
+    }
+    skip != "" { if ($0 == "<!-- factory:end " skip " -->") skip = ""; next }
+    /^<!-- factory:begin [^ ]+ -->$/ {
+      n = bname($0)
+      if (n in body) { printf "%s", body[n]; done[n] = 1; skip = n; wrote = 1; last = "end"; next }
+    }
+    { print; wrote = 1; last = $0 }
+    END {
+      for (i = 1; i <= count; i++) {
+        n = order[i]
+        if (n in done) continue
+        if (wrote && last != "") print ""
+        printf "%s", body[n]; wrote = 1; last = "end"
+        done[n] = 1
+      }
+    }
+  ' "$new" "$src" >"$tmp" || { rm -f "$tmp"; die "merge failed"; }
+  cat "$tmp" >"$target" || { rm -f "$tmp"; die "cannot write $target"; }
+  rm -f "$tmp"
+}
+
+check() {
+  local repo=$1 cmds=$2 wt n=0 failed=0 cmd code log
+  [ -f "$cmds" ] || die "no such file: $cmds"
+  repo=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) || die "not a git repo: $1"
+  wt=$(mktemp -d "${TMPDIR:-/tmp}/factory-check.XXXXXX") || die "cannot make a temp dir"
+  rmdir "$wt"
+  git -C "$repo" worktree add -q --detach "$wt" HEAD >/dev/null 2>&1 || die "cannot add a worktree of $repo"
+  # shellcheck disable=SC2064
+  trap "git -C '$repo' worktree remove --force '$wt' >/dev/null 2>&1; rm -rf '$wt'" EXIT
+  [ ! -f "$repo/AGENTS.md" ] || cp "$repo/AGENTS.md" "$wt/AGENTS.md"
+  log=$(mktemp "${TMPDIR:-/tmp}/factory-check-log.XXXXXX") || die "cannot make a temp file"
+  while IFS= read -r cmd || [ -n "$cmd" ]; do
+    case $cmd in '' | '#'*) continue ;; esac
+    n=$((n + 1))
+    (cd "$wt" && bash -c "$cmd") </dev/null >"$log" 2>&1
+    code=$?
+    if [ "$code" -eq 0 ]; then
+      echo "PASS $cmd"
+    else
+      failed=$((failed + 1))
+      echo "FAIL (exit $code) $cmd"
+      tail -n 20 "$log" | sed 's/^/  | /'
+    fi
+  done <"$cmds"
+  rm -f "$log"
+  if [ "$failed" -eq 0 ]; then echo "all $n commands passed"; return 0; fi
+  echo "$failed of $n commands failed"
+  return 1
+}
+
+usage="usage: factory/bin/agents-md apply <AGENTS.md> <sections.md>
+       factory/bin/agents-md check <repo> <commands-file>"
+case ${1:-} in
+  apply) [ $# -eq 3 ] || die "$usage" 2; apply "$2" "$3" ;;
+  check) [ $# -eq 3 ] || die "$usage" 2; check "$2" "$3" ;;
+  *) die "$usage" 2 ;;
+esac

@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Checks whether a target repo's factory is behind this checkout, and with
+# --apply upgrades it.
+#
+#   factory/bin/upgrade [--apply] <target>
+#
+# Reads the target's factory/VERSION and this checkout's factory/manifest and
+# prints the installed and source versions ("unversioned" for an install
+# older than VERSION), the commits between them, and each shipped file that
+# differs: "changed" (both have it) or "new" (only the source has it). Then
+# the target's "extra" files under a shipped directory (only the target has
+# them; an upgrade leaves them), and the owned files the user has customised
+# (differ from the copy installed; an upgrade keeps them). Without --apply it
+# changes nothing. --apply then runs factory/bin/install, which overwrites the
+# shipped files, writes only missing owned files, and updates factory/VERSION.
+# Exit: 0 up to date (or upgraded), 3 behind or drifted, 1 failed, 2 usage.
+set -uo pipefail
+
+src=$(cd "$(dirname "$0")/../.." && pwd -P)
+die() { echo "upgrade: $1" >&2; exit "${2:-1}"; }
+
+apply=""
+[ "${1:-}" = --apply ] && { apply=1; shift; }
+[ $# -eq 1 ] && [ "${1#-}" = "$1" ] || die "usage: factory/bin/upgrade [--apply] <target>" 2
+[ -d "$1" ] || die "no such directory: $1"
+target=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) || die "not a git repo: $1"
+sha=$(git -C "$src" rev-parse HEAD 2>/dev/null) || die "source is not a git checkout: $src"
+[ "$target" != "$src" ] || die "target is the source checkout"
+entries=$("$src/factory/bin/manifest-read") || exit 1
+installed=""
+[ -f "$target/factory/VERSION" ] && installed=$(tr -d '[:space:]' <"$target/factory/VERSION")
+known=""
+[ -n "$installed" ] && git -C "$src" cat-file -e "$installed^{commit}" 2>/dev/null && known=1
+
+stale=""
+echo "installed: ${installed:-unversioned}"
+echo "source:    $sha"
+if [ -z "$installed" ]; then
+  stale=1
+elif [ -z "$known" ]; then
+  stale=1
+  echo "behind:    unknown ($installed is not a commit in the source)"
+elif [ "$installed" != "$sha" ]; then
+  stale=1
+  n=$(git -C "$src" rev-list --count "$installed..$sha")
+  [ "$n" = 1 ] && echo "behind:    1 commit" || echo "behind:    $n commits"
+fi
+
+# shipped_files <path>: the source's files under one shipped entry, then the
+# target's, one relative path per line, unique.
+shipped_files() {
+  { git -C "$src" ls-files -- "$1"
+    [ -e "$target/$1" ] && (cd "$target" && find "$1" -type f)
+  } | sed 's|//*|/|g' | sort -u
+}
+
+drift="" extra=""
+while read -r path; do
+  [ -n "$path" ] || continue
+  while read -r f; do
+    [ -n "$f" ] || continue
+    if [ ! -e "$target/$f" ]; then drift="$drift"$'\n'"  new      $f"
+    elif [ ! -e "$src/$f" ]; then extra="$extra"$'\n'"  extra    $f"
+    elif ! cmp -s "$src/$f" "$target/$f"; then drift="$drift"$'\n'"  changed  $f"
+    fi
+  done < <(shipped_files "$path")
+done < <(awk '$1 == "shipped" {print $2}' <<<"$entries")
+
+if [ -n "$drift" ]; then
+  stale=1
+  echo "shipped files that differ:$drift"
+fi
+[ -z "$extra" ] || echo "files only the target has, left as they are:$extra"
+
+# An owned file is customised when it differs from the copy the target was
+# installed from: the source at the installed commit, or the source's current
+# copy when that commit is unknown. Files the source never had are skipped.
+custom=""
+while read -r path; do
+  [ -f "$target/$path" ] || continue
+  if [ -n "$known" ]; then
+    git -C "$src" cat-file -e "$installed:$path" 2>/dev/null || continue
+    cmp -s <(git -C "$src" show "$installed:$path") "$target/$path" && continue
+  else
+    [ -f "$src/$path" ] || continue
+    cmp -s "$src/$path" "$target/$path" && continue
+  fi
+  custom="$custom"$'\n'"  customised $path"
+done < <(awk '$1 == "owned" {print $2}' <<<"$entries")
+[ -z "$custom" ] || echo "owned files kept as they are:$custom"
+
+if [ -z "$stale" ]; then
+  echo "up to date"
+  exit 0
+fi
+[ -n "$apply" ] || exit 3
+"$src/factory/bin/install" "$target" || die "install failed"

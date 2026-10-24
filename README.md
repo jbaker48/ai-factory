@@ -108,8 +108,10 @@ the job's worktree with write access to the job folder only, and logs
 everything to `factory/jobs/<job-id>/.runs/`. The Codex sandbox keeps `.git`
 read-only, so no agent commits: builders list their files and a commit message,
 and the orchestrator commits each task as one commit tagged with its bead id
-(`Add limiter middleware (app-k2f.1)`). Both read the same
-`factory/agents/<role>.md`, so moving a role between providers is a one-line
+(`Add limiter middleware (app-k2f.1)`). Both get their prompt from
+`factory/bin/role-prompt`: `factory/role-preamble.md` first, then the role
+(`factory/agents/<role>.md`, inlined for Codex and named in a `Role:` line
+for Claude), then the task. Moving a role between providers is a one-line
 change.
 
 ## Beads
@@ -123,8 +125,9 @@ change.
 | label `queued`                         | the backlog for `/factory next` and autopilot |
 | label `needs-human`                    | parked for you                         |
 
-Agents only read Beads (`bd --readonly`). The orchestrator makes every write
-from the main checkout, so the Codex sandbox and parallel sessions never
+Agents never run `bd`: they read `beads.md` in the job folder, a snapshot the
+orchestrator takes before every role. The orchestrator makes every Beads
+write from the main checkout, so the Codex sandbox and parallel sessions never
 collide. Queue claims use `bd update <bead> --claim`, which is atomic; the
 autopilot drain claims with a compare-and-set (`--if-assignee ''`) so that
 two of its workers, which share one actor, can't both take a bead.
@@ -233,6 +236,7 @@ two REWORKs and one RESPEC per job, never push.
 /factory rework <job-id> <note>  resubmit a needs-human job to the builder with a note
 /factory resume <job-id>         pick up a job whose session ended mid-step
 /factory retro <job-id>          run a retro on one job by hand
+/factory setup                   set up Beads and AGENTS.md, then take your decisions (policy, preset, settings, Jev, install commit); re-run to update either
 ```
 
 ## Human review
@@ -268,6 +272,9 @@ and drafts the fixes that would have saved them:
   go to ai-factory itself when `factory_source` in `factory/settings.json`
   names a local ai-factory checkout: a PR there titled `Retro <repo> <job-id>: <n> fixes`. Without it
   they land in the job folder as `retro-factory.patch`.
+- **ADR candidates**: a decision the job made that is hard to reverse,
+  surprising without context and a real trade-off is listed in `retro.md`
+  and the repo PR body, with the reason for each test. You write the ADR.
 
 Nothing merges by itself; you review the PRs. `/factory retro <job-id>` runs
 one by hand on any job, and running it again updates the open PRs.
@@ -280,22 +287,34 @@ the retros help.
 ```
 .claude/
   skills/factory/SKILL.md        the orchestrator: runs the loop, writes job.json and Beads
+  skills/factory/import.md  adopt.md  review.md  retro.md  resume.md  setup.md
+                                 rarer subcommands, read only when SKILL.md points there
   agents/factory-agent.md        runs any role on a Claude model
 factory/
   models.json                    role → provider, model, effort
   presets/                       mixed.json, lean.json, claude.json, openai.json: models.json presets
   autopilot-policy.md            what the autopilot may decide alone
-  AGENTS.template.md             starting point for your repo's AGENTS.md
+  AGENTS.template.md             starting point for your repo's AGENTS.md, read by /factory setup
   agents/                        one instruction file per role, for any provider
     spec-writer.md  planner.md  builder.md
     reviewer-security.md  reviewer-code.md  reviewer-ux.md  reviewer-ui.md
     reviewer-adversarial.md      (claude and openai presets)
     approver.md  autopilot.md  importer.md  briefer.md  retro.md
+  testing.md                     what a good test is, read by the builder and code reviewer
+  design.md                      where seams go, read by the planner and adversarial reviewer
+  manifest                       which files an install ships, which the user owns
+  bin/install                    installs or upgrades the factory in a repo
+  bin/upgrade                    checks an installed repo against this checkout; --apply upgrades it
+  bin/manifest-read              the one manifest parser install and upgrade share
+  bin/agents-md                  merges factory sections into AGENTS.md; checks its commands
+  bin/decisions                  prints the current value of each /factory setup decision
   bin/models                     shows or switches the models.json preset
   bin/run-codex                  runs an OpenAI role through codex exec
   bin/run-adversarial            runs the Codex plugin's adversarial review as a reviewer
-  bin/prompt-record              records a Claude role's prompt
+  bin/role-prompt                builds a role's prompt: the shared preamble, the role, the task
+  bin/prompt-record              records a Claude role's prompt and prints it for the spawn
   bin/job-set                    updates a job.json field with jq, quietly
+  bin/task-description           builds a plan task's bead description, seam included
   bin/jev                        TypeSafe client for Jev, the decision helper
   bin/jev-decide                 Jev's route, reviewers and triage decisions
   jev/                           Jev's question templates and park-paths.txt
@@ -306,6 +325,7 @@ factory/
   dashboard/runs.js              reads run prompt and usage data
   dashboard/git.js               reads job task commits and diffs
   dashboard/detail.js            renders job detail data
+  VERSION                        in an installed repo: the ai-factory commit it came from
   jobs/                          one folder per job (runtime state)
   imports/                       one folder per PRD import (runtime state)
   autopilot-runs/                headless session output from bin/autopilot
@@ -314,8 +334,11 @@ factory/
 ## Use it in your repo
 
 To have a coding agent do this, point it at [`INSTALL.md`](INSTALL.md): it
-checks the tools, copies the files, writes and tests `AGENTS.md`, and asks you
-the decisions. By hand:
+checks the tools, runs the install script, then has you run `/factory setup`,
+which writes and tests `AGENTS.md` and asks you the decisions (the autopilot
+policy, the model preset, the settings, Jev's send mode and the install
+commit), offering your current answers as defaults on a re-run. The factory
+ships its own references and needs no external skills plugin. By hand:
 
 1. Install `bd` (Beads), the Codex CLI (logged in, with access to the models in
    `models.json`), the Codex plugin for Claude Code (for the adversarial
@@ -323,19 +346,27 @@ the decisions. By hand:
    the Codex CLI and plugin; with `factory/bin/models openai`, the plugin. Install
    [`agent-browser`](https://github.com/vercel-labs/agent-browser) if your
    project has pages to look at.
-2. Copy `.claude/` and `factory/` into your repo root.
+2. Run `factory/bin/install <your repo>` from this checkout. It copies the
+   files `factory/manifest` lists as shipped, keeps your `models.json` and
+   `autopilot-policy.md` if you have them, adds the `.gitignore` lines, and
+   writes `factory/VERSION` (the commit it installed from). Later,
+   `factory/bin/upgrade <your repo>` shows how far behind it is: the commits
+   since `VERSION`, the shipped files that changed, and the owned files you
+   customised. `factory/bin/upgrade --apply <your repo>` upgrades it.
 3. Run `bd init` in the repo if it has no Beads workspace yet. If it has one,
    keep it: see **Brownfield** above, and start with `/factory import <prd>`.
-4. Add `/factory/jobs/`, `/factory/imports/` and `/factory/autopilot-runs/`
-   to your `.gitignore`. They are runtime state.
-5. Write your `AGENTS.md` from `factory/AGENTS.template.md`, and make
-   `CLAUDE.md` the one line `@AGENTS.md`. The agents carry nothing
+4. Write your `AGENTS.md` from `factory/AGENTS.template.md` (the install
+   copies it), keeping its section markers, and make
+   `CLAUDE.md` the one line `@AGENTS.md`. `/factory setup` in the repo does
+   steps 3 and 4 for you and proves every command in a fresh worktree; run it
+   again later to refresh the factory's sections without touching your own.
+   The agents carry nothing
    repo-specific: they get setup for a fresh worktree, the dev server on a
    given port, validation commands and conventions from this file. The
    template's header comment lists the conditions those commands must work
    under (no gitignored files, parallel jobs, no network for reviewers).
-6. Read `factory/autopilot-policy.md` and adjust it before using autopilot.
-7. Commit everything on `main`, then run `/factory <feature>`.
+5. Read `factory/autopilot-policy.md` and adjust it before using autopilot.
+6. Commit everything on `main`, then run `/factory <feature>`.
 
 ## Dashboard
 

@@ -12,15 +12,11 @@ the job runs on autopilot, to the autopilot agent, which reads your
 
 ## Where you work
 
-Your prompt gives the job's worktree: a checkout of the job branch outside the
-main checkout. Your shell may start anywhere, so start every shell command with
-`cd <worktree> && ` and use absolute paths for every file you read or write. The
-job folder is in the main checkout; your one file goes there. Never change
-anything in the worktree: the orchestrator checks it is still clean after you.
+Your one file goes in the job folder. Never change anything in the worktree: the
+orchestrator checks it is still clean after you.
 
-Beads is not available to you. Read `<job folder>/beads.md`: the
-orchestrator's snapshot, taken just before you started. Its Children
-section lists the tasks the builder worked through.
+The Children section of `<job folder>/beads.md` lists the tasks the builder
+worked through.
 
 ## Read
 
@@ -85,6 +81,16 @@ Two or three sentences.
 ## For the human
 Only when you escalate: the exact decision or check you need from them, and the
 files to look at.
+
+Seams:
+- <key> <title>: <seam interface> (catches: <...>; misses: <...>)
+Candidate ADR: <decision>: hard to reverse: <why>; surprising without context: <why>; real trade-off: <why>.
 ```
 
-The first line must be exactly `APPROVE` or `ESCALATE`.
+The first line must be exactly `APPROVE` or `ESCALATE`. When you escalate,
+list each task's seam from `plan.json` under `Seams:`, one line per task, so
+the person can sanity-check where each task was tested; a task with no seam
+reads `<key> <title>: no seam (docs, config or final check)`. Add the
+`Candidate ADR` line only when the decision you escalate on is one where all
+three tests hold: hard to reverse, surprising without context, and the result
+of a real trade-off. Otherwise leave it out.

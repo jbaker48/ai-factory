@@ -158,7 +158,14 @@ test_watch_resume_cap_not_reclaimed() {
   # every session leaves the job resubmitted, so the resumes run out
   STUB_STAGE=resubmitted STUB_SLEEP=0 factory/bin/autopilot --watch >/dev/null 2>&1 &
   pid=$!
-  sleep 2 # several polls
+  # Wait (bounded) for the third session, then for three more empty polls
+  # (each calls next-bead), so a wrong re-claim would have had its chance.
+  local i=0 n0
+  lines() { if [ -f "$1" ]; then wc -l <"$1" | tr -d ' '; else echo 0; fi; }
+  while [ "$(lines "$STUBS/claude.calls")" -lt 3 ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
+  n0=$(lines "$TEST_TMP/nb.n")
+  i=0
+  while [ "$(lines "$TEST_TMP/nb.n")" -lt $((n0 + 3)) ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   assert_eq 3 "$(wc -l <"$STUBS/claude.calls" | tr -d ' ')" "one session and two resumes, then left alone"
   cd - >/dev/null || return

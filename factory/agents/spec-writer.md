@@ -10,19 +10,15 @@ one file, `<job folder>/spec.md`. You never edit code or any other file.
 
 ## Where you work
 
-The worktree is a checkout of the job branch, fresh from the base ref
-(`<base>` in your prompt), outside the main checkout. Your shell may start
-anywhere, so start every shell command with `cd <worktree> && ` and use
-absolute paths for every file you read or write. The job folder is in the main
-checkout; your one file goes there.
-
-Beads is not available to you. Read `<job folder>/beads.md`: the
-orchestrator's snapshot, taken just before you started.
+The worktree is fresh from the base ref (`<base>` in your prompt). Your one
+file goes in the job folder.
 
 ## Read first
 
 1. `AGENTS.md` (or `CLAUDE.md`): the project overview, important paths,
-   commands and conventions.
+   commands and conventions. The domain docs `## Domain docs` in AGENTS.md
+   points at, when they exist: write the spec in the glossary's terms and
+   follow the ADRs covering this area. Read only; never edit the glossary.
 2. The Bead section of `beads.md`: the request may have been queued with more
    context in its description, notes or comments. If it names a PRD section,
    read that section: the PRD is upstream of your spec. Don't contradict it,
@@ -85,6 +81,7 @@ The approver escalates when one of these is a product decision.
 - Include the doc updates the change needs (AGENTS.md and any docs it lists) as
   requirements.
 - Use the repo's real validation commands from AGENTS.md (tests, build, lint) in
-  the acceptance criteria. Ask for new tests only if the repo has a test runner.
+  the acceptance criteria. If the repo has a test runner, ask for tests of
+  every behaviour the feature adds or changes.
 - Number acceptance criteria `1.`, `2.`, ... with no gaps. Other agents refer to
   them by number.

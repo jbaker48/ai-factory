@@ -11,23 +11,22 @@ setup() {
 
 test_records_role_and_prompt() {
   setup
-  local path base first last
-  path=$("$R/factory/bin/prompt-record" "$J" reviewer-code "Job folder: x. Review round 2.")
+  local out path base
+  out=$("$R/factory/bin/prompt-record" "$J" reviewer-code "Job folder: x. Review round 2.")
+  path=$(find "$J/.runs" -type f -name '*.prompt.md' | head -n 1)
   base=${path##*/}
-  assert_contains "$path" "$J/.runs/" "prints prompt path in the job"
   if [[ "$base" =~ ^[0-9]{8}-[0-9]{6}-reviewer-code\.prompt\.md$ ]]; then _pass; else _fail "prompt path has run-codex stamp" "$base"; fi
-  first=$(head -n 1 "$R/factory/agents/reviewer-code.md")
-  assert_eq "$first" "$(head -n 1 "$path")" "prompt starts with the role file"
-  last=$(tail -n 3 "$path")
-  assert_eq $'---\n\nJob folder: x. Review round 2.' "$last" "prompt ends with the separator and prompt"
+  assert_eq "$(cat "$R/factory/role-preamble.md")"$'\n\n'"Role: factory/agents/reviewer-code.md"$'\n\n---\n\nJob folder: x. Review round 2.' \
+    "$out" "prints the Claude prompt: preamble, Role line, then the prompt"
+  assert_eq "$out" "$(cat "$path")" "records exactly the prompt it prints"
+  assert_contains "$(head -n 1 <<<"$out")" "# Every factory role" "the prompt sent to factory-agent starts with the preamble"
 }
 
 test_builder_escalation_uses_builder_role() {
   setup
-  local path first
-  path=$("$R/factory/bin/prompt-record" "$J" builder-escalation "Build this task.")
-  first=$(head -n 1 "$R/factory/agents/builder.md")
-  assert_eq "$first" "$(head -n 1 "$path")" "builder-escalation uses agents/builder.md"
+  local out
+  out=$("$R/factory/bin/prompt-record" "$J" builder-escalation "Build this task.")
+  assert_contains "$out" "$(head -n 1 "$R/factory/agents/builder.md")" "builder-escalation uses agents/builder.md"
 }
 
 test_invalid_key_and_arguments() {

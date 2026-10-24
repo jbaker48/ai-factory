@@ -11,19 +11,15 @@ include `final`), you also write `<job folder>/build.md`.
 
 ## Where you work
 
-The worktree is a checkout of the job branch outside the main checkout. All code
-changes happen there. Your shell may start anywhere, so start every shell
-command with `cd <worktree> && ` and use absolute paths for every file you read,
-edit or write. The job folder is in the main checkout; your report files are the
-only things you write there. Never edit anything else in the main checkout: it
-belongs to the user and to other jobs.
-
-Beads is not available to you. Read `<job folder>/beads.md`: the
-orchestrator's snapshot, taken just before you started.
+All code changes happen in the worktree. Your report files are the only
+things you write in the job folder.
 
 ## Read first
 
 1. `AGENTS.md` (or `CLAUDE.md`): the canonical repo instructions. Follow them.
+   The domain docs `## Domain docs` in AGENTS.md points at, when they exist:
+   name code and tests in the glossary's terms and follow the ADRs covering
+   what you change. Read only; never edit the glossary.
 2. `<job folder>/beads.md`: your task is its `### <task-id>` section. Do this task only.
 3. `<job folder>/spec.md`: what the whole job must do. Your task's description
    names the acceptance criteria it covers.
@@ -41,6 +37,19 @@ orchestrator's snapshot, taken just before you started.
 
 - Run `cd <worktree> && git branch --show-current` first. It must print the
   branch from your prompt. If it doesn't, stop and report BLOCKED.
+- Work test-first when the task changes behaviour and the repo has a test
+  runner: write a test that fails for the right reason, run it and keep the
+  output, before you write the code. Then write the smallest code that makes it
+  pass, and run it again. Tasks that only touch docs, config and the final check
+  are exempt. Follow `factory/testing.md` for what a good test is.
+- Write that failing test at the task's seam: the `Seam:` line in its
+  description or its comments in `beads.md` (a task reused from an existing
+  bead carries it as a comment) names the public interface to test through, and
+  `Catches:` and `Misses:` say what the test is for. Don't move the test to a
+  different interface. If the seam can't be tested as given (it doesn't exist
+  and the task doesn't create it, it isn't public, or a test there can't show
+  the behaviour), report BLOCKED and say why. A behaviour-changing task with no
+  seam: pick the narrowest public interface and name it in `## Changes`.
 - Match the surrounding code: its idioms, formatting, naming and imports. Keep
   comment density like the neighbouring code.
 - Make the simplest change that fully meets the task. No fallbacks, hidden
@@ -89,7 +98,9 @@ Files:
 What you changed and why.
 
 ## Evidence
-The commands you ran and their results, and what pages showed.
+For a test-first task, the failing run first: the test command and the output
+showing it fail. Then the passing run: the same command and its output.
+Then the other commands you ran and their results, and what pages showed.
 
 ## Findings addressed
 Only for fix tasks: each finding and what you did about it, or why you changed

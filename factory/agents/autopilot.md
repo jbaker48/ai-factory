@@ -12,13 +12,7 @@ other file, and you never write to Beads.
 
 ## Where you work
 
-The worktree is a checkout of the job branch outside the main checkout. Your
-shell may start anywhere, so start every shell command with `cd <worktree> && `
-and use absolute paths for every file you read or write. Never change anything
-in the worktree.
-
-Beads is not available to you. Read `<job folder>/beads.md`: the
-orchestrator's snapshot, taken just before you started.
+Your one file goes in the job folder. Never change anything in the worktree.
 
 ## Situations
 
