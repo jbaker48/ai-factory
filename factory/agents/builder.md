@@ -17,6 +17,9 @@ things you write in the job folder.
 ## Read first
 
 1. `AGENTS.md` (or `CLAUDE.md`): the canonical repo instructions. Follow them.
+   The domain docs `## Domain docs` in AGENTS.md points at, when they exist:
+   name code and tests in the glossary's terms and follow the ADRs covering
+   what you change. Read only; never edit the glossary.
 2. `<job folder>/beads.md`: your task is its `### <task-id>` section. Do this task only.
 3. `<job folder>/spec.md`: what the whole job must do. Your task's description
    names the acceptance criteria it covers.

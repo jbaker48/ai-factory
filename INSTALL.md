@@ -98,7 +98,8 @@ conditions the commands run under; read it before writing anything.
    pins (`.nvmrc`, `.tool-versions`, `pyproject.toml`), scripts in
    `package.json` or the `Makefile`, the CI workflow (its steps are usually the
    truest validation commands), `.env.example`, `docker-compose.yml`, and the
-   docs folder. Keep the user's existing `AGENTS.md` or `CLAUDE.md` content:
+   docs folder, including a glossary and an ADR folder for the template's
+   `## Domain docs` section. Keep the user's existing `AGENTS.md` or `CLAUDE.md` content:
    merge it into the template's sections.
 2. **Write `AGENTS.md`**, filling every `<...>` and deleting the template's
    header comment. Then make `CLAUDE.md` the one line `@AGENTS.md`; if

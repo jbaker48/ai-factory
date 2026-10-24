@@ -357,6 +357,55 @@ test_install_guide_points_at_script() {
   case $s in *rsync*) _fail "INSTALL step 3 no longer copies by hand" ;; *) _pass ;; esac
 }
 
+test_template_domain_docs() {
+  local s
+  s=$(section "$ROOT/factory/AGENTS.template.md" 'Domain docs' | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" '## Domain docs' "AGENTS template has a Domain docs section"
+  assert_contains "$s" 'Glossary:' "Domain docs points at the glossary"
+  assert_contains "$s" 'ADRs:' "Domain docs points at the ADR folder"
+  assert_contains "$s" 'Delete this section if the repo has neither' "Domain docs is removable"
+}
+
+test_roles_read_domain_docs() {
+  local r t
+  for r in spec-writer planner builder; do
+    t=$(tr '\n' ' ' <"$ROOT/factory/agents/$r.md" | tr -s ' ')
+    assert_contains "$t" 'The domain docs `## Domain docs` in AGENTS.md points at, when they exist' "$r reads the domain docs"
+    assert_contains "$t" "the glossary's terms" "$r uses the glossary's terms"
+  done
+}
+
+# Roles read the glossary; none writes to it.
+test_no_role_writes_glossary() {
+  local f t
+  for f in "$ROOT"/factory/agents/*.md; do
+    t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+    case $t in
+      *[Gg]lossary*) assert_contains "$t" 'never edit the glossary' "$(basename "$f") never edits the glossary" ;;
+    esac
+  done
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/retro.md" | tr -s ' ')" 'never edit the glossary' "retro's repo fixes leave the glossary alone"
+}
+
+test_retro_suggests_adrs() {
+  local t n
+  t=$(tr '\n' ' ' <"$ROOT/factory/agents/retro.md" | tr -s ' ')
+  for n in '## ADR candidates' \
+    'Suggest an ADR only when all three tests hold' \
+    'hard to reverse' 'surprising without context' 'a real trade-off' \
+    '- <decision>: hard to reverse: <why>; surprising without context: <why>; real trade-off: <why>. Evidence: <file>' \
+    'Suggest; never write the ADR'; do
+    assert_contains "$t" "$n" "retro ADR suggestions mention $n"
+  done
+}
+
+test_approver_names_candidate_adr() {
+  local s
+  s=$(awk '/^## For the human$/ {on = 1} on && /^```$/ {exit} on' "$ROOT/factory/agents/approver.md" | tr '\n' ' ' | tr -s ' ')
+  assert_contains "$s" 'Candidate ADR: <decision>' "approver's escalation brief can name a candidate ADR"
+  assert_contains "$(tr '\n' ' ' <"$ROOT/factory/agents/approver.md" | tr -s ' ')" 'all three tests hold' "approver names an ADR only when all three tests hold"
+}
+
 # The builder writes a failing test first for behaviour-changing tasks (issue #15).
 test_builder_test_first() {
   local b ev
@@ -418,6 +467,23 @@ test_builder_tests_at_seam() {
   b=$(tr '\n' ' ' <"$ROOT/factory/agents/builder.md" | tr -s ' ')
   assert_contains "$b" "at the task's seam" "builder writes its failing test at the seam"
   assert_contains "$b" "can't be tested as given" "builder reports BLOCKED on an untestable seam"
+}
+
+test_code_review_traceable() {
+  local f="$ROOT/factory/agents/reviewer-code.md" t
+  t=$(tr '\n' ' ' <"$f" | tr -s ' ')
+  assert_contains "$t" 'Every CHANGES finding cites its source' "code review findings cite a source"
+  assert_contains "$t" 'an acceptance-criterion number from spec.md' "code review cites a criterion number"
+  assert_contains "$t" 'a rule in AGENTS.md' "code review cites an AGENTS.md rule"
+  assert_contains "$(section "$f" 'What to look for')" '**Scope creep**' "scope creep is its own check"
+  assert_contains "$t" 'cites the spec.md section it goes beyond' "scope creep cites the spec section"
+  local smells
+  smells=$(section "$f" 'Smell baseline')
+  assert_eq "12" "$(grep -cE '^- \*\*[^*]+\*\*: .+ Fix: .+' <<<"$smells")" "smell baseline lists 12 smells, each with its fix"
+  smells=$(tr '\n' ' ' <<<"$smells" | tr -s ' ')
+  assert_contains "$smells" 'A smell goes under Notes, never under Findings' "smells go to Notes only"
+  assert_contains "$smells" 'never makes the verdict CHANGES' "a smell never blocks on its own"
+  assert_contains "$smells" 'A rule documented in AGENTS.md overrides this baseline' "a repo rule overrides the baseline"
 }
 
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
