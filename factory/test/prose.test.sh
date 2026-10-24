@@ -274,5 +274,41 @@ test_jev_wiring() {
   assert_contains "$(cat "$ROOT/README.md")" 'bin/jev-decide' "README lists bin/jev-decide"
 }
 
+test_roles_not_repo_specific() {
+  local hits
+  hits=$(cd "$ROOT" && grep -niwE 'pnpm|npm|yarn|vitest|jest|eslint|pytest|cargo|SQS|CDK|garmin' factory/agents/*.md .claude/agents/factory-agent.md)
+  assert_eq "" "$hits" "role files name no project's toolchain; that lives in the target's AGENTS.md"
+}
+
+test_repo_agents_md() {
+  local a n tests
+  a=$(cat "$ROOT/AGENTS.md" 2>/dev/null)
+  assert_eq "@AGENTS.md" "$(cat "$ROOT/CLAUDE.md" 2>/dev/null)" "CLAUDE.md is the one line @AGENTS.md"
+  assert_contains "$a" 'factory/test/run' "AGENTS.md says how to run the tests"
+  # Each invariant line names the prose test that enforces it as `test_<name>`.
+  for n in test_no_literal_main_diffs test_roles_skip_bd test_agents_rule; do
+    assert_contains "$a" "\`$n\`" "AGENTS.md names $n"
+  done
+  tests=$(cat "$LIB_DIR"/*.test.sh | grep -oE '^test_[a-z0-9_]+\(\)' | tr -d '()')
+  for n in $(printf '%s' "$a" | grep -oE '`test_[a-z0-9_]+`' | tr -d '`' | sort -u); do
+    case $'\n'"$tests"$'\n' in *$'\n'"$n"$'\n'*) _pass ;; *) _fail "AGENTS.md names $n, which no test file defines" ;; esac
+  done
+}
+
+test_seeded_adrs() {
+  local f i=1 want t
+  set -- "$ROOT"/docs/adr/[0-9][0-9][0-9][0-9]-*.md
+  [ -e "$1" ] || { _fail "docs/adr holds numbered ADRs"; return; }
+  for f; do
+    want=$(printf '%04d' "$i")
+    assert_eq "$want" "$(basename "$f" | cut -c1-4)" "ADRs are numbered from 0001 without gaps"
+    t=$(cat "$f")
+    for h in '## Context' '## Decision' '## Why'; do
+      assert_contains "$t" "$h" "$(basename "$f") has $h"
+    done
+    i=$((i + 1))
+  done
+}
+
 for t in $(declare -F | awk '$3 ~ /^test_/ {print $3}'); do "$t"; done
 finish
