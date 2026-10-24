@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Prints the current value of each decision /factory setup asks the user, so a
+# re-run can offer it as the default. Changes nothing.
+#
+#   factory/bin/decisions [<repo>]
+#
+# <repo> defaults to the repo two levels above this script. One "<name>: <value>"
+# line each, in the order setup asks them:
+#   policy           the number of Always PARK rules in factory/autopilot-policy.md
+#   preset           what factory/bin/models prints: a preset name, or custom
+#   settings         written, or not written (the values below then come from
+#                    factory/settings.example.json)
+#   land, priority_labels, jobs, factory_source
+#                    from factory/settings.json; (none) for an empty value
+#   jev.send         metadata, summary or off
+#   commit           uncommitted (the factory's files differ from HEAD),
+#                    committed (land local), or in pr mode committed and pushed /
+#                    committed, not pushed (main is not on origin/main)
+# Exit: 0 ok, 1 unreadable settings or not a git repo, 2 usage.
+set -uo pipefail
+
+die() { echo "decisions: $1" >&2; exit "${2:-1}"; }
+[ $# -le 1 ] || die "usage: factory/bin/decisions [<repo>]" 2
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo=$(git -C "${1:-$here/../..}" rev-parse --show-toplevel 2>/dev/null) || die "not a git repo: ${1:-$here/../..}"
+f=$repo/factory
+
+policy=$f/autopilot-policy.md
+if [ -f "$policy" ]; then
+  n=$(awk '/^## Always PARK/ {on = 1; next} on && /^## / {exit} on && /^- /' "$policy" | wc -l | tr -d ' ')
+  echo "policy: $n Always PARK rules"
+else
+  echo "policy: missing"
+fi
+
+if [ -f "$f/models.json" ]; then echo "preset: $("$f/bin/models")"; else echo "preset: missing"; fi
+
+if [ -f "$f/settings.json" ]; then
+  echo "settings: written"
+  file=$f/settings.json
+else
+  echo "settings: not written; values from settings.example.json"
+  file=$f/settings.example.json
+fi
+json=$(jq -c . "$file" 2>/dev/null) || die "$file is not valid JSON"
+get() { # <jq path> <default>
+  local v
+  v=$(printf '%s' "$json" | jq -r "$1 | if . == null then empty elif type == \"array\" then map(tostring) | join(\" \") else tostring end")
+  printf '%s' "${v:-$2}"
+}
+echo "land: $(get .land pr)"
+echo "priority_labels: $(get .priority_labels '(none)')"
+echo "jobs: $(get .jobs 1)"
+echo "factory_source: $(get .factory_source '(none)')"
+echo "jev.send: $(get .jev.send metadata)"
+
+if [ -n "$(git -C "$repo" status --porcelain -- .claude factory AGENTS.md CLAUDE.md .gitignore 2>/dev/null)" ]; then
+  echo "commit: uncommitted"
+elif [ "$(get .land pr)" = local ]; then
+  echo "commit: committed"
+elif git -C "$repo" merge-base --is-ancestor main origin/main 2>/dev/null; then
+  echo "commit: committed and pushed"
+else
+  echo "commit: committed, not pushed"
+fi
