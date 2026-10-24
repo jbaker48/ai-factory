@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Prints the entries of this checkout's factory/manifest, checked.
+#
+#   factory/bin/manifest-read [<kind>]
+#
+# One "<kind> <path>" line per entry, with comments and blank lines skipped;
+# with <kind> (shipped, owned or source), only that kind's paths. install and
+# upgrade both read the manifest through it, so they agree on what it says.
+# Exit: 0, or 1 for a missing manifest, an unknown kind, a missing path, or a
+# path that is absolute or contains "..".
+set -uo pipefail
+
+manifest=$(cd "$(dirname "$0")/.." && pwd)/manifest
+die() { echo "manifest-read: $1" >&2; exit 1; }
+[ -f "$manifest" ] || die "no manifest: $manifest"
+
+out=""
+while read -r kind path _; do
+  case $kind in '' | '#'*) continue ;; esac
+  case $kind in shipped | owned | source) ;; *) die "unknown manifest kind: $kind" ;; esac
+  [ -n "$path" ] || die "no path for a $kind entry"
+  case $path in /* | *..*) die "bad manifest path: $path" ;; esac
+  if [ $# -eq 0 ]; then out+="$kind $path"$'\n'
+  elif [ "$kind" = "$1" ]; then out+="$path"$'\n'
+  fi
+done <"$manifest"
+printf '%s' "$out"

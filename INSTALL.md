@@ -54,7 +54,10 @@ It copies the files `<source>/factory/manifest` lists as shipped over the
 target's copies, writes the ones the user owns (`factory/models.json`,
 `factory/autopilot-policy.md`) only when the target has none, adds the
 factory's `.gitignore` lines, and writes `factory/VERSION`: the source commit
-SHA. It never touches `factory/settings.json`; `/factory setup` writes it.
+SHA. It refuses a source with uncommitted changes (untracked files included)
+in its shipped files, since `VERSION` would not describe them: commit or
+discard them first. It never touches `factory/settings.json`; `/factory
+setup` writes it.
 
 **Done when** `ls <target>/factory/bin` lists `run-codex`, `run-adversarial`,
 `job-set` and `autopilot`, all executable, and `git -C <target> status`

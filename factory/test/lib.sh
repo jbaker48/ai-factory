@@ -72,6 +72,22 @@ mkrepo() {
   echo "$d/work"
 }
 
+# source_repo: prints the path of a git repo holding a committed copy of this
+# checkout's .claude/ and factory/ (working tree, so uncommitted scripts are
+# included), for install and upgrade tests.
+source_repo() {
+  local d root
+  root=$(cd "$FACTORY_SRC/.." && pwd)
+  d=$(mktemp -d "$TEST_TMP/source.XXXXXX") || return 1
+  {
+    cp -R "$root/.claude" "$root/factory" "$d/" &&
+      rm -rf "$d/factory/settings.json" "$d/.claude/worktrees" &&
+      find "$d/factory/jobs" -mindepth 1 ! -name .gitkeep -exec rm -rf {} + &&
+      git init -q -b main "$d" && git -C "$d" add -A && git -C "$d" commit -q -m source
+  } >/dev/null 2>&1 || return 1
+  echo "$d"
+}
+
 # stub <name> <body>: writes an executable $STUBS/<name> that logs each call's
 # arguments (one line, shell-quoted via %q) to $STUBS/<name>.calls, then runs <body>.
 stub() {

@@ -305,6 +305,7 @@ factory/
   manifest                       which files an install ships, which the user owns
   bin/install                    installs or upgrades the factory in a repo
   bin/upgrade                    checks an installed repo against this checkout; --apply upgrades it
+  bin/manifest-read              the one manifest parser install and upgrade share
   bin/agents-md                  merges factory sections into AGENTS.md; checks its commands
   bin/decisions                  prints the current value of each /factory setup decision
   bin/models                     shows or switches the models.json preset

@@ -3,7 +3,8 @@
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 ROOT=$(cd "$FACTORY_SRC/.." && pwd)
-INSTALL=$ROOT/factory/bin/install
+SRC=$(source_repo)
+INSTALL=$SRC/factory/bin/install
 
 # scratch: prints the path of a fresh git repo with one commit on main and no factory.
 scratch() {
@@ -51,20 +52,20 @@ test_owned_files_kept() {
   echo '{"mine":true}' >"$t/factory/models.json"
   "$INSTALL" "$t" >/dev/null 2>&1
   assert_eq '{"mine":true}' "$(cat "$t/factory/models.json")" "an existing models.json is kept"
-  assert_eq "$(cat "$ROOT/factory/autopilot-policy.md")" "$(cat "$t/factory/autopilot-policy.md")" "a missing autopilot-policy.md is written"
+  assert_eq "$(cat "$SRC/factory/autopilot-policy.md")" "$(cat "$t/factory/autopilot-policy.md")" "a missing autopilot-policy.md is written"
   assert_eq "yes" "$([ -f "$t/factory/jobs/.gitkeep" ] && echo yes)" "jobs/.gitkeep written"
   echo custom >"$t/factory/autopilot-policy.md"
   echo stale >"$t/factory/bin/job-set"
   "$INSTALL" "$t" >/dev/null 2>&1
   assert_eq custom "$(cat "$t/factory/autopilot-policy.md")" "a re-run keeps the user's policy"
-  assert_eq "$(cat "$ROOT/factory/bin/job-set")" "$(cat "$t/factory/bin/job-set")" "a re-run replaces shipped files"
+  assert_eq "$(cat "$SRC/factory/bin/job-set")" "$(cat "$t/factory/bin/job-set")" "a re-run replaces shipped files"
 }
 
 test_version_file() {
   local t
   t=$(scratch)
   "$INSTALL" "$t" >/dev/null 2>&1
-  assert_eq "$(git -C "$ROOT" rev-parse HEAD)" "$(cat "$t/factory/VERSION")" "VERSION holds the source commit"
+  assert_eq "$(git -C "$SRC" rev-parse HEAD)" "$(cat "$t/factory/VERSION")" "VERSION holds the source commit"
 }
 
 test_gitignore_once() {
@@ -82,7 +83,26 @@ test_refuses_bad_targets() {
   assert_exit 1 "a missing target fails" -- "$INSTALL" "$TEST_TMP/nope"
   mkdir -p "$TEST_TMP/plain"
   assert_exit 1 "a non-git target fails" -- "$INSTALL" "$TEST_TMP/plain"
-  assert_contains "$("$INSTALL" "$ROOT" 2>&1)" "target is the source checkout" "the source itself is refused"
+  assert_contains "$("$INSTALL" "$SRC" 2>&1)" "target is the source checkout" "the source itself is refused"
+}
+
+# VERSION names the source commit, so a source whose shipped files differ
+# from that commit must not install.
+test_refuses_uncommitted_shipped_files() {
+  local s t out
+  s=$(source_repo) t=$(scratch)
+  echo '# local edit' >>"$s/factory/bin/job-set"
+  out=$("$s/factory/bin/install" "$t" 2>&1)
+  assert_eq 1 "$?" "a modified shipped file fails the install"
+  assert_contains "$out" "uncommitted changes in shipped files" "says why"
+  assert_contains "$out" "factory/bin/job-set" "names the file"
+  assert_eq "no" "$([ -e "$t/factory/VERSION" ] && echo yes || echo no)" "nothing is installed"
+  git -C "$s" checkout -q -- factory/bin/job-set
+  echo new >"$s/factory/agents/extra.md"
+  assert_exit 1 "an untracked file under a shipped directory fails the install" -- "$s/factory/bin/install" "$t"
+  rm "$s/factory/agents/extra.md"
+  echo scratch >"$s/factory/test/scratch.txt"
+  assert_exit 0 "a change outside the shipped files installs" -- "$s/factory/bin/install" "$t"
 }
 
 test_manifest_covers_tracked_files() {

@@ -7,14 +7,14 @@
 # writes each "owned" entry only when the target lacks it, and never copies
 # "source" entries. Then adds the factory's .gitignore lines the target lacks
 # (each once, so a re-run adds nothing) and writes factory/VERSION in the
-# target: the source commit SHA. It does not check that the target is clean or
-# show an upgrade diff; INSTALL.md step 2 does that first.
+# target: the source commit SHA. So that VERSION is true, it refuses a source
+# whose shipped files have uncommitted changes (untracked files included). It
+# does not check that the target is clean or show an upgrade diff; INSTALL.md
+# step 2 does that first. The manifest is read by factory/bin/manifest-read.
 # Exit: 0 installed, 1 failed, 2 usage.
 set -uo pipefail
 
-src=$(cd "$(dirname "$0")/../.." && pwd)
-manifest=$src/factory/manifest
-
+src=$(cd "$(dirname "$0")/../.." && pwd -P)
 die() { echo "install: $1" >&2; exit "${2:-1}"; }
 
 [ $# -eq 1 ] || die "usage: factory/bin/install <target>" 2
@@ -22,11 +22,15 @@ die() { echo "install: $1" >&2; exit "${2:-1}"; }
 target=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) || die "not a git repo: $1"
 [ "$target" != "$src" ] || die "target is the source checkout"
 sha=$(git -C "$src" rev-parse HEAD 2>/dev/null) || die "source is not a git checkout: $src"
-[ -f "$manifest" ] || die "no manifest: $manifest"
+entries=$("$src/factory/bin/manifest-read") || exit 1
+shipped=$(awk '$1 == "shipped" {print $2}' <<<"$entries")
 
-while read -r kind path _; do
-  case $kind in '' | '#'*) continue ;; esac
-  case $path in /* | *..*) die "bad manifest path: $path" ;; esac
+# shellcheck disable=SC2086 # one pathspec per shipped entry
+dirty=$(cd "$src" && git status --porcelain -uall -- $shipped) || die "git status failed in $src"
+[ -z "$dirty" ] || die "uncommitted changes in shipped files of $src; commit or discard them first:
+$dirty"
+
+while read -r kind path; do
   from=$src/$path to=$target/$path
   case $kind in
     shipped)
@@ -44,9 +48,8 @@ while read -r kind path _; do
       { mkdir -p "$(dirname "$to")" && cp -p "$from" "$to"; } || die "copy failed: $path"
       ;;
     source) ;;
-    *) die "unknown manifest kind: $kind" ;;
   esac
-done <"$manifest"
+done <<<"$entries"
 
 gi=$target/.gitignore
 for line in '/factory/jobs/*' '!/factory/jobs/.gitkeep' '/factory/imports/' '/factory/autopilot-runs/'; do

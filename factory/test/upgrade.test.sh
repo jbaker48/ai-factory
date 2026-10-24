@@ -3,21 +3,6 @@
 # scratch copy of this checkout, so the source can gain commits.
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-ROOT=$(cd "$FACTORY_SRC/.." && pwd)
-
-# source_repo: prints the path of a git repo holding a copy of this checkout's
-# .claude/ and factory/ (working tree, so uncommitted scripts are included).
-source_repo() {
-  local d
-  d=$(mktemp -d "$TEST_TMP/source.XXXXXX") || return 1
-  {
-    cp -R "$ROOT/.claude" "$ROOT/factory" "$d/" &&
-      rm -rf "$d/factory/settings.json" "$d/.claude/worktrees" &&
-      find "$d/factory/jobs" -mindepth 1 ! -name .gitkeep -exec rm -rf {} + &&
-      git init -q -b main "$d" && git -C "$d" add -A && git -C "$d" commit -q -m source
-  } >/dev/null 2>&1 || return 1
-  echo "$d"
-}
 
 # target_repo: prints the path of a fresh git repo with one commit and no factory.
 target_repo() {
