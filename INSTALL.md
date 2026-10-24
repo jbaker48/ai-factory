@@ -41,8 +41,10 @@ In `<target>`:
   or `main`). If the default is something else, tell the user before going on.
 - Look for an earlier install: `.claude/skills/factory/`,
   `.claude/agents/factory-agent.md`, `factory/`. If one exists, this is an
-  upgrade: show the user `diff -r` against `<source>` for each and get their
-  go-ahead before overwriting. Their `factory/models.json` and
+  upgrade: show the user what `<source>/factory/bin/upgrade <target>`
+  prints (the installed and source versions, the commits between them, the
+  shipped files that differ and the owned files they customised; it changes
+  nothing) and get their go-ahead before overwriting. Their `factory/models.json` and
   `factory/autopilot-policy.md` are likely customised: the install script in
   step 3 keeps them, so if the user wants the source's copy instead, copy it
   over after step 3. A repo with a customised `autopilot-policy.md` should make
